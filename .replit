@@ -21,3 +21,9 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+MQTT_BROKER_URL = "mqtt://76.13.4.214"
+MQTT_TOPIC = "trn246/modbus"

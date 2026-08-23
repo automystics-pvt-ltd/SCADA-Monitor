@@ -4,7 +4,6 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import mqtt, { type MqttClient } from 'mqtt';
 import {
   Activity, AlertCircle, AlertTriangle, ArrowDownToLine, Check, ChevronDown, ChevronRight,
   CircleHelp, CloudOff, Code2, Copy, Database, Gauge, HardDrive, Layers3, LayoutDashboard,
@@ -16,8 +15,6 @@ import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 const queryClient = new QueryClient();
 const DEFAULT_BROKER_URL = 'mqtt://76.13.4.214';
 const DEFAULT_BROKER_TOPIC = 'trn246/modbus';
-const DEFAULT_BROKER_USERNAME = 'automystics';
-const DEFAULT_BROKER_PASSWORD = 'automystics';
 
 type DeviceStatus = 'online' | 'stale' | 'offline';
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -30,6 +27,23 @@ type Device = {
   lastSeen: number;
   telemetry: Record<string, JsonValue>;
 };
+
+function isRecord(value: JsonValue): value is Record<string, JsonValue> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function extractDevices(payload: JsonValue): Record<string, JsonValue>[] {
+  if (Array.isArray(payload)) return payload.filter(isRecord);
+  if (!isRecord(payload)) return [];
+  if (payload.id || payload.device || payload.name) return [payload];
+
+  const embeddedDevices = Object.entries(payload).reduce<Record<string, JsonValue>[]>(
+    (devices, [key, value]) => isRecord(value) ? [...devices, { id: key, ...value }] : devices,
+    [],
+  );
+
+  return embeddedDevices.length ? embeddedDevices : [payload];
+}
 
 const initialDevices: Device[] = [
   {
@@ -190,8 +204,8 @@ function Sidebar({ onSettings, mobileOpen, onClose, brokerUrl, brokerTopic, live
 }
 
 function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error }: { open: boolean; onClose: () => void; mode: 'demo' | 'live'; setMode: (mode: 'demo' | 'live') => void; connected: boolean; onConnect: (url: string, topic: string) => void; onDisconnect: () => void; error: string }) {
-  const [url, setUrl] = useState(() => localStorage.getItem('northline-broker-url') || 'wss://broker.example.com/mqtt');
-  const [topic, setTopic] = useState(() => localStorage.getItem('northline-broker-topic') || 'northline/site/+/telemetry');
+  const [url, setUrl] = useState(() => localStorage.getItem('northline-broker-url') || DEFAULT_BROKER_URL);
+  const [topic, setTopic] = useState(() => localStorage.getItem('northline-broker-topic') || DEFAULT_BROKER_TOPIC);
   const handleConnect = () => { localStorage.setItem('northline-broker-url', url); localStorage.setItem('northline-broker-topic', topic); onConnect(url, topic); };
   return (
     <>
@@ -201,8 +215,8 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
         <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">
           <div className="rounded-xl border border-[#d8e5df] bg-white p-1"><div className="grid grid-cols-2 gap-1"><button type="button" onClick={() => setMode('demo')} data-testid="button-mode-demo" className={`rounded-lg px-3 py-2.5 text-xs font-bold transition-colors ${mode === 'demo' ? 'bg-[#e5f3ee] text-teal-800' : 'text-slate-500 hover:bg-slate-50'}`}><div className="flex items-center justify-center gap-2"><Play size={14} />Demo mode</div></button><button type="button" onClick={() => setMode('live')} data-testid="button-mode-live" className={`rounded-lg px-3 py-2.5 text-xs font-bold transition-colors ${mode === 'live' ? 'bg-[#e5f3ee] text-teal-800' : 'text-slate-500 hover:bg-slate-50'}`}><div className="flex items-center justify-center gap-2"><Wifi size={14} />Live broker</div></button></div></div>
           <div className="mt-7 space-y-5">
-            <label className="block"><span className="mb-2 block text-xs font-bold text-[#354e51]">WebSocket endpoint</span><div className="relative"><Link2 size={15} className="absolute left-3 top-3.5 text-slate-400" /><input value={url} onChange={(event) => setUrl(event.target.value)} data-testid="input-broker-url" className="focus-ring mono w-full rounded-lg border border-[#d2e0db] bg-white py-3 pl-9 pr-3 text-xs text-[#30494c] outline-none transition-colors focus:border-teal-500" placeholder="wss://your-broker.example/mqtt" /></div><span className="mt-1.5 block text-[11px] leading-4 text-slate-400">MQTT over WebSockets. TLS endpoints are recommended.</span></label>
-            <label className="block"><span className="mb-2 block text-xs font-bold text-[#354e51]">Subscription topic</span><div className="relative"><Radio size={15} className="absolute left-3 top-3.5 text-slate-400" /><input value={topic} onChange={(event) => setTopic(event.target.value)} data-testid="input-broker-topic" className="focus-ring mono w-full rounded-lg border border-[#d2e0db] bg-white py-3 pl-9 pr-3 text-xs text-[#30494c] outline-none transition-colors focus:border-teal-500" placeholder="site/+/telemetry" /></div><span className="mt-1.5 block text-[11px] leading-4 text-slate-400">Any JSON payload is accepted; fields are discovered automatically.</span></label>
+            <label className="block"><span className="mb-2 block text-xs font-bold text-[#354e51]">Broker endpoint</span><div className="relative"><Link2 size={15} className="absolute left-3 top-3.5 text-slate-400" /><input value={url} readOnly data-testid="input-broker-url" className="mono w-full cursor-default rounded-lg border border-[#d2e0db] bg-slate-50 py-3 pl-9 pr-3 text-xs text-[#30494c] outline-none" /></div><span className="mt-1.5 block text-[11px] leading-4 text-slate-400">Server-side MQTT connection. Credentials are held securely outside this screen.</span></label>
+            <label className="block"><span className="mb-2 block text-xs font-bold text-[#354e51]">Subscription topic</span><div className="relative"><Radio size={15} className="absolute left-3 top-3.5 text-slate-400" /><input value={topic} readOnly data-testid="input-broker-topic" className="mono w-full cursor-default rounded-lg border border-[#d2e0db] bg-slate-50 py-3 pl-9 pr-3 text-xs text-[#30494c] outline-none" /></div><span className="mt-1.5 block text-[11px] leading-4 text-slate-400">Any JSON payload is accepted; fields are discovered automatically.</span></label>
           </div>
           {error && <div className="mt-6 flex gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs leading-5 text-rose-800"><AlertCircle size={16} className="mt-0.5 shrink-0" /><span>{error}</span></div>}
           <div className="mt-8 rounded-xl border border-[#d8e5df] bg-[#f3f8f5] p-4"><div className="flex items-center gap-2 text-xs font-bold text-[#355557]"><ShieldCheck size={16} className="text-teal-700" />Connection checklist</div><ul className="mt-3 space-y-2 text-[11px] leading-4 text-slate-500"><li className="flex gap-2"><Check size={13} className="shrink-0 text-teal-600" />JSON payloads parsed without a field map</li><li className="flex gap-2"><Check size={13} className="shrink-0 text-teal-600" />Device identity inferred from id, device, or name</li><li className="flex gap-2"><Check size={13} className="shrink-0 text-teal-600" />Last-seen clock tracks every message</li></ul></div>
@@ -216,8 +230,8 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
 function AppShell() {
   const [devices, setDevices] = useState<Device[]>(initialDevices);
   const [selectedId, setSelectedId] = useState('inv-03');
-  const [mode, setMode] = useState<'demo' | 'live'>(() => (localStorage.getItem('northline-mode') as 'demo' | 'live') || 'demo');
-  const [connected, setConnected] = useState(true);
+  const [mode, setMode] = useState<'demo' | 'live'>('live');
+  const [connected, setConnected] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [query, setQuery] = useState('');
@@ -225,7 +239,9 @@ function AppShell() {
   const [paused, setPaused] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState('');
-  const socketRef = useRef<WebSocket | null>(null);
+  const [rawPayload, setRawPayload] = useState('Waiting for the first MQTT payload…');
+  const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
+  const streamRef = useRef<EventSource | null>(null);
 
   useEffect(() => { localStorage.setItem('northline-mode', mode); }, [mode]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
@@ -243,7 +259,6 @@ function AppShell() {
     }, 3000);
     return () => window.clearInterval(timer);
   }, [connected, mode, paused]);
-  useEffect(() => () => { socketRef.current?.close(); }, []);
 
   const selected = devices.find((device) => device.id === selectedId) || devices[0];
   const filteredDevices = useMemo(() => devices.filter((device) => (filter === 'all' || device.status === filter) && `${device.name} ${device.site} ${device.type}`.toLowerCase().includes(query.toLowerCase())), [devices, filter, query]);
@@ -252,31 +267,64 @@ function AppShell() {
   const totalPower = devices.reduce((sum, device) => sum + numberFrom(device, ['power', 'active_kw']), 0);
   const selectDevice = (id: string) => { setSelectedId(id); setMobileNav(false); };
   const changeMode = (next: 'demo' | 'live') => { setMode(next); setError(''); setConnected(next === 'demo'); };
-  const connect = (url: string, topic: string) => {
+  const ingestPayload = (raw: string, topic: string) => {
+    setRawPayload(raw);
+    setRawTopic(topic);
+    try {
+      const payload = JSON.parse(raw) as JsonValue;
+      const discovered = extractDevices(payload);
+      if (!discovered.length) throw new Error('not an object');
+      setDevices((current) => discovered.reduce((next, telemetry, index) => {
+        const identity = String(telemetry.id || telemetry.device || telemetry.name || `discovered-device-${index + 1}`);
+        const existing = next.find((device) => device.id === identity);
+        const device: Device = {
+          id: identity,
+          name: String(telemetry.name || telemetry.deviceName || identity),
+          site: String(telemetry.site || telemetry.location || 'Discovered site'),
+          type: String(telemetry.type || telemetry.deviceType || 'MQTT device'),
+          status: 'online',
+          lastSeen: Date.now(),
+          telemetry,
+        };
+        return existing ? next.map((item) => item.id === identity ? { ...item, ...device } : item) : [device, ...next];
+      }, current));
+      setError('');
+    } catch {
+      setError('A broker message arrived, but its payload was not valid JSON. The raw payload is still shown below.');
+    }
+  };
+  const connect = () => {
     setError('');
     if (mode === 'demo') { setConnected(true); setSettingsOpen(false); return; }
-    try {
-      const socketUrl = url.replace(/^mqtt:\/\//, 'ws://').replace(/^mqtts:\/\//, 'wss://');
-      const socket = new WebSocket(socketUrl, ['mqtt']);
-      socketRef.current = socket;
-      socket.onopen = () => { setConnected(true); setError(''); setSettingsOpen(false); };
-      socket.onerror = () => { setConnected(false); setError(`Could not open ${socketUrl}. Check the endpoint, TLS certificate, and broker WebSocket listener.`); };
-      socket.onclose = () => setConnected(false);
-      socket.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data) as Record<string, JsonValue>;
-          const identity = String(payload.id || payload.device || payload.name || 'discovered-device');
-          setDevices((current) => {
-            const existing = current.find((device) => device.id === identity);
-            if (existing) return current.map((device) => device.id === identity ? { ...device, lastSeen: Date.now(), status: 'online', telemetry: payload } : device);
-            return [{ id: identity, name: String(payload.name || identity), site: String(payload.site || 'Discovered site'), type: 'MQTT device', status: 'online', lastSeen: Date.now(), telemetry: payload }, ...current];
-          });
-          void topic;
-        } catch { setError('A broker message arrived, but its payload was not valid JSON.'); }
-      };
-    } catch { setError('That endpoint is not a valid WebSocket URL.'); }
+    streamRef.current?.close();
+    const stream = new EventSource('/api/mqtt/stream');
+    streamRef.current = stream;
+    stream.addEventListener('status', (event) => {
+      const status = JSON.parse((event as MessageEvent).data) as { connected: boolean };
+      setConnected(status.connected);
+      if (!status.connected) setError('MQTT broker is reconnecting. Raw data will appear as soon as the subscription is restored.');
+    });
+    stream.addEventListener('message', (event) => {
+      const message = JSON.parse((event as MessageEvent).data) as { topic: string; payload: string };
+      ingestPayload(message.payload, message.topic);
+      setConnected(true);
+    });
+    stream.onerror = () => setConnected(false);
+    setSettingsOpen(false);
   };
-  const disconnect = () => { socketRef.current?.close(); socketRef.current = null; setConnected(false); };
+  useEffect(() => {
+    if (mode !== 'live') return;
+    connect();
+    return () => {
+      streamRef.current?.close();
+      streamRef.current = null;
+    };
+  }, [mode]);
+  const disconnect = () => {
+    streamRef.current?.close();
+    streamRef.current = null;
+    setConnected(false);
+  };
   const copyField = (text: string) => { void navigator.clipboard?.writeText(text); };
   const exportSnapshot = () => {
     const file = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), devices }, null, 2)], { type: 'application/json' });
@@ -285,7 +333,7 @@ function AppShell() {
 
   return (
     <div className="flex min-h-[100dvh] bg-[#eef4f0]">
-      <Sidebar onSettings={() => setSettingsOpen(true)} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} />
+       <Sidebar onSettings={() => setSettingsOpen(true)} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} brokerUrl={DEFAULT_BROKER_URL} brokerTopic={rawTopic} live={mode === 'live'} />
       {mobileNav && <button type="button" aria-label="Close navigation" data-testid="button-close-navigation-overlay" onClick={() => setMobileNav(false)} className="fixed inset-0 z-20 bg-[#183038]/30 md:hidden" />}
       <main className="min-w-0 flex-1">
         <header className="sticky top-0 z-10 flex h-[76px] items-center justify-between border-b border-[#d9e6e0]/90 bg-[#f6faf8]/90 px-4 backdrop-blur-md sm:px-7 lg:px-10">
@@ -298,7 +346,7 @@ function AppShell() {
             <section className="grid animate-rise-in grid-cols-2 gap-3 stagger-1 lg:grid-cols-4"><MetricCard icon={Zap} label="Output now" value={`${totalPower.toFixed(1)} kW`} detail="Across 3 inverter endpoints" points={[168, 174, 170, 179, 177, 184, 180, 186, 184]} /><MetricCard icon={Gauge} label="Fleet availability" value={`${((online / devices.length) * 100).toFixed(1)}%`} detail={`${online} of ${devices.length} reporting`} points={[96, 97, 95, 96, 98, 97, 98, 97]} /><MetricCard icon={AlertTriangle} label="Attention needed" value={`${alerts}`} detail={alerts ? 'Review stale or offline endpoints' : 'All endpoints are healthy'} points={[1, 1, 2, 1, 2, 2, 1, alerts]} tone={alerts ? 'amber' : 'teal'} /><MetricCard icon={Activity} label="Messages / min" value="184" detail="Last 15 minute average" points={[122, 135, 129, 151, 144, 166, 158, 184]} /></section>
             <div className="mt-6 grid animate-rise-in gap-6 stagger-2 xl:grid-cols-[minmax(330px,1.02fr)_minmax(440px,1.5fr)]">
               <section className="overflow-hidden rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]"><div className="border-b border-[#e1ebe6] px-4 py-4 sm:px-5"><div className="flex items-center justify-between"><div><div className="flex items-center gap-2"><h3 className="text-sm font-extrabold text-[#2b4346]">Discovered devices</h3><span className="rounded-full bg-[#e7f3ef] px-2 py-0.5 mono text-[10px] font-medium text-teal-700">{devices.length}</span></div><p className="mt-1 text-[11px] text-slate-500">Identity inferred from incoming JSON</p></div><button type="button" onClick={() => setFilter('all')} data-testid="button-clear-device-filter" className="focus-ring rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-teal-700"><SlidersHorizontal size={16} /></button></div><div className="mt-4 flex gap-2"><div className="relative min-w-0 flex-1"><Search size={14} className="absolute left-3 top-2.5 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} data-testid="input-device-search" placeholder="Search devices or sites" className="focus-ring w-full rounded-md border border-[#d9e5e0] bg-[#f8fbf9] py-2 pl-9 pr-2 text-xs outline-none focus:border-teal-400" /></div><select value={filter} onChange={(event) => setFilter(event.target.value as 'all' | DeviceStatus)} data-testid="select-device-filter" className="focus-ring rounded-md border border-[#d9e5e0] bg-[#f8fbf9] px-2 text-[11px] font-semibold text-slate-600 outline-none"><option value="all">All status</option><option value="online">Online</option><option value="stale">Stale</option><option value="offline">Offline</option></select></div></div><div className="max-h-[390px] overflow-y-auto scrollbar-thin">{filteredDevices.length ? filteredDevices.map((device) => <DeviceRow key={device.id} device={device} selected={selected?.id === device.id} onSelect={() => selectDevice(device.id)} />) : <div className="flex flex-col items-center px-6 py-14 text-center"><Search size={24} className="text-slate-300" /><p className="mt-3 text-sm font-bold text-slate-500">No devices match</p><p className="mt-1 text-xs text-slate-400">Try a different search or status.</p></div>}</div><div className="border-t border-[#e1ebe6] bg-[#fbfdfc] px-5 py-3"><button type="button" onClick={() => setSettingsOpen(true)} data-testid="button-discover-device" className="focus-ring flex items-center gap-2 text-xs font-bold text-teal-700 hover:text-teal-900"><Database size={14} />Configure discovery source<ChevronRight size={13} /></button></div></section>
-              <section className="min-w-0 overflow-hidden rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]"><div className="flex flex-col justify-between gap-3 border-b border-[#e1ebe6] px-4 py-4 sm:flex-row sm:items-center sm:px-5"><div><div className="flex items-center gap-2"><h3 className="text-sm font-extrabold text-[#2b4346]">Telemetry inspector</h3><Badge tone={selected?.status === 'online' ? 'teal' : selected?.status === 'stale' ? 'amber' : 'rose'}><StatusDot status={selected?.status || 'offline'} />{selected?.status}</Badge></div><p className="mt-1 text-[11px] text-slate-500">Raw payload · <span className="mono text-slate-600">{selected?.id}</span> · nested fields discovered automatically</p></div><div className="flex items-center gap-2"><span className="mono text-[10px] text-slate-400">{selected ? formatLastSeen(selected.lastSeen, now) : '—'}</span><button type="button" onClick={() => selected && copyField(JSON.stringify(selected.telemetry, null, 2))} data-testid="button-copy-payload" className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[#d8e5df] px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:border-teal-300 hover:text-teal-700"><Copy size={12} />Copy JSON</button></div></div><div className="max-h-[430px] overflow-y-auto px-3 py-3 scrollbar-thin"><div className="mb-2 flex items-center gap-2 rounded-lg border border-[#e3eee9] bg-[#f5faf7] px-3 py-2.5"><Code2 size={15} className="text-teal-700" /><span className="mono truncate text-[11px] text-slate-500">mqtt://northline/site/{selected?.site.toLowerCase().replaceAll(' ', '-')}/telemetry</span></div>{selected ? <FieldTree value={selected.telemetry} onCopy={copyField} /> : <div className="py-16 text-center text-sm text-slate-400">Select a device to inspect its payload.</div>}</div><div className="flex items-center justify-between border-t border-[#e1ebe6] bg-[#fbfdfc] px-5 py-3"><div className="flex items-center gap-2 text-[11px] text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-teal-500" />Payload schema is not fixed</div><button type="button" onClick={() => selected && copyField(JSON.stringify(selected.telemetry))} data-testid="button-copy-compact-json" className="focus-ring text-[11px] font-bold text-teal-700 hover:text-teal-900">Copy compact</button></div></section>
+              <section className="min-w-0 overflow-hidden rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]"><div className="flex flex-col justify-between gap-3 border-b border-[#e1ebe6] px-4 py-4 sm:flex-row sm:items-center sm:px-5"><div><div className="flex items-center gap-2"><h3 className="text-sm font-extrabold text-[#2b4346]">Telemetry inspector</h3><Badge tone={selected?.status === 'online' ? 'teal' : selected?.status === 'stale' ? 'amber' : 'rose'}><StatusDot status={selected?.status || 'offline'} />{selected?.status}</Badge></div><p className="mt-1 text-[11px] text-slate-500">Raw payload · <span className="mono text-slate-600">{selected?.id}</span> · nested fields discovered automatically</p></div><div className="flex items-center gap-2"><span className="mono text-[10px] text-slate-400">{selected ? formatLastSeen(selected.lastSeen, now) : '—'}</span><button type="button" onClick={() => selected && copyField(JSON.stringify(selected.telemetry, null, 2))} data-testid="button-copy-payload" className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[#d8e5df] px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:border-teal-300 hover:text-teal-700"><Copy size={12} />Copy JSON</button></div></div><div className="max-h-[430px] overflow-y-auto px-3 py-3 scrollbar-thin"><div className="mb-2 flex items-center gap-2 rounded-lg border border-[#e3eee9] bg-[#f5faf7] px-3 py-2.5"><Code2 size={15} className="text-teal-700" /><span className="mono truncate text-[11px] text-slate-500">{rawTopic}</span></div>{selected ? <FieldTree value={selected.telemetry} onCopy={copyField} /> : <div className="py-16 text-center text-sm text-slate-400">Select a device to inspect its payload.</div>}</div><div className="border-t border-[#e1ebe6] bg-[#fbfdfc] px-5 py-3"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-[11px] text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-teal-500" />Payload schema is not fixed</div><button type="button" onClick={() => selected && copyField(JSON.stringify(selected.telemetry))} data-testid="button-copy-compact-json" className="focus-ring text-[11px] font-bold text-teal-700 hover:text-teal-900">Copy compact</button></div><div className="mt-3 rounded-lg border border-[#dfeae5] bg-[#172c32] p-3"><p className="mb-2 mono text-[10px] uppercase tracking-[.14em] text-[#8ee4cf]">Incoming raw MQTT data</p><pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words mono text-[11px] leading-5 text-[#d8efe7]">{rawPayload}</pre></div></div></section>
             </div>
             <div className="mt-6 grid animate-rise-in gap-6 stagger-3 xl:grid-cols-[1.5fr_1fr]">
               <section className="rounded-xl border border-[#d8e5df] bg-white p-4 shadow-[0_3px_14px_rgba(24,42,43,.035)] sm:p-5"><div className="flex items-center justify-between"><div><h3 className="text-sm font-extrabold text-[#2b4346]">Fleet output</h3><p className="mt-1 text-[11px] text-slate-500">Power contribution by endpoint · current window</p></div><span className="mono text-[10px] text-slate-400">kW / NOW</span></div><div className="mt-5 space-y-4">{devices.filter((device) => device.type === 'Power inverter').map((device) => { const power = numberFrom(device, ['power', 'active_kw']); const width = Math.min(100, (power / 210) * 100); return <div key={device.id} className="flex items-center gap-3"><div className="w-[92px] shrink-0"><p className="text-xs font-bold text-[#40585a]">{device.name}</p><p className="mono mt-0.5 text-[10px] text-slate-400">{device.id}</p></div><div className="h-2 flex-1 overflow-hidden rounded-full bg-[#edf2ef]"><div className={`h-full rounded-full transition-all duration-700 ${device.status === 'online' ? 'bg-[#2caa94]' : device.status === 'stale' ? 'bg-[#e7af43]' : 'bg-[#d87864]'}`} style={{ width: `${width}%` }} /></div><span className="mono w-[62px] text-right text-xs font-medium text-[#466063]">{power.toFixed(1)}</span></div>; })}</div><div className="mt-5 border-t border-[#e6eee9] pt-4"><div className="flex items-center justify-between text-[11px]"><span className="font-bold text-slate-500">Fleet nominal capacity</span><span className="mono text-[#35565a]">1.05 MW</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#edf2ef]"><div className="h-full w-[51%] rounded-full bg-[#f0bf5a]" /></div></div></section>
