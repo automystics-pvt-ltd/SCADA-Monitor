@@ -27,9 +27,25 @@ type Device = {
   lastSeen: number;
   telemetry: Record<string, JsonValue>;
 };
+type ModbusRow = Record<string, JsonValue>;
+
+const MODBUS_COLUMNS = [
+  'timestamp', 'date', 'date_iso_8601', 'bdate', 'server_id', 'bserver_id',
+  'addr', 'baddr', 'full_addr', 'size', 'data', 'raw_data', 'server_name', 'ip', 'name',
+] as const;
 
 function isRecord(value: JsonValue): value is Record<string, JsonValue> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function extractModbusRows(payload: JsonValue): ModbusRow[] {
+  if (!isRecord(payload)) return [];
+  const source = isRecord(payload.Automystics) ? payload.Automystics : payload;
+  return source.name !== undefined || source.data !== undefined ? [source] : [];
+}
+
+function modbusRowKey(row: ModbusRow) {
+  return `${String(row.server_name ?? '')}|${String(row.name ?? '')}|${String(row.addr ?? '')}`;
 }
 
 function extractDevices(payload: JsonValue): Record<string, JsonValue>[] {
@@ -226,6 +242,30 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, onCopy }: { rawP
   );
 }
 
+function ModbusTable({ rows }: { rows: ModbusRow[] }) {
+  return (
+    <section className="mt-6 min-w-0 overflow-hidden rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]">
+      <div className="flex flex-col justify-between gap-2 border-b border-[#e1ebe6] px-4 py-4 sm:flex-row sm:items-center sm:px-5">
+        <div>
+          <h3 className="text-sm font-extrabold text-[#2b4346]">Live Modbus parameters</h3>
+          <p className="mt-1 text-[11px] text-slate-500">One row per parameter received from <span className="mono">trn246/modbus</span>; values are updated live without deleting prior parameters.</p>
+        </div>
+        <span className="rounded-full bg-[#e7f3ef] px-2.5 py-1 mono text-[10px] font-bold text-teal-700">{rows.length} parameters</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1500px] text-left">
+          <thead className="bg-[#172c32]">
+            <tr>{MODBUS_COLUMNS.map((column) => <th key={column} className="whitespace-nowrap px-3 py-2.5 mono text-[10px] font-bold uppercase tracking-[.1em] text-[#8ee4cf]">{column}</th>)}</tr>
+          </thead>
+          <tbody className="divide-y divide-[#dce9e3] bg-white">
+            {rows.length ? rows.map((row, index) => <tr key={`${modbusRowKey(row)}-${index}`} className="align-top hover:bg-[#f4faf7]">{MODBUS_COLUMNS.map((column) => <td key={column} className="whitespace-nowrap px-3 py-2 mono text-[11px] text-[#30494c]">{row[column] === undefined ? '—' : formatValue(row[column])}</td>)}</tr>) : <tr><td colSpan={MODBUS_COLUMNS.length} className="px-3 py-10 text-center text-xs text-slate-400">Waiting for Modbus parameter messages.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function Sidebar({ onSettings, mobileOpen, onClose, brokerUrl, brokerTopic, live }: { onSettings: () => void; mobileOpen: boolean; onClose: () => void; brokerUrl: string; brokerTopic: string; live: boolean }) {
   return (
     <aside className={`fixed inset-y-0 left-0 z-30 flex w-[246px] flex-col border-r border-[#314850] bg-[#20343d] text-slate-100 transition-transform duration-300 md:static md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -292,6 +332,7 @@ function AppShell() {
   const [error, setError] = useState('');
   const [rawPayload, setRawPayload] = useState('Waiting for the first MQTT payload…');
   const [rawJson, setRawJson] = useState<JsonValue | null>(null);
+  const [modbusRows, setModbusRows] = useState<ModbusRow[]>([]);
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
   const streamRef = useRef<EventSource | null>(null);
 
@@ -337,6 +378,18 @@ function AppShell() {
     try {
       const payload = JSON.parse(raw) as JsonValue;
       setRawJson(payload);
+      const incomingRows = extractModbusRows(payload);
+      if (incomingRows.length) {
+        setModbusRows((current) => {
+          const next = [...current];
+          for (const incoming of incomingRows) {
+            const existingIndex = next.findIndex((row) => modbusRowKey(row) === modbusRowKey(incoming));
+            if (existingIndex >= 0) next[existingIndex] = incoming;
+            else next.push(incoming);
+          }
+          return next;
+        });
+      }
       const discovered = extractDevices(payload);
       if (!discovered.length) throw new Error('not an object');
       setDevices((current) => discovered.reduce((next, telemetry, index) => {
@@ -417,6 +470,7 @@ function AppShell() {
              <div className="mt-6">
                <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} onCopy={copyField} />
              </div>
+             <ModbusTable rows={modbusRows} />
              <div className="mt-6 grid animate-rise-in gap-6 stagger-3 xl:grid-cols-[1.5fr_1fr]">
               <section className="rounded-xl border border-[#d8e5df] bg-white p-4 shadow-[0_3px_14px_rgba(24,42,43,.035)] sm:p-5"><div className="flex items-center justify-between"><div><h3 className="text-sm font-extrabold text-[#2b4346]">Fleet output</h3><p className="mt-1 text-[11px] text-slate-500">Power contribution by endpoint · current window</p></div><span className="mono text-[10px] text-slate-400">kW / NOW</span></div><div className="mt-5 space-y-4">{devices.filter((device) => device.type === 'Power inverter').map((device) => { const power = numberFrom(device, ['power', 'active_kw']); const width = Math.min(100, (power / 210) * 100); return <div key={device.id} className="flex items-center gap-3"><div className="w-[92px] shrink-0"><p className="text-xs font-bold text-[#40585a]">{device.name}</p><p className="mono mt-0.5 text-[10px] text-slate-400">{device.id}</p></div><div className="h-2 flex-1 overflow-hidden rounded-full bg-[#edf2ef]"><div className={`h-full rounded-full transition-all duration-700 ${device.status === 'online' ? 'bg-[#2caa94]' : device.status === 'stale' ? 'bg-[#e7af43]' : 'bg-[#d87864]'}`} style={{ width: `${width}%` }} /></div><span className="mono w-[62px] text-right text-xs font-medium text-[#466063]">{power.toFixed(1)}</span></div>; })}</div><div className="mt-5 border-t border-[#e6eee9] pt-4"><div className="flex items-center justify-between text-[11px]"><span className="font-bold text-slate-500">Fleet nominal capacity</span><span className="mono text-[#35565a]">1.05 MW</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#edf2ef]"><div className="h-full w-[51%] rounded-full bg-[#f0bf5a]" /></div></div></section>
               <section className="rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]"><div className="flex items-center justify-between border-b border-[#e1ebe6] px-5 py-4"><div><h3 className="text-sm font-extrabold text-[#2b4346]">Alert feed</h3><p className="mt-1 text-[11px] text-slate-500">Conditions requiring attention</p></div><span className="rounded-full bg-amber-50 px-2 py-1 mono text-[10px] font-bold text-amber-800">{alerts} open</span></div><div className="divide-y divide-[#e7efeb]">{devices.filter((device) => device.status !== 'online').map((device) => <div key={device.id} className="flex gap-3 px-5 py-4 transition-colors hover:bg-[#fbfdfc]"><div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${device.status === 'offline' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}`}>{device.status === 'offline' ? <WifiOff size={14} /> : <AlertTriangle size={14} />}</div><div className="min-w-0 flex-1"><p className="text-xs font-bold text-[#3b5254]">{device.name} <span className="font-normal text-slate-400">· {device.status === 'offline' ? 'connection lost' : 'telemetry delayed'}</span></p><p className="mt-1 text-[11px] leading-4 text-slate-500">{device.status === 'offline' ? 'No message received for over 1 hour.' : 'Last message is older than the 5 minute threshold.'}</p><p className="mono mt-2 text-[10px] text-slate-400">{formatLastSeen(device.lastSeen, now)}</p></div><button type="button" onClick={() => selectDevice(device.id)} data-testid={`button-review-alert-${device.id}`} className="focus-ring self-center rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-teal-700"><ChevronRight size={16} /></button></div>)}{!alerts && <div className="flex flex-col items-center px-5 py-12 text-center"><ShieldCheck size={28} className="text-teal-500" /><p className="mt-3 text-sm font-bold text-[#42605b]">No active alerts</p><p className="mt-1 text-xs text-slate-400">Every discovered endpoint is reporting on time.</p></div>}</div></section>

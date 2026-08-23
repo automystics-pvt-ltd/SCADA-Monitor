@@ -12,6 +12,8 @@ const listeners = new Set<Response>();
 let client: MqttClient | undefined;
 let connected = false;
 let latestMessage: { topic: string; payload: string; receivedAt: string } | undefined;
+const messageHistory: { topic: string; payload: string; receivedAt: string }[] = [];
+const MESSAGE_HISTORY_LIMIT = 5000;
 
 function send(res: Response, event: string, data: unknown) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -63,6 +65,8 @@ function startClient() {
 
   client.on("message", (topic, payload) => {
     latestMessage = { topic, payload: payload.toString("utf8"), receivedAt: new Date().toISOString() };
+    messageHistory.push(latestMessage);
+    if (messageHistory.length > MESSAGE_HISTORY_LIMIT) messageHistory.splice(0, messageHistory.length - MESSAGE_HISTORY_LIMIT);
     broadcast("message", latestMessage);
   });
 }
@@ -80,7 +84,7 @@ router.get("/mqtt/stream", (req, res) => {
   res.flushHeaders();
   listeners.add(res);
   send(res, "status", status());
-  if (latestMessage) send(res, "message", latestMessage);
+  for (const message of messageHistory) send(res, "message", message);
 
   const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), 20_000);
   req.on("close", () => {
