@@ -11,6 +11,7 @@ const listeners = new Set<Response>();
 
 let client: MqttClient | undefined;
 let connected = false;
+let reconnectTimer: NodeJS.Timeout | undefined;
 let latestMessage: { topic: string; payload: string; receivedAt: string } | undefined;
 const messageHistory: { topic: string; payload: string; receivedAt: string }[] = [];
 const MESSAGE_HISTORY_LIMIT = 5000;
@@ -33,8 +34,10 @@ function startClient() {
   client = mqtt.connect(brokerUrl, {
     username,
     password,
+    protocolVersion: 4,
     reconnectPeriod: 5_000,
-    connectTimeout: 10_000,
+    connectTimeout: 30_000,
+    keepalive: 30,
     clean: true,
   });
 
@@ -61,6 +64,17 @@ function startClient() {
     connected = false;
     logger.warn({ err: error }, "MQTT client error");
     broadcast("status", status());
+    if (error.message === "connack timeout") {
+      const failedClient = client;
+      client = undefined;
+      failedClient?.end(true);
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = undefined;
+          startClient();
+        }, 5_000);
+      }
+    }
   });
 
   client.on("message", (topic, payload) => {
