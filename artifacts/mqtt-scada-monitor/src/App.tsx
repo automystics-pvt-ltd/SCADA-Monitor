@@ -9,7 +9,7 @@ import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
   Download, Droplets, Link2, LocateFixed, MapPin, Menu, Play, PlugZap, Radio, RefreshCw, Search, Settings2,
-  Thermometer, Wind, Wifi, WifiOff, X, Zap, Sun, Moon, Bell, FileText
+  Thermometer, Wind, Wifi, WifiOff, X, Zap, Sun, Moon, Bell, FileText, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 
 const queryClient = new QueryClient();
@@ -336,12 +336,14 @@ const powerTrendByRange = {
 };
 
 
-function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate }: {
+function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, collapsed, onToggleCollapse }: {
   onSettings: () => void;
   mobileOpen: boolean;
   onClose: () => void;
   activeSection: string;
   onNavigate: (section: string) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }) {
   const navigate = (section: string) => {
     onNavigate(section);
@@ -349,48 +351,51 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate }:
   };
 
   return (
-    <aside aria-label="Primary navigation" className={`fixed inset-y-0 left-0 z-30 flex w-[260px] flex-col bg-[#0b0f19] border-r border-[#1e293b] transition-transform duration-300 md:static md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-      <div className="flex h-[72px] items-center px-6 border-b border-[#1e293b]">
+    <aside id="primary-navigation" aria-label="Primary navigation" className={`fixed inset-y-0 left-0 z-30 flex w-[min(86vw,260px)] flex-col overflow-hidden border-r border-[#1e293b] bg-[#0b0f19] transition-[width,transform] duration-300 md:static md:translate-x-0 ${collapsed ? 'md:w-[76px]' : 'md:w-[260px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`flex h-[72px] shrink-0 items-center border-b border-[#1e293b] px-4 ${collapsed ? 'md:justify-center md:gap-2' : 'gap-3 md:px-5'}`}>
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-8 h-8 rounded bg-orange-500/20 text-orange-500">
             <Sun size={20} strokeWidth={2.5} />
           </div>
-          <div>
-            <h1 className="text-sm font-bold text-slate-100">Solar SCADA</h1>
-            <p className="text-[9px] text-slate-500 uppercase tracking-widest">Monitoring System</p>
+          <div className={`min-w-0 ${collapsed ? 'md:hidden' : ''}`}>
+            <h1 className="truncate text-sm font-bold text-slate-100">Solar SCADA</h1>
+            <p className="truncate text-[9px] text-slate-500 uppercase tracking-widest">Monitoring System</p>
           </div>
         </div>
+        <button type="button" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} data-testid="button-toggle-navigation" title={collapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={onToggleCollapse} className={`ml-auto hidden rounded-lg p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring md:flex ${collapsed ? 'md:ml-0' : ''}`}>
+          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
         <button type="button" aria-label="Close navigation" data-testid="button-close-navigation" title="Close navigation" onClick={onClose} className="ml-auto rounded-lg p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring md:hidden">
           <X size={18} />
         </button>
       </div>
       
-      <div className="flex-1 py-6 px-4 overflow-y-auto scrollbar-thin">
+      <div className="flex-1 overflow-y-auto px-3 py-6 scrollbar-thin">
         <div className="mb-8">
-          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Overview</p>
+          <p className={`px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'md:hidden' : ''}`}>Overview</p>
           <nav className="space-y-1.5">
-            <NavItem icon={LayoutDashboard} label="Dashboard" active={activeSection === 'overview'} onClick={() => navigate('overview')} />
-            <NavItem icon={Layers3} label="Plant Overview" active={activeSection === 'overview'} onClick={() => navigate('overview')} />
+            <NavItem icon={LayoutDashboard} label="Dashboard" active={activeSection === 'overview'} onClick={() => navigate('overview')} collapsed={collapsed} />
+            <NavItem icon={Layers3} label="Plant Overview" active={activeSection === 'overview'} onClick={() => navigate('overview')} collapsed={collapsed} />
           </nav>
         </div>
         
         <div className="mb-8">
-          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Monitoring</p>
+          <p className={`px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'md:hidden' : ''}`}>Monitoring</p>
           <nav className="space-y-1.5">
-            <NavItem icon={Zap} label="Inverters" active={activeSection === 'inverters'} hasArrow onClick={() => navigate('inverters')} />
-            <NavItem icon={Activity} label="Live Data" active={activeSection === 'live-data'} onClick={() => navigate('live-data')} />
-            <NavItem icon={Gauge} label="Energy Analytics" active={activeSection === 'energy'} onClick={() => navigate('energy')} />
-            <NavItem icon={CloudSun} label="Environment" active={activeSection === 'environment'} onClick={() => navigate('environment')} />
-            <NavItem icon={AlertTriangle} label="Alarms & Events" active={activeSection === 'alarms'} onClick={() => navigate('alarms')} />
+            <NavItem icon={Zap} label="Inverters" active={activeSection === 'inverters'} hasArrow onClick={() => navigate('inverters')} collapsed={collapsed} />
+            <NavItem icon={Activity} label="Live Data" active={activeSection === 'live-data'} onClick={() => navigate('live-data')} collapsed={collapsed} />
+            <NavItem icon={Gauge} label="Energy Analytics" active={activeSection === 'energy'} onClick={() => navigate('energy')} collapsed={collapsed} />
+            <NavItem icon={CloudSun} label="Environment" active={activeSection === 'environment'} onClick={() => navigate('environment')} collapsed={collapsed} />
+            <NavItem icon={AlertTriangle} label="Alarms & Events" active={activeSection === 'alarms'} onClick={() => navigate('alarms')} collapsed={collapsed} />
           </nav>
         </div>
 
         <div>
-          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Insights</p>
+          <p className={`px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'md:hidden' : ''}`}>Insights</p>
           <nav className="space-y-1.5">
-            <NavItem icon={FileText} label="Reports" active={activeSection === 'raw-data'} onClick={() => navigate('raw-data')} />
-            <NavItem icon={Activity} label="Performance" active={activeSection === 'power'} onClick={() => navigate('power')} />
-            <NavItem icon={Settings2} label="Settings" onClick={() => { onSettings(); onClose(); }} />
+            <NavItem icon={FileText} label="Reports" active={activeSection === 'raw-data'} onClick={() => navigate('raw-data')} collapsed={collapsed} />
+            <NavItem icon={Activity} label="Performance" active={activeSection === 'power'} onClick={() => navigate('power')} collapsed={collapsed} />
+            <NavItem icon={Settings2} label="Settings" onClick={() => { onSettings(); onClose(); }} collapsed={collapsed} />
           </nav>
         </div>
       </div>
@@ -398,20 +403,81 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate }:
   );
 }
 
-function NavItem({ icon: Icon, label, active, hasArrow, onClick }: any) {
+function NavItem({ icon: Icon, label, active, hasArrow, onClick, collapsed }: any) {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} data-testid={`nav-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} title={`Open ${label}`} className={`scada-nav-item w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-all focus-ring ${active ? 'bg-[#1e293b] text-slate-100' : 'text-slate-400 hover:text-slate-200 hover:bg-[#1e293b]/50'}`}>
-      <div className="flex items-center gap-3 font-medium">
+    <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} data-testid={`nav-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} title={`Open ${label}`} className={`scada-nav-item flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-all focus-ring ${collapsed ? 'md:justify-center' : ''} ${active ? 'bg-[#1e293b] text-slate-100' : 'text-slate-400 hover:text-slate-200 hover:bg-[#1e293b]/50'}`}>
+      <div className={`flex items-center gap-3 font-medium ${collapsed ? 'md:gap-0' : ''}`}>
         <Icon size={18} className={`scada-nav-icon ${active ? 'text-orange-500' : ''}`} />
-        <span>{label}</span>
+        <span className={collapsed ? 'md:hidden' : ''}>{label}</span>
       </div>
-      {hasArrow && <ChevronRight size={14} className="scada-nav-arrow text-slate-500" />}
+      {hasArrow && <ChevronRight size={14} className={`scada-nav-arrow text-slate-500 ${collapsed ? 'md:hidden' : ''}`} />}
     </button>
   );
 }
 
-function Header({ toggleMobileNav, connected, mode, theme, onToggleTheme, onRefresh, onExport, onNotifications, now, weather, siteName }: {
+function useModalAccessibility(onClose: () => void, enabled = true) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!enabled) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const selector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+    const focusFirst = () => {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      (dialog.querySelector<HTMLElement>(selector) ?? dialog).focus();
+    };
+    const frame = window.requestAnimationFrame(focusFirst);
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(selector));
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', trapFocus);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', trapFocus);
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [enabled]);
+
+  return dialogRef;
+}
+
+function Header({ toggleMobileNav, mobileNav, connected, mode, theme, onToggleTheme, onRefresh, onExport, onNotifications, now, weather, siteName }: {
   toggleMobileNav: () => void;
+  mobileNav: boolean;
   connected: boolean;
   mode: 'demo' | 'live';
   theme: ThemeMode;
@@ -434,9 +500,9 @@ function Header({ toggleMobileNav, connected, mode, theme, onToggleTheme, onRefr
   const weatherCacheStatus = weather.data?.freshness.cacheStatus === 'fresh' ? 'Fresh response' : weather.data?.freshness.cacheStatus === 'cached' ? 'Cached ≤ 4 min' : 'Data unavailable';
   const weatherMetadata = weather.data ? `${weatherProvenance} · Observed ${observationTime} · Received ${receivedTime} · ${weatherCacheStatus}` : 'Weather data unavailable';
   return (
-    <header className="flex min-h-[72px] shrink-0 items-center justify-between border-b border-[#1e293b] bg-[#0b0f19] px-3 py-3 sm:px-6">
+    <header className="flex min-h-[72px] shrink-0 items-center justify-between gap-3 border-b border-[#1e293b] bg-[#0b0f19] px-3 py-3 sm:px-6">
       <div className="flex min-w-0 items-center gap-4">
-        <button type="button" aria-label="Open navigation" data-testid="button-open-navigation" title="Open navigation" className="md:hidden text-slate-400 rounded-lg p-2 hover:bg-[#1e293b] focus-ring" onClick={toggleMobileNav}>
+        <button type="button" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} data-testid="button-open-navigation" title="Open navigation" className="md:hidden text-slate-400 rounded-lg p-2 hover:bg-[#1e293b] focus-ring" onClick={toggleMobileNav}>
           <Menu size={20} />
         </button>
         <div className="min-w-0">
@@ -1525,16 +1591,17 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, onCopy }: any) {
 function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error }: any) {
   const [url, setUrl] = useState(() => localStorage.getItem('northline-broker-url') || DEFAULT_BROKER_URL);
   const [topic, setTopic] = useState(() => localStorage.getItem('northline-broker-topic') || DEFAULT_BROKER_TOPIC);
+  const dialogRef = useModalAccessibility(onClose, open);
   const handleConnect = () => { localStorage.setItem('northline-broker-url', url); localStorage.setItem('northline-broker-topic', topic); onConnect(url, topic); };
   if (!open) return null;
   
   return (
     <>
       <button type="button" aria-label="Close broker settings" onClick={onClose} className="fixed inset-0 z-40 bg-[#0b0f19]/80 backdrop-blur-sm cursor-default" />
-      <section role="dialog" aria-modal="true" aria-label="Telemetry settings" className="fixed right-0 top-0 z-50 flex h-full w-full max-w-[400px] flex-col border-l border-[#1e293b] bg-[#111827] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[#1e293b] px-6 py-5">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="fixed right-0 top-0 z-50 flex h-full w-full max-w-[min(400px,100vw)] flex-col border-l border-[#1e293b] bg-[#111827] shadow-2xl">
+        <div className="flex items-center justify-between border-b border-[#1e293b] px-4 py-5 sm:px-6">
           <div>
-            <h2 className="text-lg font-bold text-slate-100 tracking-tight">Settings</h2>
+            <h2 id="telemetry-settings-title" className="text-lg font-bold text-slate-100 tracking-tight">Settings</h2>
             <p className="text-xs text-slate-400 mt-1">Configure telemetry connection</p>
           </div>
            <button type="button" aria-label="Close settings" data-testid="button-close-settings" title="Close settings" onClick={onClose} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] rounded-lg transition-colors focus-ring">
@@ -1542,7 +1609,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 scrollbar-thin">
+        <div className="flex-1 space-y-6 overflow-y-auto px-4 py-6 scrollbar-thin sm:px-6">
           <div className="bg-[#0b0f19] border border-[#1e293b] p-1.5 rounded-lg flex gap-1">
              <button type="button" onClick={() => setMode('demo')} data-testid="button-mode-demo" className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors focus-ring ${mode === 'demo' ? 'bg-[#1e293b] text-blue-400' : 'text-slate-400 hover:text-slate-200'}`}><Play size={14} /> Demo Stream</button>
              <button type="button" onClick={() => setMode('live')} data-testid="button-mode-live" className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors focus-ring ${mode === 'live' ? 'bg-[#1e293b] text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}><Wifi size={14} /> Live Broker</button>
@@ -1573,7 +1640,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
           )}
         </div>
         
-        <div className="p-6 border-t border-[#1e293b] bg-[#111827]">
+        <div className="border-t border-[#1e293b] bg-[#111827] p-4 sm:p-6">
           {connected ? (
              <button type="button" onClick={onDisconnect} data-testid="button-disconnect-broker" className="w-full flex items-center justify-center gap-2 py-3 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 text-sm font-bold rounded-lg transition-colors focus-ring"><WifiOff size={16} /> Disconnect</button>
           ) : (
@@ -1587,6 +1654,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
 
 function InverterDetailPanel({ device, onClose }: { device: Device; onClose: () => void }) {
   const [tab, setTab] = useState('Overview');
+  const dialogRef = useModalAccessibility(onClose);
   const tabs = ['Overview', 'Live Power', 'Electrical', 'Energy', 'MPPT', 'Strings', 'Temperature', 'Alarms', 'Faults', 'Historical', 'Raw Data', 'Data Quality'];
   const activePower = numberFrom(device, ['power', 'active_kw']);
   const cabinetTemp = numberFrom(device, ['temperature', 'cabinet_c']);
@@ -1598,7 +1666,7 @@ function InverterDetailPanel({ device, onClose }: { device: Device; onClose: () 
   return (
     <>
       <button type="button" aria-label="Close inverter details" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-[#0b0f19]/75 backdrop-blur-sm" />
-      <section role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} className="fixed inset-x-3 bottom-3 top-3 z-50 mx-auto flex max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827] shadow-2xl sm:inset-x-8 sm:bottom-8 sm:top-8">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="fixed inset-x-3 bottom-3 top-3 z-50 mx-auto flex max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827] shadow-2xl sm:inset-x-8 sm:bottom-8 sm:top-8">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1e293b] px-5 py-4 sm:px-6">
           <div>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Inverter fleet / {device.site}</p>
@@ -1656,8 +1724,9 @@ function AppShell() {
   const [connected, setConnected] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
+  const [navigationCollapsed, setNavigationCollapsed] = useState(() => localStorage.getItem('solar-scada-navigation-collapsed') === 'true');
   const [activeSection, setActiveSection] = useState('overview');
-  const [selectedInverter, setSelectedInverter] = useState<Device | null>(null);
+  const [selectedInverterId, setSelectedInverterId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState('');
   const [rawPayload, setRawPayload] = useState('Waiting for the first MQTT payload…');
@@ -1675,6 +1744,20 @@ function AppShell() {
     localStorage.setItem('solar-scada-theme', theme);
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
+  useEffect(() => { localStorage.setItem('solar-scada-navigation-collapsed', String(navigationCollapsed)); }, [navigationCollapsed]);
+  useEffect(() => {
+    if (!mobileNav) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileNav(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileNav]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
   const availableSites = useMemo(() => Array.from(new Set(devices.map((device) => device.site).filter(Boolean))).sort(), [devices]);
   useEffect(() => {
@@ -1876,19 +1959,20 @@ function AppShell() {
 
   const totalAcPower = useMemo(() => devices.filter(d => d.status === 'online').reduce((sum, d) => sum + numberFrom(d, ['power', 'active_kw'], 0), 0), [devices]);
   const inverters = useMemo(() => devices.filter(d => d.type === 'Power inverter'), [devices]);
+  const selectedInverter = useMemo(() => selectedInverterId ? devices.find((device) => device.id === selectedInverterId) ?? null : null, [devices, selectedInverterId]);
   const onlineInverters = inverters.filter(d => d.status === 'online').length;
   const totalInverters = inverters.length;
   const activeAlarms = useMemo(() => devices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0), 0), [devices]);
 
   return (
-    <div className={`scada-theme ${theme === 'dark' ? 'dark' : 'light'} flex h-screen bg-[#0b0f19] text-slate-200 overflow-hidden font-sans`}>
-      {mobileNav && <button type="button" aria-label="Close navigation" onClick={() => setMobileNav(false)} className="fixed inset-0 z-20 bg-black/40 md:hidden" />}
-      <Sidebar onSettings={() => setSettingsOpen(true)} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} activeSection={activeSection} onNavigate={navigateTo} />
+    <div className={`scada-theme ${theme === 'dark' ? 'dark' : 'light'} flex h-screen overflow-hidden bg-[#0b0f19] font-sans text-slate-200`}>
+      {mobileNav && <button type="button" aria-label="Close navigation" data-testid="button-navigation-overlay" onClick={() => setMobileNav(false)} className="fixed inset-0 z-20 bg-black/40 backdrop-blur-[1px] md:hidden" />}
+      <Sidebar onSettings={() => setSettingsOpen(true)} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} activeSection={activeSection} onNavigate={navigateTo} collapsed={navigationCollapsed} onToggleCollapse={() => setNavigationCollapsed((current) => !current)} />
       
       <div className="flex flex-col flex-1 min-w-0">
-        <Header toggleMobileNav={() => setMobileNav(true)} connected={connected} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} now={now} weather={weatherState} siteName={plantSiteName} />
+        <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} now={now} weather={weatherState} siteName={plantSiteName} />
         
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
+        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto space-y-6 p-3 scrollbar-thin sm:p-6">
           <section id="overview" data-section="overview" className="scroll-mt-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div title="Current line frequency from the latest telemetry source.">
@@ -1902,7 +1986,7 @@ function AppShell() {
               </div>
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="ml-auto whitespace-nowrap text-xs font-semibold underline focus-ring">Retry connection</button></div>}
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
               <KpiCard title="Total AC Power" value={totalAcPower.toLocaleString(undefined, { maximumFractionDigits: 2 })} unit="kW" icon={Zap} colorClass="bg-blue-500/10 text-blue-400" onClick={() => navigateTo('power')} help="Open the realtime plant power trend and choose a time range." />
               <KpiCard title="Today's Energy" value="14.13" unit="MWh" icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext="Daily energy" onClick={() => navigateTo('energy')} help="Open energy analytics for daily, monthly, or yearly production." />
               <KpiCard title="Total Energy" value="31,457.28" unit="kWh" icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext="Lifetime energy" onClick={() => navigateTo('energy')} help="Open energy analytics and historical production views." />
@@ -1912,26 +1996,26 @@ function AppShell() {
             </div>
           </section>
           
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div id="electrical" data-section="electrical" className="xl:col-span-2 scroll-mt-6">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6 xl:col-span-2">
                 <ElectricalParametersChart rows={modbusRows} mode={mode} />
             </div>
-            <div id="inverters" data-section="inverters" className="scroll-mt-6">
-               <InverterOverviewTable devices={devices} onOpenInverter={setSelectedInverter} onViewAll={() => navigateTo('inverters')} />
+            <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
+               <InverterOverviewTable devices={devices} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
           </div>
           
-          <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-              <div id="energy" data-section="energy" className="xl:col-span-1 scroll-mt-6">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 xl:grid-cols-5">
+              <div id="energy" data-section="energy" className="min-w-0 scroll-mt-6 xl:col-span-1">
                <EnergySummaryChart />
              </div>
-              <div id="power" data-section="power" className="xl:col-span-2 scroll-mt-6">
+              <div id="power" data-section="power" className="min-w-0 scroll-mt-6 xl:col-span-2">
                <PowerTrendChart currentKw={totalAcPower} />
              </div>
-             <div className="xl:col-span-1">
+             <div className="min-w-0 xl:col-span-1">
                <PowerDistributionChart />
              </div>
-              <div id="alarms" data-section="alarms" className="xl:col-span-1 scroll-mt-6">
+              <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6 xl:col-span-1">
                 <SidePanels />
              </div>
           </div>
@@ -1945,7 +2029,7 @@ function AppShell() {
         </main>
       </div>
        <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} />
-       {selectedInverter && <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverter(null)} />}
+        {selectedInverter && <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} />}
       <Toaster />
     </div>
   );

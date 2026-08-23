@@ -102,8 +102,9 @@
 
 @layer base {
   * { @apply border-border; }
-  body { @apply font-sans antialiased bg-background text-foreground; margin: 0; }
-  button, input { font: inherit; }
+  html, body, #root { width: 100%; min-width: 0; min-height: 100%; }
+  body { @apply font-sans antialiased bg-background text-foreground; margin: 0; overflow: hidden; }
+  button, input, select { font: inherit; }
 }
 
 @keyframes rise-in {
@@ -122,6 +123,13 @@
 .focus-ring:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
+.scada-theme { isolation: isolate; }
+.scada-theme main > *,
+.scada-theme [data-section],
+.scada-theme .recharts-responsive-container { min-width: 0; }
+.scada-theme button,
+.scada-theme input,
+.scada-theme select { -webkit-tap-highlight-color: transparent; }
 
 /* Shared premium interaction language. Transforms preserve layout dimensions,
    and the hover media query keeps touch devices from getting sticky hover states. */
@@ -295,4 +303,8 @@ button:not(:disabled):active,
 @media (max-width: 640px) {
   .scada-theme main { padding: 0.875rem; }
   .scada-theme [data-section] { scroll-margin-top: 0.75rem; }
+  .scada-theme button,
+  .scada-theme select { min-height: 2.25rem; }
+  .scada-theme input { min-height: 2.5rem; }
+  .scada-theme .recharts-responsive-container { min-height: 1px; }
 }
