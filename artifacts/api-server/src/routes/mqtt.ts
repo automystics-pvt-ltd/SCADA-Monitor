@@ -12,6 +12,7 @@ const listeners = new Set<Response>();
 let client: MqttClient | undefined;
 let connected = false;
 let reconnectTimer: NodeJS.Timeout | undefined;
+let lastError: string | undefined;
 let latestMessage: { topic: string; payload: string; receivedAt: string } | undefined;
 const messageHistory: { topic: string; payload: string; receivedAt: string }[] = [];
 const MESSAGE_HISTORY_LIMIT = 5000;
@@ -25,7 +26,7 @@ function broadcast(event: string, data: unknown) {
 }
 
 function status() {
-  return { connected, brokerUrl, topic: subscriptionTopic };
+  return { connected, brokerUrl, topic: subscriptionTopic, error: lastError };
 }
 
 function startClient() {
@@ -43,6 +44,7 @@ function startClient() {
 
   client.on("connect", () => {
     connected = true;
+    lastError = undefined;
     logger.info({ brokerUrl, subscriptionTopic }, "MQTT broker connected");
     broadcast("status", status());
     client?.subscribe(subscriptionTopic, { qos: 0 }, (error) => {
@@ -62,6 +64,7 @@ function startClient() {
 
   client.on("error", (error) => {
     connected = false;
+    lastError = error.message;
     logger.warn({ err: error }, "MQTT client error");
     broadcast("status", status());
     if (error.message === "connack timeout") {

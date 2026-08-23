@@ -419,9 +419,11 @@ function AppShell() {
     const stream = new EventSource('/api/mqtt/stream');
     streamRef.current = stream;
     stream.addEventListener('status', (event) => {
-      const status = JSON.parse((event as MessageEvent).data) as { connected: boolean };
+      const status = JSON.parse((event as MessageEvent).data) as { connected: boolean; error?: string };
       setConnected(status.connected);
-      if (!status.connected) setError('MQTT broker is reconnecting. Raw data will appear as soon as the subscription is restored.');
+      if (status.connected) setError('');
+      else if (status.error === 'connack timeout') setError('The MQTT broker is not responding to the connection handshake. Verify that mqtt://76.13.4.214:1883 is online and reachable from this environment; the dashboard will retry automatically.');
+      else setError('MQTT broker is reconnecting. Raw data will appear as soon as the subscription is restored.');
     });
     stream.addEventListener('message', (event) => {
       const message = JSON.parse((event as MessageEvent).data) as { topic: string; payload: string };
