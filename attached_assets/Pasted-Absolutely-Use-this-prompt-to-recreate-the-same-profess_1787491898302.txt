@@ -1,0 +1,384 @@
+Absolutely. Use this prompt to recreate the same **professional solar SCADA analytics dashboard** in an AI UI/image/design generator:
+
+### Master UI/UX Design Prompt
+
+> **Design a premium, enterprise-grade Solar SCADA Monitoring & Analytics Dashboard for a utility-scale solar power plant.**
+>
+> Create a modern, highly professional, visually rich dashboard that allows plant operators, customers, engineers, and management users to understand the plant's live performance, inverter health, energy generation, electrical parameters, alarms, and raw Modbus/MQTT telemetry without needing technical knowledge.
+>
+> ### Overall Design
+>
+> * Dark navy / midnight-blue SCADA theme with clean white content panels.
+> * Professional solar-energy visual identity.
+> * Use subtle gradients, glass-like panels, soft shadows, rounded cards, thin borders, and excellent spacing.
+> * Use green for healthy/online, amber for warning/validation required, red for faults/critical conditions, blue for live electrical data, orange for power/energy analytics, and purple for advanced analytics.
+> * Include tasteful solar-related imagery such as solar panels, sunlight, clean-energy landscape, inverter equipment, and subtle solar/wind/environment illustrations.
+> * The UI must look like a **real commercial SCADA product**, not a generic admin dashboard.
+> * Prioritize readability, information hierarchy, accessibility, and responsive layout.
+> * Avoid unnecessary decoration that reduces data readability.
+>
+> ### Header
+>
+> Create a professional header containing:
+>
+> * Solar SCADA logo
+> * Plant name: **TRN246 Solar Plant**
+> * Plant status: **LIVE / ONLINE**
+> * Location
+> * Plant capacity
+> * Grid connection status
+> * Current weather
+> * Ambient temperature
+> * Irradiance
+> * Last data received timestamp
+> * MQTT/communication status
+> * Auto-refresh interval
+> * Notification icon
+> * User/profile menu
+>
+> ### Left Navigation
+>
+> Create a clean SCADA navigation menu:
+>
+> * Dashboard
+> * Plant Overview
+> * Inverters
+> * Live Data
+> * Energy Analytics
+> * Performance
+> * Alarms & Events
+> * Reports
+> * Data Export
+> * Settings
+>
+> ### Top KPI Cards
+>
+> Display visually attractive KPI cards:
+>
+> 1. **Total AC Power**
+> 2. **Today's Energy**
+> 3. **Total/Lifetime Energy**
+> 4. **Specific Yield**
+> 5. **Inverters Online**
+> 6. **Active Alarms**
+>
+> Every KPI should include:
+>
+> * Large current value
+> * Unit
+> * Small trend indicator
+> * Mini sparkline
+> * Status indicator
+> * Comparison/trend where available
+>
+> ### Electrical Analytics
+>
+> Create a dedicated **Electrical Overview** section containing:
+>
+> **Phase Voltages**
+>
+> * Phase AB
+> * Phase BC
+> * Phase CA
+> * Live values
+> * Historical line chart
+> * Voltage balance percentage
+>
+> **Phase Currents**
+>
+> * Phase A
+> * Phase B
+> * Phase C
+> * Live values
+> * Historical line chart
+> * Current balance percentage
+>
+> Additional KPI cards:
+>
+> * Power Factor
+> * Grid Frequency
+> * Voltage Stability
+> * Current Balance
+>
+> ### Inverter Summary
+>
+> Create a highly readable inverter fleet table:
+>
+> | Inverter | Status | AC Power | Today's Energy | Temperature | PF | Fault | Last Update |
+>
+> Display:
+>
+> * INV1
+> * INV2
+> * INV3
+> * INV4
+> * INV5
+>
+> Each inverter must have:
+>
+> * Online/offline indicator
+> * Power output
+> * Energy generation
+> * Temperature
+> * Power factor
+> * Alarm/fault status
+> * Last communication time
+>
+> Allow the user to click an inverter and open a detailed inverter page.
+>
+> ### Detailed Inverter View
+>
+> Create a detailed inverter analytics panel containing:
+>
+> **Overview**
+>
+> * Inverter status
+> * AC power
+> * Energy
+> * Temperature
+> * Efficiency
+> * Power factor
+> * Frequency
+>
+> **Electrical**
+>
+> * Phase AB voltage
+> * Phase BC voltage
+> * Phase CA voltage
+> * Phase A current
+> * Phase B current
+> * Phase C current
+>
+> **MPPT**
+>
+> * MPPT 1 Voltage
+> * MPPT 1 Current
+> * MPPT 2 Voltage
+> * MPPT 2 Current
+>
+> **String Monitoring**
+>
+> * String 1 Current
+> * String 2 Current
+> * String 3 Current
+> * String 4 Current
+> * String 5 Current
+> * String 6 Current
+>
+> Show string imbalance visually using bars, gauges, or heatmap indicators.
+>
+> **Energy**
+>
+> * Daily Energy
+> * Today Yield
+> * Total Energy
+> * Hourly generation
+> * Daily trend
+> * Monthly trend
+> * Historical generation
+>
+> **Temperature**
+>
+> * Internal temperature
+> * Temperature trend
+>
+> **Alarms & Faults**
+>
+> * General Alarm
+> * Fault Alarm
+> * Fault Code
+> * Alarm Code
+> * Alarm history
+> * Severity
+> * Timestamp
+>
+> ### Detailed Telemetry Table
+>
+> Include a professional technical table titled:
+>
+> **LIVE MODBUS / MQTT TELEMETRY**
+>
+> Columns:
+>
+> | Category | Parameter | Customer Display Name | Current Value | Unit | Raw Value | Modbus Address | Hex Address | Full Address | Data Size | Quality | Source | Timestamp |
+>
+> Example:
+>
+> `Electrical | phaseCAvoltage | Phase CA Voltage | 775.7 | V | 7757 | 5021 | 139C | 305021 | 4 | Good | Modbus Register | 17:19:31`
+>
+> Make the table sortable and filterable.
+>
+> Add category filters:
+>
+> * All
+> * Electrical
+> * Power
+> * Energy
+> * MPPT
+> * Strings
+> * Temperature
+> * Alarms
+> * Faults
+> * Meter
+>
+> ### Raw vs Customer Value
+>
+> Clearly explain the difference between:
+>
+> **Raw Value**
+>
+> > Value received directly from the Modbus device.
+>
+> **Customer Value**
+>
+> > Normalized/scaled value presented in understandable engineering units.
+>
+> Use badges:
+>
+> * 🟢 Good
+> * 🟡 Scaling Required
+> * 🟠 Validation Required
+> * 🔴 Invalid / Unavailable
+>
+> Never hide the raw value.
+>
+> ### Energy Analytics
+>
+> Create:
+>
+> * Daily generation bar chart
+> * Hourly energy curve
+> * Monthly generation chart
+> * Yearly generation chart
+> * Energy comparison
+> * Performance ratio
+> * Specific yield
+> * Plant availability
+>
+> ### Power Analytics
+>
+> Create a professional real-time power chart:
+>
+> * Current AC power
+> * Power trend
+> * Inverter contribution
+> * Peak power
+> * Average power
+> * Minimum power
+>
+> Include a donut chart showing:
+>
+> **Power Distribution by Inverter**
+>
+> ### Environment
+>
+> Add a dedicated environmental panel:
+>
+> * Irradiance
+> * Ambient temperature
+> * Internal inverter temperature
+> * Wind speed
+> * Weather condition
+> * Solar availability
+>
+> Use subtle solar/environment illustrations.
+>
+> ### Alarm & Health Center
+>
+> Create a highly visible but clean health panel:
+>
+> * Active alarms
+> * Active faults
+> * Warning count
+> * Communication failures
+> * Data-quality issues
+> * Device offline count
+>
+> Include an alarm timeline with:
+>
+> * Severity
+> * Device
+> * Parameter
+> * Message
+> * Timestamp
+> * Status
+>
+> ### Data Quality Analytics
+>
+> Add a dedicated **Telemetry Data Quality** visualization:
+>
+> * Good data %
+> * Scaling required
+> * Missing data
+> * Invalid data
+> * Communication errors
+>
+> Show the overall percentage using a donut chart and provide a detailed breakdown.
+>
+> ### Data Traceability
+>
+> Make it extremely clear to the customer **where every value comes from**:
+>
+> **Solar Inverter → Modbus Register → Gateway → MQTT Topic → SCADA Auto-Mapping → Customer Value**
+>
+> For every parameter show:
+>
+> `Parameter Name → Register Address → Raw Value → Scaling → Engineering Value → Unit → Quality → Timestamp`
+>
+> ### Important Technical Behavior
+>
+> The design must support **automatic parameter discovery and mapping**.
+>
+> Do NOT assume that every parameter is manually configured.
+>
+> When a new Modbus/MQTT parameter arrives:
+>
+> `Incoming JSON → Detect Parameter → Detect Address → Detect Category → Normalize Name → Apply Known Scaling → Validate → Display Automatically`
+>
+> Unknown parameters should appear under **Discovered Parameters** rather than being discarded.
+>
+> Preserve:
+>
+> * Original parameter name
+> * Raw value
+> * Raw payload
+> * Modbus address
+> * Hex address
+> * Full address
+> * Timestamp
+> * Device identity
+>
+> ### Solar Visual Language
+>
+> Incorporate elegant solar-related visuals:
+>
+> * Solar panel landscape
+> * Sun iconography
+> * Energy-flow graphics
+> * Inverter illustrations
+> * Subtle photovoltaic cell patterns
+> * Clean-energy imagery
+> * Solar generation glow/gradients
+>
+> Keep imagery primarily in the navigation/sidebar, header, empty states, and selected analytics areas so that **technical data remains the visual priority**.
+>
+> ### Final Experience
+>
+> The finished interface should feel like a combination of:
+>
+> **Industrial SCADA + Solar Energy Management System + Enterprise Analytics Platform**
+>
+> It must be:
+>
+> * Professional
+> * Premium
+> * Clean
+> * Highly readable
+> * Data-rich without feeling crowded
+> * Customer-friendly
+> * Engineer-friendly
+> * Responsive
+> * Interactive
+> * Production-ready
+>
+> **Do not create a generic dashboard. Create a unique, commercially deployable Solar SCADA product UI with strong visual hierarchy, detailed inverter analytics, complete telemetry traceability, and solar-energy visual identity.**

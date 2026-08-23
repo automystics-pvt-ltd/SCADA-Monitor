@@ -2,15 +2,15 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
-import { TooltipProvider } from '@/components/ui/tooltip';
+import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
+import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
-  Activity, AlertCircle, AlertTriangle, ArrowDownToLine, Check, ChevronDown, ChevronRight,
-  CircleHelp, CloudOff, Code2, Copy, Database, Gauge, HardDrive, Layers3, LayoutDashboard,
-  Link2, Menu, MoreHorizontal, Pause, Play, PlugZap, Radio, RefreshCw, Search, Settings2,
-  ShieldCheck, SlidersHorizontal, Thermometer, Wifi, WifiOff, X, Zap,
+  Activity, AlertCircle, AlertTriangle, Check, ChevronRight,
+  Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
+  Link2, Menu, Play, PlugZap, Radio, RefreshCw, Settings2,
+  Thermometer, Wifi, WifiOff, X, Zap, Sun, Moon, Bell, User, FileText
 } from 'lucide-react';
-import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 
 const queryClient = new QueryClient();
 const DEFAULT_BROKER_URL = 'mqtt://76.13.4.214';
@@ -69,40 +69,30 @@ function extractDevices(payload: JsonValue): Record<string, JsonValue>[] {
 
 const initialDevices: Device[] = [
   {
-    id: 'inv-03', name: 'Inverter 03', site: 'North Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 1800,
-    telemetry: { power: { active_kw: 186.4, reactive_kvar: -4.2, efficiency: 97.8 }, dc_bus: { voltage_v: 812.6, current_a: 229.1 }, temperature: { cabinet_c: 39.8, heatsink_c: 44.1 }, alarms: [], firmware: 'v3.14.8' },
+    id: 'inv-01', name: 'Inverter 01', site: 'North Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 1800,
+    telemetry: { power: { active_kw: 4031.4, reactive_kvar: -4.2, efficiency: 97.8 }, dc_bus: { voltage_v: 812.6, current_a: 229.1 }, temperature: { cabinet_c: 25.0, heatsink_c: 44.1 }, alarms: [], firmware: 'v3.14.8' },
   },
   {
-    id: 'inv-07', name: 'Inverter 07', site: 'West Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 4100,
-    telemetry: { power: { active_kw: 172.8, reactive_kvar: 1.7, efficiency: 96.9 }, dc_bus: { voltage_v: 808.2, current_a: 214.8 }, temperature: { cabinet_c: 42.1, heatsink_c: 48.5 }, alarms: [], firmware: 'v3.14.8' },
+    id: 'inv-02', name: 'Inverter 02', site: 'North Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 4100,
+    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 1.7, efficiency: 96.9 }, dc_bus: { voltage_v: 808.2, current_a: 214.8 }, temperature: { cabinet_c: 25.0, heatsink_c: 48.5 }, alarms: [], firmware: 'v3.14.8' },
   },
   {
-    id: 'inv-02', name: 'Inverter 02', site: 'North Array', type: 'Power inverter', status: 'stale', lastSeen: Date.now() - 462000,
-    telemetry: { power: { active_kw: 0, reactive_kvar: 0, efficiency: 0 }, dc_bus: { voltage_v: 760.8, current_a: 0 }, temperature: { cabinet_c: 35.2, heatsink_c: 36.4 }, alarms: ['telemetry_timeout'], firmware: 'v3.13.9' },
+    id: 'inv-03', name: 'Inverter 03', site: 'North Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 4620,
+    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 0, efficiency: 97.2 }, dc_bus: { voltage_v: 760.8, current_a: 200.0 }, temperature: { cabinet_c: 25.0, heatsink_c: 36.4 }, alarms: [], firmware: 'v3.13.9' },
+  },
+  {
+    id: 'inv-04', name: 'Inverter 04', site: 'South Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 4620,
+    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 0, efficiency: 97.2 }, dc_bus: { voltage_v: 760.8, current_a: 200.0 }, temperature: { cabinet_c: 25.0, heatsink_c: 36.4 }, alarms: [], firmware: 'v3.13.9' },
+  },
+  {
+    id: 'inv-05', name: 'Inverter 05', site: 'East Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 3880,
+    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 0, efficiency: 97.2 }, dc_bus: { voltage_v: 0, current_a: 0 }, temperature: { cabinet_c: 25.0, heatsink_c: 23.8 }, alarms: [], firmware: 'v3.14.6' },
   },
   {
     id: 'met-01', name: 'Met Station 01', site: 'North Array', type: 'Weather sensor', status: 'online', lastSeen: Date.now() - 9200,
-    telemetry: { irradiance: { ghi_w_m2: 742.8, dni_w_m2: 801.2 }, ambient: { temperature_c: 24.6, humidity_pct: 41.8, wind_speed_ms: 3.7 }, panel: { temperature_c: 37.9 }, sample: { interval_s: 10, quality: 'good' } },
-  },
-  {
-    id: 'inv-11', name: 'Inverter 11', site: 'East Array', type: 'Power inverter', status: 'offline', lastSeen: Date.now() - 3880000,
-    telemetry: { power: { active_kw: 0, reactive_kvar: 0, efficiency: 0 }, dc_bus: { voltage_v: 0, current_a: 0 }, temperature: { cabinet_c: 23.2, heatsink_c: 23.8 }, alarms: ['connection_lost', 'dc_undervoltage'], firmware: 'v3.14.6' },
+    telemetry: { irradiance: { ghi_w_m2: 825.0, dni_w_m2: 801.2 }, ambient: { temperature_c: 32.0, humidity_pct: 41.8, wind_speed_ms: 3.7 }, panel: { temperature_c: 37.9 }, sample: { interval_s: 10, quality: 'good' } },
   },
 ];
-
-const statusMeta: Record<DeviceStatus, { label: string; color: string; dot: string }> = {
-  online: { label: 'Online', color: 'text-teal-700 bg-teal-50 border-teal-200', dot: 'bg-teal-500' },
-  stale: { label: 'Stale', color: 'text-amber-800 bg-amber-50 border-amber-200', dot: 'bg-amber-500' },
-  offline: { label: 'Offline', color: 'text-rose-700 bg-rose-50 border-rose-200', dot: 'bg-rose-500' },
-};
-
-function formatLastSeen(timestamp: number, now = Date.now()) {
-  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
-  if (seconds < 10) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
-}
 
 function numberFrom(device: Device, path: string[], fallback = 0) {
   let value: JsonValue = device.telemetry;
@@ -116,7 +106,6 @@ function numberFrom(device: Device, path: string[], fallback = 0) {
 function formatValue(value: JsonValue) {
   if (value === null) return 'null';
   if (typeof value === 'object') return JSON.stringify(value);
-  // Inspection views must preserve the exact MQTT value.
   return String(value);
 }
 
@@ -133,209 +122,699 @@ function flattenJson(value: JsonValue, path = ''): Array<{ path: string; value: 
   return entries.flatMap(([key, child]) => flattenJson(child, path ? `${path}.${key}` : key));
 }
 
-function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'teal' | 'amber' | 'rose' }) {
+function CustomBadge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'destructive' }) {
   const tones = {
-    neutral: 'bg-slate-100 text-slate-600 border-slate-200',
-    teal: 'bg-teal-50 text-teal-700 border-teal-200',
-    amber: 'bg-amber-50 text-amber-800 border-amber-200',
-    rose: 'bg-rose-50 text-rose-700 border-rose-200',
+    neutral: 'bg-slate-800 text-slate-300 border-slate-700',
+    success: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    warning: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    destructive: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
   };
-  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[.11em] ${tones[tone]}`}>{children}</span>;
+  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tones[tone]}`}>{children}</span>;
 }
 
-function StatusDot({ status }: { status: DeviceStatus }) {
-  return <span className={`inline-block h-2 w-2 rounded-full ${statusMeta[status].dot} ${status === 'online' ? 'pulse-soft' : ''}`} />;
-}
+const electricalData = Array.from({ length: 24 }).map((_, i) => ({
+  time: `${i}:00`,
+  vab: 770 + Math.random() * 6,
+  vbc: 772 + Math.random() * 6,
+  vca: 775 + Math.random() * 6,
+  ia: 23 + Math.random() * 1.5,
+  ib: 23.5 + Math.random() * 1.5,
+  ic: 23.2 + Math.random() * 1.5,
+}));
 
-function Sparkline({ points, danger = false }: { points: number[]; danger?: boolean }) {
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const range = max - min || 1;
-  const path = points.map((point, index) => `${(index / (points.length - 1)) * 100},${34 - ((point - min) / range) * 25}`).join(' ');
-  return (
-    <svg viewBox="0 0 100 38" preserveAspectRatio="none" className="h-10 w-full overflow-visible" aria-hidden="true">
-      <path d={`M ${path}`} fill="none" stroke={danger ? '#d26251' : '#0d8f80'} strokeWidth="1.8" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
+const energyData = [
+  { name: 'Mon', value: 12.5 },
+  { name: 'Tue', value: 14.2 },
+  { name: 'Wed', value: 13.8 },
+  { name: 'Thu', value: 15.1 },
+  { name: 'Fri', value: 14.8 },
+  { name: 'Sat', value: 11.2 },
+  { name: 'Sun', value: 14.13 },
+];
 
-function MetricCard({ icon: Icon, label, value, detail, points, tone = 'teal' }: { icon: typeof Activity; label: string; value: string; detail: string; points: number[]; tone?: 'teal' | 'amber' | 'rose' }) {
-  const color = tone === 'amber' ? 'text-amber-700 bg-amber-50' : tone === 'rose' ? 'text-rose-700 bg-rose-50' : 'text-teal-700 bg-teal-50';
-  return (
-    <article className="group relative overflow-hidden rounded-xl border border-[#d8e5df] bg-white p-4 shadow-[0_3px_14px_rgba(24,42,43,.035)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_9px_24px_rgba(24,42,43,.08)]">
-      <div className="flex items-start justify-between">
-        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${color}`}><Icon size={16} strokeWidth={2.2} /></div>
-        <span className="mono text-[10px] text-slate-400">24 H</span>
-      </div>
-      <div className="mt-4 flex items-end justify-between gap-3">
-        <div><p className="text-[11px] font-semibold uppercase tracking-[.12em] text-slate-500">{label}</p><p className="mt-1 text-[25px] font-extrabold tracking-[-.04em] text-[#263c40]">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>
-        <div className="mb-1 w-[39%] opacity-80"><Sparkline points={points} danger={tone === 'rose'} /></div>
-      </div>
-    </article>
-  );
-}
-
-function DeviceRow({ device, selected, onSelect }: { device: Device; selected: boolean; onSelect: () => void }) {
-  const status = statusMeta[device.status];
-  return (
-    <button type="button" onClick={onSelect} data-testid={`button-select-device-${device.id}`} className={`focus-ring group w-full border-b border-[#e7efeb] px-4 py-3 text-left transition-colors last:border-0 ${selected ? 'bg-[#e9f5f1]' : 'hover:bg-[#f5f9f7]'}`}>
-      <div className="flex items-center gap-3">
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? 'bg-[#c9e8de] text-[#08796d]' : 'bg-slate-100 text-slate-500'}`}><Zap size={17} strokeWidth={2.2} /></div>
-        <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate text-sm font-bold text-[#2c4144]">{device.name}</span>{device.status === 'stale' && <AlertTriangle size={13} className="shrink-0 text-amber-600" />}</div><p className="mt-0.5 truncate text-[11px] text-slate-500">{device.site} · {device.type}</p></div>
-        <div className="text-right"><div className="flex items-center justify-end gap-1.5"><StatusDot status={device.status} /><span className={`text-[10px] font-bold uppercase tracking-wider ${status.color.split(' ')[0]}`}>{status.label}</span></div><p className="mono mt-1 text-[10px] text-slate-400">{formatLastSeen(device.lastSeen)}</p></div>
-      </div>
-    </button>
-  );
-}
-
-function FieldTree({ value, path = [], onCopy }: { value: JsonValue; path?: string[]; onCopy: (text: string) => void }) {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return <div className="flex min-w-0 items-center justify-end gap-2"><span className="mono truncate text-xs font-medium text-[#3a5457]">{formatValue(value)}</span><button type="button" onClick={() => onCopy(formatValue(value))} data-testid={`button-copy-field-${path.join('-')}`} className="focus-ring rounded p-1 text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-teal-700 group-hover:opacity-100"><Copy size={12} /></button></div>;
+const powerTrendData = Array.from({ length: 24 }).map((_, i) => {
+  let val = 0;
+  if (i > 6 && i < 19) {
+    val = Math.sin((i - 6) / 12 * Math.PI) * 20156;
   }
+  return { time: `${i}:00`, power: val + (val > 0 ? Math.random() * 500 : 0) };
+});
+
+const distributionData = [
+  { name: 'INV1', value: 20 },
+  { name: 'INV2', value: 20 },
+  { name: 'INV3', value: 20 },
+  { name: 'INV4', value: 20 },
+  { name: 'INV5', value: 20 },
+];
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+
+
+function Sidebar({ onSettings, mobileOpen, onClose }: any) {
   return (
-    <div className="space-y-0.5">
-      {Object.entries(value).map(([key, child]) => {
-        const childPath = [...path, key];
-        const nested = typeof child === 'object' && child !== null && !Array.isArray(child);
-        return (
-          <div key={childPath.join('.')} className="group">
-            <div className="flex min-h-8 items-center justify-between gap-4 rounded-md px-2.5 transition-colors hover:bg-[#f1f7f4]">
-              <div className="flex min-w-0 items-center gap-2"><span className="text-[12px] text-slate-500">{nested ? <ChevronRight size={13} className="text-slate-400" /> : <span className="ml-1.5 inline-block h-1 w-1 rounded-full bg-teal-500" />}</span><span className="truncate font-mono text-[12px] font-medium text-[#426064]">{key}</span></div>
-              <div className="min-w-0">{nested ? <span className="mono text-[10px] text-slate-400">{Object.keys(child).length} fields</span> : <FieldTree value={child} path={childPath} onCopy={onCopy} />}</div>
-            </div>
-            {nested && <div className="ml-5 border-l border-[#dce9e3] pl-2"><FieldTree value={child} path={childPath} onCopy={onCopy} /></div>}
+    <aside className={`fixed inset-y-0 left-0 z-30 flex w-[260px] flex-col bg-[#0b0f19] border-r border-[#1e293b] transition-transform duration-300 md:static md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className="flex h-[72px] items-center px-6 border-b border-[#1e293b]">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-8 h-8 rounded bg-orange-500/20 text-orange-500">
+            <Sun size={20} strokeWidth={2.5} />
           </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function CompletePayloadInspector({ rawPayload, rawJson, topic, onCopy }: { rawPayload: string; rawJson: JsonValue | null; topic: string; onCopy: (text: string) => void }) {
-  const rows = rawJson ? flattenJson(rawJson) : [];
-
-  return (
-    <section className="min-w-0 overflow-hidden rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]">
-      <div className="flex flex-col justify-between gap-3 border-b border-[#e1ebe6] px-4 py-4 sm:flex-row sm:items-center sm:px-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-extrabold text-[#2b4346]">Complete live MQTT message</h3>
-            <Badge tone="teal"><span className="h-1.5 w-1.5 rounded-full bg-teal-500 pulse-soft" />Live</Badge>
+          <div>
+            <h1 className="text-sm font-bold text-slate-100">Solar SCADA</h1>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest">Monitoring System</p>
           </div>
-          <p className="mt-1 mono text-[11px] text-slate-500">Every value in the latest broker payload · {topic}</p>
         </div>
-        <button type="button" onClick={() => onCopy(rawPayload)} data-testid="button-copy-complete-payload" className="focus-ring inline-flex items-center justify-center gap-1.5 rounded-md border border-[#d8e5df] px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:border-teal-300 hover:text-teal-700"><Copy size={12} />Copy exact message</button>
       </div>
-      <div className="border-b border-[#e1ebe6] bg-[#f8fbf9] p-4">
-        <p className="mb-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Exact MQTT payload</p>
-        <pre className="overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[#dfeae5] bg-white p-3 mono text-[11px] leading-5 text-[#30494c]">{rawPayload}</pre>
-      </div>
-      <div className="flex items-center justify-between bg-[#172c32] px-4 py-2.5">
-        <p className="mono text-[10px] uppercase tracking-[.14em] text-[#8ee4cf]">All discovered JSON values</p>
-        <span className="mono text-[10px] text-[#8aa8a1]">{rawJson ? `${rows.length} values` : 'waiting'}</span>
-      </div>
-      <div className="overflow-auto">
-        <table className="w-full min-w-[650px] text-left">
-          <thead className="sticky top-0 z-[1] bg-[#edf6f1]">
-            <tr><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Field path</th><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Exact value</th><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Type</th></tr>
-          </thead>
-          <tbody className="divide-y divide-[#dce9e3] bg-white">
-            {rawJson ? rows.map((row, index) => <tr key={`${row.path}-${index}`} className="align-top hover:bg-[#f4faf7]"><td className="px-3 py-2 mono text-[11px] font-medium whitespace-nowrap text-[#426064]">{row.path}</td><td className="px-3 py-2 mono text-[11px] whitespace-pre-wrap break-all text-[#30494c]">{row.value}</td><td className="px-3 py-2 mono text-[10px] uppercase text-teal-700">{row.type}</td></tr>) : <tr><td colSpan={3} className="px-3 py-8 text-center text-xs text-slate-400">Waiting for the first MQTT payload.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
+      
+      <div className="flex-1 py-6 px-4 overflow-y-auto scrollbar-thin">
+        <div className="mb-8">
+          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Overview</p>
+          <nav className="space-y-1.5">
+            <NavItem icon={LayoutDashboard} label="Dashboard" active />
+            <NavItem icon={Layers3} label="Plant Overview" />
+          </nav>
+        </div>
+        
+        <div className="mb-8">
+          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Monitoring</p>
+          <nav className="space-y-1.5">
+            <NavItem icon={Zap} label="Inverters" hasArrow />
+            <NavItem icon={Activity} label="Live Data" />
+            <NavItem icon={Gauge} label="Energy Analytics" />
+            <NavItem icon={AlertTriangle} label="Alarms & Events" />
+          </nav>
+        </div>
 
-function ModbusTable({ rows, persistence }: { rows: ModbusRow[]; persistence: PersistenceStatus }) {
-  const persistedAt = persistence.lastSnapshotAt ? new Date(persistence.lastSnapshotAt).toLocaleTimeString() : undefined;
-
-  return (
-    <section className="mt-6 min-w-0 overflow-hidden rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]">
-      <div className="flex flex-col justify-between gap-2 border-b border-[#e1ebe6] px-4 py-4 sm:flex-row sm:items-center sm:px-5">
         <div>
-          <h3 className="text-sm font-extrabold text-[#2b4346]">Live Modbus parameters</h3>
-          <p className="mt-1 text-[11px] text-slate-500">One row per parameter received from <span className="mono">trn246/modbus</span>; values are updated live without deleting prior parameters.</p>
+          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Insights</p>
+          <nav className="space-y-1.5">
+            <NavItem icon={FileText} label="Reports" />
+            <NavItem icon={Activity} label="Performance" />
+            <NavItem icon={Settings2} label="Settings" onClick={onSettings} />
+          </nav>
         </div>
-        <div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 mono text-[10px] font-bold ${persistence.error ? 'bg-rose-50 text-rose-700' : 'bg-[#e7f3ef] text-teal-700'}`}>{persistence.error ? 'Storage retrying' : persistedAt ? `Saved ${persistedAt}` : `Saving every ${persistence.intervalMinutes} min`}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 mono text-[10px] font-bold text-slate-600">{rows.length} parameters</span></div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1500px] text-left">
-          <thead className="bg-[#172c32]">
-            <tr>{MODBUS_COLUMNS.map((column) => <th key={column} className="whitespace-nowrap px-3 py-2.5 mono text-[10px] font-bold uppercase tracking-[.1em] text-[#8ee4cf]">{column}</th>)}</tr>
-          </thead>
-          <tbody className="divide-y divide-[#dce9e3] bg-white">
-            {rows.length ? rows.map((row, index) => <tr key={`${modbusRowKey(row)}-${index}`} className="align-top hover:bg-[#f4faf7]">{MODBUS_COLUMNS.map((column) => <td key={column} className="whitespace-nowrap px-3 py-2 mono text-[11px] text-[#30494c]">{row[column] === undefined ? '—' : formatValue(row[column])}</td>)}</tr>) : <tr><td colSpan={MODBUS_COLUMNS.length} className="px-3 py-10 text-center text-xs text-slate-400">Waiting for Modbus parameter messages.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function Sidebar({ onSettings, mobileOpen, onClose, brokerUrl, brokerTopic, live }: { onSettings: () => void; mobileOpen: boolean; onClose: () => void; brokerUrl: string; brokerTopic: string; live: boolean }) {
-  return (
-    <aside className={`fixed inset-y-0 left-0 z-30 flex w-[246px] flex-col border-r border-[#314850] bg-[#20343d] text-slate-100 transition-transform duration-300 md:static md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-      <div className="flex h-[76px] items-center justify-between border-b border-[#314850] px-5">
-        <div className="flex items-center gap-3"><div className="relative flex h-9 w-9 items-center justify-center rounded-[10px] bg-[#f2bd59] text-[#20343d]"><Activity size={20} strokeWidth={2.7} /><span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#58d2b8] ring-2 ring-[#20343d]" /></div><div><p className="text-sm font-extrabold tracking-[-.02em]">Northline</p><p className="mono mt-0.5 text-[9px] uppercase tracking-[.16em] text-slate-400">SCADA / OPS</p></div></div>
-        <button type="button" onClick={onClose} data-testid="button-close-sidebar" className="focus-ring rounded-md p-1 text-slate-400 hover:bg-[#2c4751] hover:text-white md:hidden"><X size={18} /></button>
-      </div>
-      <div className="flex-1 px-3 py-5">
-        <p className="px-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-500">Workspace</p>
-        <nav className="mt-3 space-y-1">
-          <button type="button" data-testid="button-nav-overview" className="flex w-full items-center gap-3 rounded-lg bg-[#2d4a53] px-3 py-2.5 text-left text-sm font-bold text-white shadow-inner shadow-white/5"><LayoutDashboard size={17} className="text-[#70ddc3]" />Overview<span className="ml-auto rounded bg-[#397169] px-1.5 py-0.5 mono text-[10px] text-[#a6f0dc]">LIVE</span></button>
-          <button type="button" data-testid="button-nav-topology" onClick={() => window.alert('Topology view is available when additional site maps are connected.')} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-400 transition-colors hover:bg-[#2a444d] hover:text-slate-100"><Layers3 size={17} />Topology</button>
-          <button type="button" data-testid="button-nav-events" onClick={() => window.alert('All events are shown in the alert feed on this overview.')} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-400 transition-colors hover:bg-[#2a444d] hover:text-slate-100"><AlertCircle size={17} />Event log<span className="ml-auto rounded-full bg-[#754945] px-1.5 py-0.5 mono text-[10px] text-[#ffc0a7]">3</span></button>
-        </nav>
-        <p className="mt-9 px-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-500">Connection</p>
-        <div className="mt-3 rounded-xl border border-[#39545b] bg-[#263f48] p-3">
-           <div className="flex items-center gap-2"><span className="relative flex h-7 w-7 items-center justify-center rounded-md bg-[#d8a94f]/20 text-[#f3c96d]"><Radio size={15} /><span className="absolute inset-0 animate-ping rounded-md bg-[#f3c96d]/10" /></span><div><p className="text-xs font-bold text-slate-100">{live ? 'MQTT broker' : 'Demo channel'}</p><p className="mono mt-0.5 max-w-[155px] truncate text-[9px] text-slate-400">{live ? brokerTopic : 'northline/site/+/telemetry'}</p></div></div>
-           <div className="mt-3 flex items-center gap-2 border-t border-[#39545b] pt-3 text-[10px] text-[#8ee4cf]"><span className="h-1.5 w-1.5 rounded-full bg-[#63d9be]" />{live ? `Listening on ${brokerUrl}` : 'Receiving local sample data'}</div>
-        </div>
-      </div>
-      <div className="border-t border-[#314850] p-3">
-        <button type="button" onClick={onSettings} data-testid="button-open-settings" className="focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-400 transition-colors hover:bg-[#2a444d] hover:text-white"><Settings2 size={17} />Broker settings<ChevronRight size={14} className="ml-auto" /></button>
-        <div className="mt-4 flex items-center gap-2 px-3"><div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#39626a] text-[10px] font-extrabold text-[#bcefe1]">OP</div><div><p className="text-xs font-bold text-slate-200">Operator console</p><p className="mono text-[9px] text-slate-500">shift A · read / inspect</p></div><MoreHorizontal size={16} className="ml-auto text-slate-500" /></div>
       </div>
     </aside>
   );
 }
 
-function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error }: { open: boolean; onClose: () => void; mode: 'demo' | 'live'; setMode: (mode: 'demo' | 'live') => void; connected: boolean; onConnect: (url: string, topic: string) => void; onDisconnect: () => void; error: string }) {
+function NavItem({ icon: Icon, label, active, hasArrow, onClick }: any) {
+  return (
+    <button onClick={onClick} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-all ${active ? 'bg-[#1e293b] text-slate-100' : 'text-slate-400 hover:text-slate-200 hover:bg-[#1e293b]/50'}`}>
+      <div className="flex items-center gap-3 font-medium">
+        <Icon size={18} className={active ? 'text-orange-500' : ''} />
+        <span>{label}</span>
+      </div>
+      {hasArrow && <ChevronRight size={14} className="text-slate-500" />}
+    </button>
+  );
+}
+
+function Header({ toggleMobileNav }: any) {
+  return (
+    <header className="h-[72px] bg-[#0b0f19] border-b border-[#1e293b] flex items-center justify-between px-6 shrink-0">
+      <div className="flex items-center gap-4">
+        <button className="md:hidden text-slate-400" onClick={toggleMobileNav}>
+          <Menu size={20} />
+        </button>
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-bold text-slate-100 tracking-tight">TRN246 Solar Plant</h2>
+            <CustomBadge tone="success"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-soft" />LIVE</CustomBadge>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">Utility-scale PV • 23 Aug 2026</p>
+        </div>
+      </div>
+      
+      <div className="hidden lg:flex items-center gap-4">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300">
+          <Sun size={14} className="text-slate-400" />
+          <span>32°C Clear Sky</span>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300">
+          <Zap size={14} className="text-slate-400" />
+          <span>825 W/m²</span>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300">
+          <RefreshCw size={14} className="text-slate-400" />
+          <span>Updated 17:31:19</span>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300">
+          <Activity size={14} className="text-slate-400" />
+          <span>Auto-refresh 60s</span>
+        </div>
+        
+        <div className="flex items-center gap-3 border-l border-[#1e293b] pl-6 ml-2">
+          <button className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors"><Moon size={16} /></button>
+          <button className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors relative">
+            <Bell size={16} />
+            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-rose-500" />
+          </button>
+          <button className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors"><User size={16} /></button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function KpiCard({ title, value, unit, subtext, icon: Icon, colorClass, borderClass }: any) {
+  return (
+    <div className={`bg-[#111827] border ${borderClass || 'border-[#1e293b]'} rounded-xl p-4 flex flex-col justify-between hover:border-slate-600 transition-colors`}>
+      <div className="flex items-start justify-between">
+        <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</h3>
+        <div className={`p-1.5 rounded text-[14px] ${colorClass}`}>
+          <Icon size={14} />
+        </div>
+      </div>
+      <div className="mt-4">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-2xl font-bold text-slate-100">{value}</span>
+          {unit && <span className="text-[11px] font-medium text-slate-500">{unit}</span>}
+        </div>
+        {subtext && <p className="text-[10px] text-slate-500 mt-1">{subtext}</p>}
+      </div>
+    </div>
+  );
+}
+
+function ElectricalParametersChart() {
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <Zap size={16} className="text-slate-400" />
+          <h3 className="text-sm font-bold text-slate-200">Electrical Parameters</h3>
+        </div>
+      </div>
+      
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div>
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-4">Phase Voltages (V)</p>
+          <div className="h-[100px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={electricalData}>
+                <Tooltip contentStyle={{ backgroundColor: '#0f1423', borderColor: '#1e293b', fontSize: '12px' }} itemStyle={{ color: '#e2e8f0' }} />
+                <Line type="monotone" dataKey="vab" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="vbc" stroke="#10b981" strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="vca" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex gap-4 mt-4 border-t border-[#1e293b] pt-3">
+            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]" /><span className="text-[9px] text-slate-300 font-medium">AB 773.6V</span></div>
+            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" /><span className="text-[9px] text-slate-300 font-medium">BC 773.6V</span></div>
+            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" /><span className="text-[9px] text-slate-300 font-medium">CA 775.7V</span></div>
+          </div>
+        </div>
+        
+        <div className="flex">
+          <div className="flex-1">
+             <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-4">Phase Currents (A)</p>
+             <div className="h-[100px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={electricalData}>
+                  <Tooltip contentStyle={{ backgroundColor: '#0f1423', borderColor: '#1e293b', fontSize: '12px' }} itemStyle={{ color: '#e2e8f0' }} />
+                  <Line type="monotone" dataKey="ia" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="ib" stroke="#10b981" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="ic" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+             </div>
+             <div className="flex gap-4 mt-4 border-t border-[#1e293b] pt-3">
+                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]" /><span className="text-[9px] text-slate-300 font-medium">A 23.7A</span></div>
+                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" /><span className="text-[9px] text-slate-300 font-medium">B 23.8A</span></div>
+                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" /><span className="text-[9px] text-slate-300 font-medium">C 23.7A</span></div>
+             </div>
+          </div>
+          <div className="w-[120px] flex flex-col justify-center pl-6 ml-6 border-l border-[#1e293b]">
+             <div className="mb-6">
+               <div className="flex items-center gap-2 mb-1">
+                 <div className="w-[22px] h-[22px] rounded-full border-[2.5px] border-emerald-500" />
+                 <span className="text-[16px] font-bold text-slate-100">1.000</span>
+               </div>
+               <p className="text-[8px] text-slate-500 uppercase tracking-wider font-semibold">Power Factor</p>
+             </div>
+             <div>
+               <div className="flex items-center gap-2 mb-1">
+                 <div className="w-[22px] h-[22px] rounded-full border-[2.5px] border-blue-500" />
+                 <span className="text-[16px] font-bold text-slate-100">50.0 <span className="text-[9px] text-slate-400">Hz</span></span>
+               </div>
+               <p className="text-[8px] text-slate-500 uppercase tracking-wider font-semibold">Frequency</p>
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InverterOverviewTable({ devices }: { devices: Device[] }) {
+  const inverters = devices.filter(d => d.type === 'Power inverter');
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Layers3 size={16} className="text-slate-400" />
+          <h3 className="text-sm font-bold text-slate-200">Inverter Overview</h3>
+        </div>
+        <button className="text-[10px] text-slate-500 hover:text-slate-300">View all</button>
+      </div>
+      
+      <div className="flex-1 overflow-auto scrollbar-thin pr-1">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-[#1e293b]">
+              <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Inv.</th>
+              <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Status</th>
+              <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Power</th>
+              <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold text-right">Temp</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#1e293b]/50">
+            {inverters.map(inv => (
+              <tr key={inv.id} className="hover:bg-[#1e293b]/30">
+                <td className="py-2.5 text-[11px] font-medium text-slate-300">{inv.name.replace('Inverter ', 'INV')}</td>
+                <td className="py-2.5">
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${inv.status === 'online' ? 'bg-emerald-500/10 text-emerald-400' : inv.status === 'offline' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                    <span className={`w-1 h-1 rounded-full ${inv.status === 'online' ? 'bg-emerald-400 pulse-soft' : inv.status === 'offline' ? 'bg-rose-400' : 'bg-amber-400'}`} />
+                    Online
+                  </span>
+                </td>
+                <td className="py-2.5 text-[11px] text-slate-300">{numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW</td>
+                <td className="py-2.5 text-[11px] text-slate-300 text-right">{numberFrom(inv, ['temperature', 'cabinet_c'])}°C</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      <div className="pt-3 mt-2 border-t border-[#1e293b] flex justify-between items-center text-[10px] text-slate-400">
+        <span className="uppercase tracking-wider font-semibold">Total Today</span>
+        <span className="font-bold text-slate-200">14.13 MWh • PF 1.000</span>
+      </div>
+    </div>
+  );
+}
+
+function EnergySummaryChart() {
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col">
+           <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2 mb-1">
+             <Activity size={14} className="text-slate-400" /> Energy Summary
+           </h3>
+        </div>
+        <div className="flex bg-[#0f1423] p-0.5 rounded border border-[#1e293b]">
+          <button className="px-2 py-1 text-[9px] bg-[#1e293b] rounded font-medium text-slate-200 shadow-sm">Daily</button>
+          <button className="px-2 py-1 text-[9px] text-slate-500 font-medium">Monthly</button>
+          <button className="px-2 py-1 text-[9px] text-slate-500 font-medium">Yearly</button>
+        </div>
+      </div>
+      <div className="mb-6">
+        <span className="text-2xl font-bold text-slate-100 tracking-tight">14.13</span> <span className="text-[11px] text-slate-500">MWh today</span>
+      </div>
+      <div className="flex-1 min-h-[140px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={energyData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+            <Tooltip cursor={{ fill: '#1e293b' }} contentStyle={{ backgroundColor: '#0f1423', borderColor: '#1e293b', fontSize: '12px' }} itemStyle={{ color: '#e2e8f0' }} />
+            <Bar dataKey="value" fill="#f97316" radius={[2, 2, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex justify-between text-[9px] text-slate-500 mt-2 font-mono">
+        <span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span>
+      </div>
+    </div>
+  );
+}
+
+function PowerTrendChart({ currentKw }: { currentKw: number }) {
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Activity size={14} className="text-slate-400" />
+          <h3 className="text-sm font-bold text-slate-200">Power Trend</h3>
+        </div>
+        <span className="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Real time</span>
+      </div>
+      <div className="mb-6">
+        <span className="text-2xl font-bold text-slate-100 tracking-tight">{currentKw.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> <span className="text-[11px] text-slate-500">kW right now</span>
+      </div>
+      <div className="flex-1 min-h-[140px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={powerTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="colorPower" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25}/>
+                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="2 4" stroke="#1e293b" vertical={false} />
+            <XAxis dataKey="time" hide />
+            <Tooltip contentStyle={{ backgroundColor: '#0f1423', borderColor: '#1e293b', fontSize: '12px' }} itemStyle={{ color: '#e2e8f0' }} />
+            <Area type="monotone" dataKey="power" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#colorPower)" isAnimationActive={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex justify-between text-[9px] text-slate-500 mt-2 font-mono">
+        <span>00:00</span>
+        <span>06:00</span>
+        <span>12:00</span>
+        <span className="text-orange-500 font-bold">Now</span>
+        <span>24:00</span>
+      </div>
+    </div>
+  );
+}
+
+function PowerDistributionChart() {
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
+      <div className="flex items-center gap-2 mb-6">
+        <Activity size={14} className="text-slate-400" />
+        <h3 className="text-sm font-bold text-slate-200">Power Distribution</h3>
+      </div>
+      
+      <div className="flex-1 flex flex-col items-center relative">
+        <div className="h-[120px] w-full relative flex justify-center mt-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={distributionData} innerRadius={42} outerRadius={55} paddingAngle={2} dataKey="value" stroke="none">
+                {distributionData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={{ backgroundColor: '#0f1423', borderColor: '#1e293b', fontSize: '12px' }} itemStyle={{ color: '#e2e8f0' }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-sm font-bold text-slate-100">20.16</span>
+            <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mt-0.5">MW Total</span>
+          </div>
+        </div>
+        
+        <div className="w-full mt-6 space-y-2">
+          {distributionData.map((entry, i) => (
+            <div key={entry.name} className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS[i] }} />
+                <span className="text-slate-400 font-medium">{entry.name}</span>
+              </div>
+              <span className="text-slate-300 font-bold">{entry.value.toFixed(1)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SidePanels({ devices }: { devices: Device[] }) {
+  const met = devices.find(d => d.id.startsWith('met'));
+  const ambient = numberFrom(met as any, ['telemetry', 'ambient', 'temperature_c'], 32.0);
+  const irradiance = numberFrom(met as any, ['telemetry', 'irradiance', 'ghi_w_m2'], 825);
+  
+  return (
+    <div className="flex flex-col gap-4 h-full">
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex-1">
+        <div className="flex items-center gap-2 mb-4">
+          <Sun size={14} className="text-slate-400" />
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Environment</h3>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 bg-[#1e293b]/50 p-1.5 rounded text-rose-400"><Thermometer size={12} /></div>
+            <span className="text-[10px] text-slate-400 flex-1 ml-3">Internal Temp</span>
+            <span className="text-[11px] font-bold text-slate-200">25.0°C</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 bg-[#1e293b]/50 p-1.5 rounded text-orange-400"><Sun size={12} /></div>
+            <span className="text-[10px] text-slate-400 flex-1 ml-3">Irradiance</span>
+            <span className="text-[11px] font-bold text-slate-200">{irradiance} W/m²</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 bg-[#1e293b]/50 p-1.5 rounded text-blue-400"><Thermometer size={12} /></div>
+            <span className="text-[10px] text-slate-400 flex-1 ml-3">Ambient Temp</span>
+            <span className="text-[11px] font-bold text-slate-200">{ambient}°C</span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex-1">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertTriangle size={14} className="text-slate-400" />
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Alarms & Faults</h3>
+        </div>
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-slate-400">General Alarm</span>
+            <span className="font-bold text-slate-200">0</span>
+          </div>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-slate-400">Fault Alarm</span>
+            <span className="font-bold text-slate-200">0</span>
+          </div>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-slate-400">Fault Code</span>
+            <span className="font-bold text-slate-200">0</span>
+          </div>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-slate-400">Alarm Code</span>
+            <span className="font-bold text-slate-200">65535</span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex-1">
+        <div className="flex items-center gap-2 mb-3">
+          <Check size={14} className="text-slate-400" />
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Data Quality</h3>
+        </div>
+        <div className="flex items-center gap-4">
+           <div className="relative w-[52px] h-[52px] flex items-center justify-center">
+             <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#1e293b" strokeWidth="3.5" />
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="3.5" strokeDasharray="92, 100" />
+             </svg>
+             <span className="absolute text-[10px] font-bold text-emerald-400">92%</span>
+           </div>
+           <div className="space-y-2 flex-1">
+             <div className="flex items-center justify-between text-[9px]">
+               <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /><span className="text-slate-400">Good</span></div>
+               <span className="text-slate-200 font-bold">35</span>
+             </div>
+             <div className="flex items-center justify-between text-[9px]">
+               <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" /><span className="text-slate-400">Scaling</span></div>
+               <span className="text-slate-200 font-bold">3</span>
+             </div>
+             <div className="flex items-center justify-between text-[9px]">
+               <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" /><span className="text-slate-400">Bad</span></div>
+               <span className="text-slate-200 font-bold">0</span>
+             </div>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persistence: PersistenceStatus }) {
+  const getCategory = (row: ModbusRow) => {
+    const name = String(row.name || '').toLowerCase();
+    if (name.includes('voltage') || name.includes('current')) return 'Electrical';
+    if (name.includes('power') || name.includes('frequency')) return 'Power';
+    if (name.includes('temp') || name.includes('irradiance')) return 'Environment';
+    if (name.includes('alarm') || name.includes('fault')) return 'Alarms';
+    return 'Device';
+  };
+  
+  return (
+    <section className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden flex flex-col mt-6">
+      <div className="flex flex-col justify-between gap-3 border-b border-[#1e293b] p-5 sm:flex-row sm:items-center">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Database size={16} className="text-slate-400" />
+            <h3 className="text-sm font-bold text-slate-200">Detailed Live Data</h3>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={`px-2.5 py-1 rounded text-[9px] font-bold uppercase tracking-wider ${persistence.error ? 'bg-rose-500/10 text-rose-400' : 'bg-[#1e293b] text-slate-300'}`}>
+            {persistence.error ? 'Storage retrying' : `Saving every ${persistence.intervalMinutes} min`}
+          </span>
+          <button className="text-[10px] text-slate-500 hover:text-slate-300">View all</button>
+        </div>
+      </div>
+      
+      <div className="overflow-x-auto scrollbar-thin">
+        <table className="w-full text-left whitespace-nowrap min-w-[1000px]">
+          <thead className="bg-[#0b0f19]">
+            <tr>
+              <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Category</th>
+              <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Parameter</th>
+              <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Raw Value</th>
+              <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Scaled Value</th>
+              <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Unit</th>
+              <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Register Address</th>
+              <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Data Quality</th>
+              <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Source</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#1e293b]">
+            {rows.length ? rows.map((row, index) => {
+               const rawValue = formatValue(row.raw_data ?? row.data);
+               const scaledValue = formatValue(row.data);
+               return (
+                 <tr key={`${modbusRowKey(row)}-${index}`} className="hover:bg-[#1e293b]/40 transition-colors">
+                   <td className="px-5 py-2.5 text-[11px] text-slate-300 flex items-center gap-2">
+                     <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                     {getCategory(row)}
+                   </td>
+                   <td className="px-5 py-2.5 text-[11px] text-slate-300 font-medium">{String(row.name || '—')}</td>
+                   <td className="px-5 py-2.5 text-[11px] text-slate-400 font-mono">{rawValue}</td>
+                   <td className="px-5 py-2.5 text-[11px] text-slate-200 font-mono font-bold">{scaledValue}</td>
+                   <td className="px-5 py-2.5 text-[11px] text-slate-400">—</td>
+                   <td className="px-5 py-2.5 text-[11px] text-slate-400 font-mono">{String(row.full_addr || row.addr || '—')}</td>
+                   <td className="px-5 py-2.5">
+                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[9px] font-bold uppercase">
+                       <span className="w-1 h-1 rounded-full bg-emerald-400" /> Good
+                     </span>
+                   </td>
+                   <td className="px-5 py-2.5 text-[11px] text-slate-400">{String(row.server_name || 'Modbus')}</td>
+                 </tr>
+               );
+            }) : (
+               <tr><td colSpan={8} className="px-5 py-10 text-center text-xs text-slate-500">Waiting for Modbus parameters...</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function CompletePayloadInspector({ rawPayload, rawJson, topic, onCopy }: any) {
+  const rows = rawJson ? flattenJson(rawJson) : [];
+  return (
+    <section className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden mt-6">
+      <div className="flex flex-col justify-between gap-3 border-b border-[#1e293b] p-5 sm:flex-row sm:items-center">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+             <Code2 size={16} className="text-slate-400" />
+             <h3 className="text-sm font-bold text-slate-200">Raw MQTT Payload</h3>
+             <CustomBadge tone="success"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-soft" />Live</CustomBadge>
+          </div>
+          <p className="text-[11px] text-slate-500 font-mono mt-1">{topic}</p>
+        </div>
+        <button onClick={() => onCopy(rawPayload)} className="flex items-center gap-2 px-3 py-1.5 rounded bg-[#1e293b] text-[11px] font-medium text-slate-200 hover:bg-slate-700 transition-colors border border-[#334155]">
+          <Copy size={13} /> Copy Exact Message
+        </button>
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-[#1e293b]">
+        <div className="p-5 flex flex-col max-h-[400px]">
+          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-3">Exact JSON Message</p>
+          <div className="flex-1 overflow-auto bg-[#0b0f19] rounded-lg border border-[#1e293b] p-3 scrollbar-thin">
+             <pre className="text-[11px] text-slate-300 font-mono whitespace-pre-wrap break-all leading-relaxed">{rawPayload}</pre>
+          </div>
+        </div>
+        <div className="p-5 flex flex-col max-h-[400px]">
+          <div className="flex items-center justify-between mb-3">
+             <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Discovered Fields</p>
+             <span className="text-[9px] font-medium text-slate-400 bg-[#1e293b] px-2 py-0.5 rounded">{rows.length} fields</span>
+          </div>
+          <div className="flex-1 overflow-auto border border-[#1e293b] rounded-lg scrollbar-thin">
+             <table className="w-full text-left">
+               <thead className="bg-[#0b0f19] sticky top-0 border-b border-[#1e293b]">
+                 <tr>
+                   <th className="px-3 py-2 text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Path</th>
+                   <th className="px-3 py-2 text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Value</th>
+                 </tr>
+               </thead>
+               <tbody className="divide-y divide-[#1e293b]/50">
+                 {rows.map((row, i) => (
+                   <tr key={i} className="hover:bg-[#1e293b]/30">
+                     <td className="px-3 py-2 text-[11px] text-blue-400 font-mono whitespace-nowrap">{row.path}</td>
+                     <td className="px-3 py-2 text-[11px] text-slate-300 font-mono truncate max-w-[200px]">{row.value}</td>
+                   </tr>
+                 ))}
+                 {!rows.length && <tr><td colSpan={2} className="px-3 py-8 text-center text-xs text-slate-500">Waiting for data...</td></tr>}
+               </tbody>
+             </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error }: any) {
   const [url, setUrl] = useState(() => localStorage.getItem('northline-broker-url') || DEFAULT_BROKER_URL);
   const [topic, setTopic] = useState(() => localStorage.getItem('northline-broker-topic') || DEFAULT_BROKER_TOPIC);
   const handleConnect = () => { localStorage.setItem('northline-broker-url', url); localStorage.setItem('northline-broker-topic', topic); onConnect(url, topic); };
+  
   return (
     <>
-      {open && <button type="button" aria-label="Close broker settings" data-testid="button-close-settings-overlay" onClick={onClose} className="fixed inset-0 z-20 cursor-default bg-[#183038]/25 backdrop-blur-[2px]" />}
-      <section className={`fixed right-0 top-0 z-40 flex h-full w-full max-w-[410px] flex-col border-l border-[#d8e5df] bg-[#fbfdfc] shadow-[-18px_0_50px_rgba(24,42,43,.14)] transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex items-start justify-between border-b border-[#dfeae5] px-6 py-5"><div><p className="mono text-[10px] font-medium uppercase tracking-[.15em] text-teal-700">Transport control</p><h2 className="mt-1 text-xl font-extrabold tracking-[-.04em] text-[#273d40]">Broker connection</h2><p className="mt-1 text-xs text-slate-500">Persisted locally on this operator station.</p></div><button type="button" onClick={onClose} data-testid="button-close-settings" className="focus-ring rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X size={19} /></button></div>
-        <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">
-          <div className="rounded-xl border border-[#d8e5df] bg-white p-1"><div className="grid grid-cols-2 gap-1"><button type="button" onClick={() => setMode('demo')} data-testid="button-mode-demo" className={`rounded-lg px-3 py-2.5 text-xs font-bold transition-colors ${mode === 'demo' ? 'bg-[#e5f3ee] text-teal-800' : 'text-slate-500 hover:bg-slate-50'}`}><div className="flex items-center justify-center gap-2"><Play size={14} />Demo mode</div></button><button type="button" onClick={() => setMode('live')} data-testid="button-mode-live" className={`rounded-lg px-3 py-2.5 text-xs font-bold transition-colors ${mode === 'live' ? 'bg-[#e5f3ee] text-teal-800' : 'text-slate-500 hover:bg-slate-50'}`}><div className="flex items-center justify-center gap-2"><Wifi size={14} />Live broker</div></button></div></div>
-          <div className="mt-7 space-y-5">
-            <label className="block"><span className="mb-2 block text-xs font-bold text-[#354e51]">Broker endpoint</span><div className="relative"><Link2 size={15} className="absolute left-3 top-3.5 text-slate-400" /><input value={url} readOnly data-testid="input-broker-url" className="mono w-full cursor-default rounded-lg border border-[#d2e0db] bg-slate-50 py-3 pl-9 pr-3 text-xs text-[#30494c] outline-none" /></div><span className="mt-1.5 block text-[11px] leading-4 text-slate-400">Server-side MQTT connection. Credentials are held securely outside this screen.</span></label>
-            <label className="block"><span className="mb-2 block text-xs font-bold text-[#354e51]">Subscription topic</span><div className="relative"><Radio size={15} className="absolute left-3 top-3.5 text-slate-400" /><input value={topic} readOnly data-testid="input-broker-topic" className="mono w-full cursor-default rounded-lg border border-[#d2e0db] bg-slate-50 py-3 pl-9 pr-3 text-xs text-[#30494c] outline-none" /></div><span className="mt-1.5 block text-[11px] leading-4 text-slate-400">Any JSON payload is accepted; fields are discovered automatically.</span></label>
+      {open && <button type="button" aria-label="Close broker settings" onClick={onClose} className="fixed inset-0 z-40 bg-[#0b0f19]/80 backdrop-blur-sm cursor-default" />}
+      <section className={`fixed right-0 top-0 z-50 flex h-full w-full max-w-[400px] flex-col border-l border-[#1e293b] bg-[#111827] shadow-2xl transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="flex items-center justify-between border-b border-[#1e293b] px-6 py-5">
+          <div>
+            <h2 className="text-lg font-bold text-slate-100 tracking-tight">Settings</h2>
+            <p className="text-xs text-slate-400 mt-1">Configure telemetry connection</p>
           </div>
-          {error && <div className="mt-6 flex gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs leading-5 text-rose-800"><AlertCircle size={16} className="mt-0.5 shrink-0" /><span>{error}</span></div>}
-          <div className="mt-8 rounded-xl border border-[#d8e5df] bg-[#f3f8f5] p-4"><div className="flex items-center gap-2 text-xs font-bold text-[#355557]"><ShieldCheck size={16} className="text-teal-700" />Connection checklist</div><ul className="mt-3 space-y-2 text-[11px] leading-4 text-slate-500"><li className="flex gap-2"><Check size={13} className="shrink-0 text-teal-600" />JSON payloads parsed without a field map</li><li className="flex gap-2"><Check size={13} className="shrink-0 text-teal-600" />Device identity inferred from id, device, or name</li><li className="flex gap-2"><Check size={13} className="shrink-0 text-teal-600" />Last-seen clock tracks every message</li></ul></div>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] rounded-lg transition-colors">
+            <X size={18} />
+          </button>
         </div>
-        <div className="border-t border-[#dfeae5] bg-white px-6 py-5">{connected ? <button type="button" onClick={onDisconnect} data-testid="button-disconnect-broker" className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 py-3 text-sm font-bold text-rose-700 transition-colors hover:bg-rose-100"><WifiOff size={16} />Disconnect broker</button> : <button type="button" onClick={handleConnect} data-testid="button-connect-broker" className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg bg-[#197f72] py-3 text-sm font-bold text-white shadow-[0_4px_12px_rgba(25,127,114,.22)] transition-all hover:bg-[#126b61] active:scale-[.99]"><PlugZap size={16} />{mode === 'demo' ? 'Start demo stream' : 'Connect to broker'}</button>}</div>
+        
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 scrollbar-thin">
+          <div className="bg-[#0b0f19] border border-[#1e293b] p-1.5 rounded-lg flex gap-1">
+             <button onClick={() => setMode('demo')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors ${mode === 'demo' ? 'bg-[#1e293b] text-blue-400' : 'text-slate-400 hover:text-slate-200'}`}><Play size={14} /> Demo Stream</button>
+             <button onClick={() => setMode('live')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors ${mode === 'live' ? 'bg-[#1e293b] text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}><Wifi size={14} /> Live Broker</button>
+          </div>
+          
+          <div className="space-y-4">
+            <label className="block">
+               <span className="block text-xs font-bold text-slate-300 mb-2">Broker Endpoint</span>
+               <div className="relative">
+                 <Link2 size={15} className="absolute left-3 top-3.5 text-slate-500" />
+                 <input value={url} onChange={e => setUrl(e.target.value)} className="w-full bg-[#0b0f19] border border-[#1e293b] text-slate-200 text-xs py-3 pl-9 pr-3 rounded-lg focus:outline-none focus:border-blue-500 font-mono" />
+               </div>
+            </label>
+            <label className="block">
+               <span className="block text-xs font-bold text-slate-300 mb-2">Subscription Topic</span>
+               <div className="relative">
+                 <Radio size={15} className="absolute left-3 top-3.5 text-slate-500" />
+                 <input value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-[#0b0f19] border border-[#1e293b] text-slate-200 text-xs py-3 pl-9 pr-3 rounded-lg focus:outline-none focus:border-blue-500 font-mono" />
+               </div>
+            </label>
+          </div>
+          
+          {error && (
+            <div className="flex gap-3 p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-lg">
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+        </div>
+        
+        <div className="p-6 border-t border-[#1e293b] bg-[#111827]">
+          {connected ? (
+             <button onClick={onDisconnect} className="w-full flex items-center justify-center gap-2 py-3 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 text-sm font-bold rounded-lg transition-colors"><WifiOff size={16} /> Disconnect</button>
+          ) : (
+             <button onClick={handleConnect} className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-blue-500/20 transition-colors"><PlugZap size={16} /> {mode === 'demo' ? 'Start Demo' : 'Connect to Broker'}</button>
+          )}
+        </div>
       </section>
     </>
   );
 }
 
 function AppShell() {
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [selectedId, setSelectedId] = useState('inv-03');
-  const [mode, setMode] = useState<'demo' | 'live'>('live');
+  const [devices, setDevices] = useState<Device[]>(initialDevices);
+  const [mode, setMode] = useState<'demo' | 'live'>(() => (localStorage.getItem('northline-mode') as 'demo' | 'live') || 'live');
   const [connected, setConnected] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | DeviceStatus>('all');
-  const [paused, setPaused] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState('');
   const [rawPayload, setRawPayload] = useState('Waiting for the first MQTT payload…');
@@ -347,8 +826,10 @@ function AppShell() {
 
   useEffect(() => { localStorage.setItem('northline-mode', mode); }, [mode]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
+
+  // Demo Stream Generator
   useEffect(() => {
-    if (!connected || mode !== 'demo' || paused) return;
+    if (!connected || mode !== 'demo') return;
     const timer = window.setInterval(() => {
       setDevices((current) => current.map((device) => {
         if (device.status === 'offline') return device;
@@ -358,29 +839,35 @@ function AppShell() {
         return { ...device, lastSeen: Date.now(), telemetry, status: 'online' };
       }));
       setNow(Date.now());
+      
+      // Also push some mock Modbus rows for demo
+      if (Math.random() > 0.5) {
+        setModbusRows(prev => {
+           const mockRow: ModbusRow = {
+             name: 'Phase A Voltage', addr: '40001', full_addr: '40001', data: 770 + Math.random() * 5, raw_data: 7700 + Math.floor(Math.random() * 50),
+             server_name: 'Inverter Demo', timestamp: Date.now()
+           };
+           const key = modbusRowKey(mockRow);
+           const next = [...prev.filter(r => modbusRowKey(r) !== key), mockRow];
+           return next.slice(-50); // keep recent 50
+        });
+      }
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [connected, mode, paused]);
+  }, [connected, mode]);
 
-  const selected = devices.find((device) => device.id === selectedId) || devices[0];
-  const filteredDevices = useMemo(() => devices.filter((device) => (filter === 'all' || device.status === filter) && `${device.name} ${device.site} ${device.type}`.toLowerCase().includes(query.toLowerCase())), [devices, filter, query]);
-  const online = devices.filter((device) => device.status === 'online').length;
-  const alerts = devices.filter((device) => device.status !== 'online').length;
-  const totalPower = devices.reduce((sum, device) => sum + numberFrom(device, ['power', 'active_kw']), 0);
-  const selectDevice = (id: string) => { setSelectedId(id); setMobileNav(false); };
   const changeMode = (next: 'demo' | 'live') => {
     setMode(next);
     setError('');
     setConnected(next === 'demo');
-    if (next === 'demo' && !devices.length) {
-      setDevices(initialDevices);
-      setSelectedId(initialDevices[0].id);
+    if (next === 'demo') {
       const demoPayload = initialDevices[0].telemetry;
       setRawPayload(JSON.stringify(demoPayload, null, 2));
       setRawJson(demoPayload);
       setRawTopic('northline/site/north-array/telemetry');
     }
   };
+
   const ingestPayload = (raw: string, topic: string) => {
     setRawPayload(raw);
     setRawTopic(topic);
@@ -421,9 +908,15 @@ function AppShell() {
       setError('A broker message arrived, but its payload was not valid JSON. The raw payload is still shown below.');
     }
   };
-  const connect = () => {
+
+  const connect = (_url?: string, requestedTopic?: string) => {
     setError('');
-    if (mode === 'demo') { setConnected(true); setSettingsOpen(false); return; }
+    if (mode === 'demo') {
+      setConnected(true);
+      setSettingsOpen(false);
+      return;
+    }
+    if (requestedTopic) setRawTopic(requestedTopic);
     streamRef.current?.close();
     const stream = new EventSource('/api/mqtt/stream');
     streamRef.current = stream;
@@ -432,7 +925,7 @@ function AppShell() {
       setConnected(status.connected);
       if (status.persistence) setPersistence(status.persistence);
       if (status.connected) setError('');
-      else if (status.error === 'connack timeout') setError('The MQTT broker is not responding to the connection handshake. Verify that mqtt://76.13.4.214:1883 is online and reachable from this environment; the dashboard will retry automatically.');
+      else if (status.error === 'connack timeout') setError('The MQTT broker is not responding to the connection handshake. The dashboard will retry automatically.');
       else setError('MQTT broker is reconnecting. Raw data will appear as soon as the subscription is restored.');
     });
     stream.addEventListener('message', (event) => {
@@ -443,6 +936,7 @@ function AppShell() {
     stream.onerror = () => setConnected(false);
     setSettingsOpen(false);
   };
+
   useEffect(() => {
     if (mode !== 'live') return;
     connect();
@@ -451,62 +945,85 @@ function AppShell() {
       streamRef.current = null;
     };
   }, [mode]);
+
   const disconnect = () => {
     streamRef.current?.close();
     streamRef.current = null;
     setConnected(false);
   };
-  const copyField = (text: string) => { void navigator.clipboard?.writeText(text); };
-  const exportSnapshot = () => {
-    const file = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), devices }, null, 2)], { type: 'application/json' });
-    const link = document.createElement('a'); link.href = URL.createObjectURL(file); link.download = 'northline-telemetry.json'; link.click(); URL.revokeObjectURL(link.href);
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
   };
 
+  const totalAcPower = useMemo(() => devices.filter(d => d.status === 'online').reduce((sum, d) => sum + numberFrom(d, ['power', 'active_kw'], 0), 0), [devices]);
+  const inverters = useMemo(() => devices.filter(d => d.type === 'Power inverter'), [devices]);
+  const onlineInverters = inverters.filter(d => d.status === 'online').length;
+  const totalInverters = inverters.length;
+  const activeAlarms = useMemo(() => devices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0), 0), [devices]);
+
   return (
-    <div className="flex min-h-[100dvh] bg-[#eef4f0]">
-       <Sidebar onSettings={() => setSettingsOpen(true)} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} brokerUrl={DEFAULT_BROKER_URL} brokerTopic={rawTopic} live={mode === 'live'} />
-      {mobileNav && <button type="button" aria-label="Close navigation" data-testid="button-close-navigation-overlay" onClick={() => setMobileNav(false)} className="fixed inset-0 z-20 bg-[#183038]/30 md:hidden" />}
-      <main className="min-w-0 flex-1">
-        <header className="sticky top-0 z-10 flex h-[76px] items-center justify-between border-b border-[#d9e6e0]/90 bg-[#f6faf8]/90 px-4 backdrop-blur-md sm:px-7 lg:px-10">
-          <div className="flex items-center gap-3"><button type="button" onClick={() => setMobileNav(true)} data-testid="button-open-navigation" className="focus-ring rounded-lg p-2 text-slate-500 hover:bg-white md:hidden"><Menu size={21} /></button><div><div className="flex items-center gap-2"><h1 className="text-lg font-extrabold tracking-[-.045em] text-[#243a3e] sm:text-[21px]">Operations overview</h1><Badge tone={mode === 'demo' ? 'amber' : 'teal'}>{mode === 'demo' ? 'Demo' : 'Live'}</Badge></div><p className="mt-0.5 hidden text-xs text-slate-500 sm:block">Northline Solar Facility <span className="mx-1 text-slate-300">/</span> telemetry health at a glance</p></div></div>
-          <div className="flex items-center gap-2 sm:gap-4"><div className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold sm:flex ${connected ? 'border-teal-200 bg-teal-50 text-teal-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}><span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-teal-500 pulse-soft' : 'bg-rose-500'}`} />{connected ? 'Stream connected' : 'Stream offline'}</div><span className="hidden h-5 w-px bg-[#d6e3dd] sm:block" /><button type="button" onClick={() => setPaused(!paused)} data-testid="button-toggle-stream" className="focus-ring rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-teal-700">{paused ? <Play size={17} /> : <Pause size={17} />}</button><button type="button" onClick={() => setSettingsOpen(true)} data-testid="button-header-settings" className="focus-ring rounded-lg border border-[#d8e5df] bg-white p-2 text-slate-500 transition-colors hover:border-teal-300 hover:text-teal-700"><Settings2 size={17} /></button></div>
-        </header>
-        <div className="grid-faint min-h-[calc(100dvh-76px)] px-4 py-6 sm:px-7 sm:py-8 lg:px-10">
-          <div className="mx-auto max-w-[1440px]">
-            <section className="animate-rise-in mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mono text-[10px] font-medium uppercase tracking-[.18em] text-teal-700">Facility pulse / 08:42:16 UTC</p><h2 className="mt-2 text-[26px] font-extrabold tracking-[-.055em] text-[#294044] sm:text-[31px]">Keep the current flowing.</h2><p className="mt-1 max-w-xl text-sm text-slate-500">A live inventory of every discovered endpoint, with the raw signal never more than one click away.</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => setNow(Date.now())} data-testid="button-refresh-dashboard" className="focus-ring inline-flex items-center gap-2 rounded-lg border border-[#d1e0da] bg-white px-3 py-2 text-xs font-bold text-[#4c6264] shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:text-teal-700"><RefreshCw size={14} />Refresh</button><button type="button" onClick={exportSnapshot} data-testid="button-export-snapshot" className="focus-ring inline-flex items-center gap-2 rounded-lg bg-[#203d44] px-3 py-2 text-xs font-bold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-[#2b5159]"><ArrowDownToLine size={14} />Export</button></div></section>
-            <section className="grid animate-rise-in grid-cols-2 gap-3 stagger-1 lg:grid-cols-4"><MetricCard icon={Zap} label="Output now" value={`${totalPower.toFixed(1)} kW`} detail={`Across ${devices.filter((device) => device.type === 'Power inverter').length} inverter endpoints`} points={[168, 174, 170, 179, 177, 184, 180, 186, 184]} /><MetricCard icon={Gauge} label="Fleet availability" value={`${(devices.length ? (online / devices.length) * 100 : 0).toFixed(1)}%`} detail={`${online} of ${devices.length} reporting`} points={[96, 97, 95, 96, 98, 97, 98, 97]} /><MetricCard icon={AlertTriangle} label="Attention needed" value={`${alerts}`} detail={alerts ? 'Review stale or offline endpoints' : devices.length ? 'All endpoints are healthy' : 'Waiting for first MQTT message'} points={[1, 1, 2, 1, 2, 2, 1, alerts]} tone={alerts ? 'amber' : 'teal'} /><MetricCard icon={Activity} label="Messages / min" value={devices.length ? 'Live' : '—'} detail={devices.length ? 'Latest MQTT activity' : 'No topic messages yet'} points={[122, 135, 129, 151, 144, 166, 158, 184]} /></section>
-            <div className="mt-6 grid animate-rise-in gap-6 stagger-2 xl:grid-cols-[minmax(330px,1.02fr)_minmax(440px,1.5fr)]">
-              <section className="overflow-hidden rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]"><div className="border-b border-[#e1ebe6] px-4 py-4 sm:px-5"><div className="flex items-center justify-between"><div><div className="flex items-center gap-2"><h3 className="text-sm font-extrabold text-[#2b4346]">Discovered devices</h3><span className="rounded-full bg-[#e7f3ef] px-2 py-0.5 mono text-[10px] font-medium text-teal-700">{devices.length}</span></div><p className="mt-1 text-[11px] text-slate-500">Identity inferred from incoming JSON</p></div><button type="button" onClick={() => setFilter('all')} data-testid="button-clear-device-filter" className="focus-ring rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-teal-700"><SlidersHorizontal size={16} /></button></div><div className="mt-4 flex gap-2"><div className="relative min-w-0 flex-1"><Search size={14} className="absolute left-3 top-2.5 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} data-testid="input-device-search" placeholder="Search devices or sites" className="focus-ring w-full rounded-md border border-[#d9e5e0] bg-[#f8fbf9] py-2 pl-9 pr-2 text-xs outline-none focus:border-teal-400" /></div><select value={filter} onChange={(event) => setFilter(event.target.value as 'all' | DeviceStatus)} data-testid="select-device-filter" className="focus-ring rounded-md border border-[#d9e5e0] bg-[#f8fbf9] px-2 text-[11px] font-semibold text-slate-600 outline-none"><option value="all">All status</option><option value="online">Online</option><option value="stale">Stale</option><option value="offline">Offline</option></select></div></div><div className="max-h-[390px] overflow-y-auto scrollbar-thin">{filteredDevices.length ? filteredDevices.map((device) => <DeviceRow key={device.id} device={device} selected={selected?.id === device.id} onSelect={() => selectDevice(device.id)} />) : <div className="flex flex-col items-center px-6 py-14 text-center"><Search size={24} className="text-slate-300" /><p className="mt-3 text-sm font-bold text-slate-500">No devices match</p><p className="mt-1 text-xs text-slate-400">Try a different search or status.</p></div>}</div><div className="border-t border-[#e1ebe6] bg-[#fbfdfc] px-5 py-3"><button type="button" onClick={() => setSettingsOpen(true)} data-testid="button-discover-device" className="focus-ring flex items-center gap-2 text-xs font-bold text-teal-700 hover:text-teal-900"><Database size={14} />Configure discovery source<ChevronRight size={13} /></button></div></section>
-              <section className="min-w-0 overflow-hidden rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]"><div className="flex flex-col justify-between gap-3 border-b border-[#e1ebe6] px-4 py-4 sm:flex-row sm:items-center sm:px-5"><div><div className="flex items-center gap-2"><h3 className="text-sm font-extrabold text-[#2b4346]">Telemetry inspector</h3><Badge tone={selected?.status === 'online' ? 'teal' : selected?.status === 'stale' ? 'amber' : 'rose'}><StatusDot status={selected?.status || 'offline'} />{selected?.status}</Badge></div><p className="mt-1 text-[11px] text-slate-500">Raw payload · <span className="mono text-slate-600">{selected?.id}</span> · nested fields discovered automatically</p></div><div className="flex items-center gap-2"><span className="mono text-[10px] text-slate-400">{selected ? formatLastSeen(selected.lastSeen, now) : '—'}</span><button type="button" onClick={() => selected && copyField(JSON.stringify(selected.telemetry, null, 2))} data-testid="button-copy-payload" className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[#d8e5df] px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:border-teal-300 hover:text-teal-700"><Copy size={12} />Copy JSON</button></div></div><div className="max-h-[430px] overflow-y-auto px-3 py-3 scrollbar-thin"><div className="mb-2 flex items-center gap-2 rounded-lg border border-[#e3eee9] bg-[#f5faf7] px-3 py-2.5"><Code2 size={15} className="text-teal-700" /><span className="mono truncate text-[11px] text-slate-500">{rawTopic}</span></div>{selected ? <FieldTree value={selected.telemetry} onCopy={copyField} /> : <div className="py-16 text-center text-sm text-slate-400">Select a device to inspect its payload.</div>}</div><div className="border-t border-[#e1ebe6] bg-[#fbfdfc] px-5 py-3"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-[11px] text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-teal-500" />Payload schema is not fixed</div><button type="button" onClick={() => selected && copyField(JSON.stringify(selected.telemetry))} data-testid="button-copy-compact-json" className="focus-ring text-[11px] font-bold text-teal-700 hover:text-teal-900">Copy compact</button></div><div className="mt-3 overflow-hidden rounded-lg border border-[#dfeae5]"><div className="flex items-center justify-between bg-[#172c32] px-3 py-2"><p className="mono text-[10px] uppercase tracking-[.14em] text-[#8ee4cf]">Incoming raw MQTT data</p><span className="mono text-[10px] text-[#8aa8a1]">{selected ? `${flattenJson(selected.telemetry).length} fields` : 'waiting'}</span></div><div className="max-h-52 overflow-auto"><table className="w-full text-left"><thead className="sticky top-0 bg-[#edf6f1]"><tr><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Field path</th><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Value</th><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Type</th></tr></thead><tbody className="divide-y divide-[#dce9e3] bg-white">{selected ? flattenJson(selected.telemetry).map((row) => <tr key={row.path} className="hover:bg-[#f4faf7]"><td className="max-w-[180px] truncate px-3 py-2 mono text-[11px] font-medium text-[#426064]" title={row.path}>{row.path}</td><td className="max-w-[230px] truncate px-3 py-2 mono text-[11px] text-[#30494c]" title={row.value}>{row.value}</td><td className="px-3 py-2 mono text-[10px] uppercase text-teal-700">{row.type}</td></tr>) : <tr><td colSpan={3} className="px-3 py-8 text-center text-xs text-slate-400">Waiting for the first MQTT payload.</td></tr>}</tbody></table></div></div></div></section>
-            </div>
-             <div className="mt-6">
-               <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} onCopy={copyField} />
-             </div>
-             <ModbusTable rows={modbusRows} persistence={persistence} />
-             <div className="mt-6 grid animate-rise-in gap-6 stagger-3 xl:grid-cols-[1.5fr_1fr]">
-              <section className="rounded-xl border border-[#d8e5df] bg-white p-4 shadow-[0_3px_14px_rgba(24,42,43,.035)] sm:p-5"><div className="flex items-center justify-between"><div><h3 className="text-sm font-extrabold text-[#2b4346]">Fleet output</h3><p className="mt-1 text-[11px] text-slate-500">Power contribution by endpoint · current window</p></div><span className="mono text-[10px] text-slate-400">kW / NOW</span></div><div className="mt-5 space-y-4">{devices.filter((device) => device.type === 'Power inverter').map((device) => { const power = numberFrom(device, ['power', 'active_kw']); const width = Math.min(100, (power / 210) * 100); return <div key={device.id} className="flex items-center gap-3"><div className="w-[92px] shrink-0"><p className="text-xs font-bold text-[#40585a]">{device.name}</p><p className="mono mt-0.5 text-[10px] text-slate-400">{device.id}</p></div><div className="h-2 flex-1 overflow-hidden rounded-full bg-[#edf2ef]"><div className={`h-full rounded-full transition-all duration-700 ${device.status === 'online' ? 'bg-[#2caa94]' : device.status === 'stale' ? 'bg-[#e7af43]' : 'bg-[#d87864]'}`} style={{ width: `${width}%` }} /></div><span className="mono w-[62px] text-right text-xs font-medium text-[#466063]">{power.toFixed(1)}</span></div>; })}</div><div className="mt-5 border-t border-[#e6eee9] pt-4"><div className="flex items-center justify-between text-[11px]"><span className="font-bold text-slate-500">Fleet nominal capacity</span><span className="mono text-[#35565a]">1.05 MW</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#edf2ef]"><div className="h-full w-[51%] rounded-full bg-[#f0bf5a]" /></div></div></section>
-              <section className="rounded-xl border border-[#d8e5df] bg-white shadow-[0_3px_14px_rgba(24,42,43,.035)]"><div className="flex items-center justify-between border-b border-[#e1ebe6] px-5 py-4"><div><h3 className="text-sm font-extrabold text-[#2b4346]">Alert feed</h3><p className="mt-1 text-[11px] text-slate-500">Conditions requiring attention</p></div><span className="rounded-full bg-amber-50 px-2 py-1 mono text-[10px] font-bold text-amber-800">{alerts} open</span></div><div className="divide-y divide-[#e7efeb]">{devices.filter((device) => device.status !== 'online').map((device) => <div key={device.id} className="flex gap-3 px-5 py-4 transition-colors hover:bg-[#fbfdfc]"><div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${device.status === 'offline' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}`}>{device.status === 'offline' ? <WifiOff size={14} /> : <AlertTriangle size={14} />}</div><div className="min-w-0 flex-1"><p className="text-xs font-bold text-[#3b5254]">{device.name} <span className="font-normal text-slate-400">· {device.status === 'offline' ? 'connection lost' : 'telemetry delayed'}</span></p><p className="mt-1 text-[11px] leading-4 text-slate-500">{device.status === 'offline' ? 'No message received for over 1 hour.' : 'Last message is older than the 5 minute threshold.'}</p><p className="mono mt-2 text-[10px] text-slate-400">{formatLastSeen(device.lastSeen, now)}</p></div><button type="button" onClick={() => selectDevice(device.id)} data-testid={`button-review-alert-${device.id}`} className="focus-ring self-center rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-teal-700"><ChevronRight size={16} /></button></div>)}{!alerts && <div className="flex flex-col items-center px-5 py-12 text-center"><ShieldCheck size={28} className="text-teal-500" /><p className="mt-3 text-sm font-bold text-[#42605b]">No active alerts</p><p className="mt-1 text-xs text-slate-400">Every discovered endpoint is reporting on time.</p></div>}</div></section>
-            </div>
-            <footer className="mt-7 flex flex-col justify-between gap-2 border-t border-[#d7e4de] pt-4 text-[10px] text-slate-400 sm:flex-row"><div className="flex items-center gap-3"><span className="mono uppercase tracking-[.12em]">NORTHLINE / OPS-01</span><span className="h-3 w-px bg-[#cfded7]" /><span className="flex items-center gap-1.5"><HardDrive size={11} />Live session</span></div><div className="flex items-center gap-3"><span>Snapshots stored in backend every 15 min</span><button type="button" onClick={() => window.alert('Northline SCADA Monitor · live messages are buffered and stored as durable backend snapshots every 15 minutes.')} data-testid="button-open-help" className="focus-ring flex items-center gap-1 font-bold text-teal-700 hover:text-teal-900"><CircleHelp size={12} />About this view</button></div></footer>
+    <div className="flex h-screen bg-[#0b0f19] text-slate-200 overflow-hidden font-sans">
+      <Sidebar onSettings={() => setSettingsOpen(true)} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} />
+      
+      <div className="flex flex-col flex-1 min-w-0">
+        <Header toggleMobileNav={() => setMobileNav(true)} />
+        
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+            <KpiCard title="Total AC Power" value={totalAcPower.toLocaleString(undefined, { maximumFractionDigits: 2 })} unit="kW" icon={Zap} colorClass="bg-blue-500/10 text-blue-400" />
+            <KpiCard title="Today's Energy" value="14.13" unit="MWh" icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext="Daily energy" />
+            <KpiCard title="Total Energy" value="31,457.28" unit="kWh" icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext="Lifetime energy" />
+            <KpiCard title="Specific Yield" value="4.62" unit="kWh/kWp" icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext="PR 87.3%" />
+            <KpiCard title="Inverters Online" value={`${onlineInverters}/${totalInverters}`} icon={Check} colorClass="bg-emerald-500/10 text-emerald-400" subtext="100% online" />
+            <KpiCard title="Active Alarms" value={activeAlarms.toString()} icon={AlertTriangle} colorClass="bg-emerald-500/10 text-emerald-400" subtext="All clear" />
           </div>
-        </div>
-      </main>
-      <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} />
+          
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-2">
+               <ElectricalParametersChart />
+            </div>
+            <div>
+               <InverterOverviewTable devices={devices} />
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+             <div className="xl:col-span-1">
+               <EnergySummaryChart />
+             </div>
+             <div className="xl:col-span-2">
+               <PowerTrendChart currentKw={totalAcPower} />
+             </div>
+             <div className="xl:col-span-1">
+               <PowerDistributionChart />
+             </div>
+             <div className="xl:col-span-1">
+               <SidePanels devices={devices} />
+             </div>
+          </div>
+          
+          <DetailedLiveDataTable rows={modbusRows} persistence={persistence} />
+          
+          <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} onCopy={handleCopy} />
+          
+        </main>
+      </div>
+       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} />
+      <Toaster />
     </div>
   );
 }
 
-function RoutedErrorBoundary({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
-  return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ErrorBoundary>
+        <Switch>
+          <Route path="/" component={AppShell} />
+          <Route component={NotFound} />
+        </Switch>
+      </ErrorBoundary>
+    </QueryClientProvider>
+  );
 }
-
-function Router() {
-  return <Switch><Route path="/" component={AppShell} /><Route component={NotFound} /></Switch>;
-}
-
-function App() {
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><RoutedErrorBoundary><Router /></RoutedErrorBoundary></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
-}
-
-export default App;
