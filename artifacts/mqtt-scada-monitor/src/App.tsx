@@ -4,6 +4,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
+import mqtt, { type MqttClient } from 'mqtt';
 import {
   Activity, AlertCircle, AlertTriangle, ArrowDownToLine, Check, ChevronDown, ChevronRight,
   CircleHelp, CloudOff, Code2, Copy, Database, Gauge, HardDrive, Layers3, LayoutDashboard,
@@ -13,6 +14,10 @@ import {
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 
 const queryClient = new QueryClient();
+const DEFAULT_BROKER_URL = 'mqtt://76.13.4.214';
+const DEFAULT_BROKER_TOPIC = 'trn246/modbus';
+const DEFAULT_BROKER_USERNAME = 'automystics';
+const DEFAULT_BROKER_PASSWORD = 'automystics';
 
 type DeviceStatus = 'online' | 'stale' | 'offline';
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -156,7 +161,7 @@ function FieldTree({ value, path = [], onCopy }: { value: JsonValue; path?: stri
   );
 }
 
-function Sidebar({ onSettings, mobileOpen, onClose }: { onSettings: () => void; mobileOpen: boolean; onClose: () => void }) {
+function Sidebar({ onSettings, mobileOpen, onClose, brokerUrl, brokerTopic, live }: { onSettings: () => void; mobileOpen: boolean; onClose: () => void; brokerUrl: string; brokerTopic: string; live: boolean }) {
   return (
     <aside className={`fixed inset-y-0 left-0 z-30 flex w-[246px] flex-col border-r border-[#314850] bg-[#20343d] text-slate-100 transition-transform duration-300 md:static md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-[76px] items-center justify-between border-b border-[#314850] px-5">
@@ -172,8 +177,8 @@ function Sidebar({ onSettings, mobileOpen, onClose }: { onSettings: () => void; 
         </nav>
         <p className="mt-9 px-3 text-[10px] font-bold uppercase tracking-[.18em] text-slate-500">Connection</p>
         <div className="mt-3 rounded-xl border border-[#39545b] bg-[#263f48] p-3">
-          <div className="flex items-center gap-2"><span className="relative flex h-7 w-7 items-center justify-center rounded-md bg-[#d8a94f]/20 text-[#f3c96d]"><Radio size={15} /><span className="absolute inset-0 animate-ping rounded-md bg-[#f3c96d]/10" /></span><div><p className="text-xs font-bold text-slate-100">Demo channel</p><p className="mono mt-0.5 text-[9px] text-slate-400">northline/site/+/telemetry</p></div></div>
-          <div className="mt-3 flex items-center gap-2 border-t border-[#39545b] pt-3 text-[10px] text-[#8ee4cf]"><span className="h-1.5 w-1.5 rounded-full bg-[#63d9be]" />Receiving local sample data</div>
+           <div className="flex items-center gap-2"><span className="relative flex h-7 w-7 items-center justify-center rounded-md bg-[#d8a94f]/20 text-[#f3c96d]"><Radio size={15} /><span className="absolute inset-0 animate-ping rounded-md bg-[#f3c96d]/10" /></span><div><p className="text-xs font-bold text-slate-100">{live ? 'MQTT broker' : 'Demo channel'}</p><p className="mono mt-0.5 max-w-[155px] truncate text-[9px] text-slate-400">{live ? brokerTopic : 'northline/site/+/telemetry'}</p></div></div>
+           <div className="mt-3 flex items-center gap-2 border-t border-[#39545b] pt-3 text-[10px] text-[#8ee4cf]"><span className="h-1.5 w-1.5 rounded-full bg-[#63d9be]" />{live ? `Listening on ${brokerUrl}` : 'Receiving local sample data'}</div>
         </div>
       </div>
       <div className="border-t border-[#314850] p-3">
