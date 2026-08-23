@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "MQTT SCADA Monitor"
+description = "A live SCADA monitoring dashboard that connects to MQTT over WebSockets, discovers device telemetry automatically from JSON payloads, and surfaces connectivity and offline states without manual field mapping."
+version = "1.0.0"
+id = "artifacts/mqtt-scada-monitor"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20307
+
+[services.development]
+run = "pnpm --filter @workspace/mqtt-scada-monitor run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mqtt-scada-monitor", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mqtt-scada-monitor/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20307"
+BASE_PATH = "/"

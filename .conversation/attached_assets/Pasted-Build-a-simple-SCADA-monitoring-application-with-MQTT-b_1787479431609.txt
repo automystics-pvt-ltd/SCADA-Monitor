@@ -1,0 +1,29 @@
+Build a simple SCADA monitoring application with **MQTT-based live data integration and fully automatic data mapping**.
+
+### Core Requirement
+
+1. Set up and configure **MQTT connectivity** between the SCADA application and connected devices.
+2. Once MQTT is connected, continuously receive live device data through MQTT messages.
+3. The incoming MQTT payload/JSON response must be **automatically detected, parsed, and mapped to the SCADA UI**.
+4. **No manual field mapping should be required.** The system must dynamically identify the fields, parameters, device names, values, units, statuses, and other available information from the MQTT JSON payload.
+5. If a new parameter is received in the MQTT response, the system should **automatically recognize and display it** without requiring a developer or administrator to manually create a field or mapping.
+6. Automatically identify and organize multiple devices/inverters from the payload, for example:
+
+   * `inv1`
+   * `inv2`
+   * `inv3`
+   * etc.
+7. Display each device and its complete available telemetry in a **clean, structured, and easy-to-monitor SCADA dashboard**.
+8. Update the dashboard automatically whenever a new MQTT message is received, based on the configured data interval.
+9. Display the **current value, unit, device status, last updated time, and connectivity status** wherever that information is available in the payload.
+10. If MQTT connectivity is lost, clearly show the affected device as **Offline/Disconnected** and automatically resume live monitoring when connectivity is restored.
+11. The system should dynamically handle changes in the JSON structure as much as reasonably possible without requiring manual remapping.
+12. The architecture should be scalable for adding new devices, inverters, sensors, and parameters without redesigning the application.
+
+### Expected Automatic Flow
+
+**Device → MQTT Broker → SCADA MQTT Client → Receive JSON → Automatically Detect Structure → Automatically Map Fields & Values → Organize by Device → Live SCADA Dashboard → Continuous Updates**
+
+### Important
+
+**The mapping must be completely automatic. Do not create a manual mapping/configuration screen for individual fields. The MQTT JSON payload should be treated as the source of truth, and the SCADA application should dynamically discover and display the available device data.**
