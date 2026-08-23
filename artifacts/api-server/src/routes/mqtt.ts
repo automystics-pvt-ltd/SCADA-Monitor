@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Response } from "express";
-import { and, asc, desc, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, gt, lt, sql } from "drizzle-orm";
 import mqtt, { type MqttClient } from "mqtt";
 import { db, mqttSnapshotsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -15,6 +15,8 @@ const PERSISTENCE_INTERVAL_MINUTES = 10;
 const PERSISTENCE_START_MINUTE = 6 * 60;
 const PERSISTENCE_END_MINUTE = 18 * 60;
 const DEFAULT_PLANT_TIMEZONE = "Asia/Kolkata";
+const HISTORY_PAGE_SIZE = 250;
+const MAX_HISTORY_SNAPSHOTS = 5000;
 const configuredTimezone = process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? DEFAULT_PLANT_TIMEZONE;
 
 type StoredMessage = { topic: string; payload: string; receivedAt: string };
@@ -397,7 +399,6 @@ function parseRangeBoundary(value: unknown, boundary: "start" | "end") {
   if (typeof value !== "string" || !value.trim()) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return undefined;
-  if (boundary === "end") parsed.setMilliseconds(999);
   return parsed;
 }
 
@@ -416,7 +417,7 @@ router.get("/mqtt/electrical-history", async (req, res) => {
 
   const rangeEnd = to ?? new Date();
   const rangeStart = from ?? new Date(rangeEnd.getTime() - 24 * 60 * 60 * 1000);
-  if (rangeStart > rangeEnd) {
+  if (rangeStart >= rangeEnd) {
     res.status(400).json({ message: "The history start must be before the end." });
     return;
   }
@@ -426,12 +427,22 @@ router.get("/mqtt/electrical-history", async (req, res) => {
   }
 
   try {
-    const snapshots = await db
-      .select()
-      .from(mqttSnapshotsTable)
-      .where(and(gte(mqttSnapshotsTable.windowEndedAt, rangeStart), lte(mqttSnapshotsTable.windowStartedAt, rangeEnd)))
-      .orderBy(asc(mqttSnapshotsTable.windowEndedAt))
-      .limit(500);
+    const snapshots = [];
+    let page = 0;
+    let truncated = false;
+    while (snapshots.length < MAX_HISTORY_SNAPSHOTS) {
+      const batch = await db
+        .select()
+        .from(mqttSnapshotsTable)
+        .where(and(gt(mqttSnapshotsTable.windowEndedAt, rangeStart), lt(mqttSnapshotsTable.windowStartedAt, rangeEnd)))
+        .orderBy(asc(mqttSnapshotsTable.windowEndedAt))
+        .limit(Math.min(HISTORY_PAGE_SIZE, MAX_HISTORY_SNAPSHOTS - snapshots.length))
+        .offset(page * HISTORY_PAGE_SIZE);
+      snapshots.push(...batch);
+      if (batch.length < HISTORY_PAGE_SIZE) break;
+      page += 1;
+    }
+    if (snapshots.length === MAX_HISTORY_SNAPSHOTS) truncated = true;
 
     const samples: Array<Record<string, unknown>> = [];
     for (const snapshot of snapshots) {
@@ -445,7 +456,7 @@ router.get("/mqtt/electrical-history", async (req, res) => {
         if (!parameter || !isElectricalParameter(parameter)) continue;
         const receivedAt = typeof message.receivedAt === "string" ? message.receivedAt : snapshot.capturedAt.toISOString();
         const receivedTime = new Date(receivedAt);
-        if (Number.isNaN(receivedTime.getTime()) || receivedTime < rangeStart || receivedTime > rangeEnd) continue;
+        if (Number.isNaN(receivedTime.getTime()) || receivedTime < rangeStart || receivedTime >= rangeEnd) continue;
         samples.push({
           ...parameter,
           timestamp: receivedAt,
@@ -460,7 +471,9 @@ router.get("/mqtt/electrical-history", async (req, res) => {
 
     res.json({
       range: { from: rangeStart.toISOString(), to: rangeEnd.toISOString() },
+      semantics: "[from, to)",
       snapshotCount: snapshots.length,
+      truncated,
       samples,
     });
   } catch (error) {

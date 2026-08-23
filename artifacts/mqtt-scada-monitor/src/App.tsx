@@ -792,8 +792,24 @@ function LegacyElectricalParametersChart({ devices }: { devices: Device[] }) {
   );
 }
 
-type ElectricalRangePreset = 'live' | 'today' | '24h' | '7d' | 'custom';
-type ElectricalRange = { preset: ElectricalRangePreset; from: string; to: string };
+type TimeFilterPreset = 'live' | 'today' | '24h' | '7d' | 'custom';
+type TimeFilterMode = 'single' | 'range';
+type AppliedTimeFilter = {
+  preset: TimeFilterPreset;
+  mode: TimeFilterMode;
+  from: string;
+  to: string;
+  timezone: string;
+  granularity: 'live' | '10-minute snapshots';
+};
+type TimeFilterDraft = {
+  preset: TimeFilterPreset;
+  mode: TimeFilterMode;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+};
 type ElectricalKind = 'vab' | 'vbc' | 'vca' | 'va' | 'vb' | 'vc' | 'ia' | 'ib' | 'ic' | 'activePower' | 'powerFactor' | 'frequency' | 'other';
 type ElectricalEvidence = {
   id: string;
@@ -817,18 +833,180 @@ const electricalKindLabels: Record<ElectricalKind, string> = {
   activePower: 'Active Power', powerFactor: 'Power Factor', frequency: 'Frequency', other: 'Electrical telemetry',
 };
 
-function localDateTimeInput(date: Date) {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+const DEFAULT_SITE_TIMEZONE = 'Asia/Kolkata';
+
+function siteParts(date: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+  return { year: values.year, month: values.month, day: values.day, hour: values.hour, minute: values.minute, second: values.second };
 }
 
-function electricalPresetRange(preset: ElectricalRangePreset): ElectricalRange {
+function siteLocalToIso(dateValue: string, timeValue: string, timezone: string) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  const [hour, minute] = timeValue.split(':').map(Number);
+  if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let guess = localAsUtc;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const observed = siteParts(new Date(guess), timezone);
+    const observedAsUtc = Date.UTC(observed.year, observed.month - 1, observed.day, observed.hour, observed.minute, observed.second);
+    const candidate = localAsUtc - (observedAsUtc - guess);
+    if (candidate === guess) break;
+    guess = candidate;
+  }
+  return new Date(guess).toISOString();
+}
+
+function siteDateInput(date: Date, timezone: string) {
+  const parts = siteParts(date, timezone);
+  return `${parts.year.toString().padStart(4, '0')}-${parts.month.toString().padStart(2, '0')}-${parts.day.toString().padStart(2, '0')}`;
+}
+
+function siteTimeInput(date: Date, timezone: string) {
+  const parts = siteParts(date, timezone);
+  return `${parts.hour.toString().padStart(2, '0')}:${parts.minute.toString().padStart(2, '0')}`;
+}
+
+function addSiteDays(dateValue: string, days: number) {
+  const date = new Date(`${dateValue}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function timeFilterDraftForPreset(preset: TimeFilterPreset, timezone: string): TimeFilterDraft {
   const now = new Date();
-  const start = new Date(now);
-  if (preset === 'today') start.setHours(0, 0, 0, 0);
-  if (preset === '24h') start.setHours(now.getHours() - 24);
-  if (preset === '7d') start.setDate(now.getDate() - 7);
-  return { preset, from: localDateTimeInput(start), to: localDateTimeInput(now) };
+  const nowDate = siteDateInput(now, timezone);
+  const nowTime = siteTimeInput(now, timezone);
+  if (preset === 'live') return { preset, mode: 'single', startDate: nowDate, endDate: nowDate, startTime: '00:00', endTime: nowTime };
+  if (preset === 'today') return { preset, mode: 'single', startDate: nowDate, endDate: addSiteDays(nowDate, 1), startTime: '00:00', endTime: '00:00' };
+  const start = new Date(now.getTime() - (preset === '7d' ? 7 : 1) * 24 * 60 * 60 * 1000);
+  return { preset, mode: 'range', startDate: siteDateInput(start, timezone), endDate: nowDate, startTime: siteTimeInput(start, timezone), endTime: nowTime };
+}
+
+function appliedTimeFilterFromDraft(draft: TimeFilterDraft, timezone: string): AppliedTimeFilter | null {
+  if (draft.preset === 'live') return { preset: 'live', mode: 'single', from: '', to: '', timezone, granularity: 'live' };
+  const from = siteLocalToIso(draft.startDate, draft.startTime, timezone);
+  const to = siteLocalToIso(draft.endDate, draft.endTime, timezone);
+  if (!from || !to || new Date(from).getTime() >= new Date(to).getTime()) return null;
+  return { preset: draft.preset, mode: draft.mode, from, to, timezone, granularity: '10-minute snapshots' };
+}
+
+function timeFilterLabel(filter: AppliedTimeFilter) {
+  if (filter.preset === 'live') return 'Live telemetry · current values';
+  const formatter = new Intl.DateTimeFormat('en-GB', { timeZone: filter.timezone, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return `${formatter.format(new Date(filter.from))} – ${formatter.format(new Date(filter.to))} · ${filter.timezone} · [from, to)`;
+}
+
+function formatSiteDateTime(value: string | undefined, timezone: string) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-GB', { timeZone: timezone, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(date);
+}
+
+function TimeFilterPanel({ applied, timezone, onApply, onReset, onRefresh, refreshing }: {
+  applied: AppliedTimeFilter;
+  timezone: string;
+  onApply: (filter: AppliedTimeFilter) => void;
+  onReset: () => void;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
+  const [draft, setDraft] = useState<TimeFilterDraft>(() => timeFilterDraftForPreset(applied.preset, timezone));
+  const [validationError, setValidationError] = useState('');
+  const isLive = draft.preset === 'live';
+
+  useEffect(() => {
+    setDraft((current) => current.preset === 'live' ? timeFilterDraftForPreset('live', timezone) : current);
+  }, [timezone]);
+
+  const choosePreset = (preset: TimeFilterPreset) => {
+    setDraft(timeFilterDraftForPreset(preset, timezone));
+    setValidationError('');
+  };
+  const apply = () => {
+    const next = appliedTimeFilterFromDraft(draft, timezone);
+    if (!next) {
+      setValidationError('Choose an end date and time after the start. Historical queries use a half-open [start, end) interval and allow up to 31 days.');
+      return;
+    }
+    if (next.preset !== 'live' && new Date(next.to).getTime() - new Date(next.from).getTime() > 31 * 24 * 60 * 60 * 1000) {
+      setValidationError('Choose a historical window of 31 days or less.');
+      return;
+    }
+    setValidationError('');
+    onApply(next);
+  };
+  const reset = () => {
+    setDraft(timeFilterDraftForPreset('live', timezone));
+    setValidationError('');
+    onReset();
+  };
+  const updateDraft = (patch: Partial<TimeFilterDraft>) => setDraft((current) => ({ ...current, ...patch, preset: patch.preset ?? 'custom' }));
+
+  return (
+    <section data-testid="scada-time-filter" className="scroll-mt-6 rounded-xl border border-[#1e293b] bg-[#111827] p-4 shadow-sm sm:p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400"><Database size={16} /></span>
+            <div><h2 className="text-sm font-bold text-slate-100">SCADA time filter</h2><p className="mt-0.5 text-[11px] text-slate-500">Apply one plant-local window to persisted electrical analytics and export metadata.</p></div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2" aria-live="polite">
+            <span data-testid="text-applied-time-range" className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${applied.preset === 'live' ? 'border-sky-500/25 bg-sky-500/10 text-sky-300' : 'border-violet-500/25 bg-violet-500/10 text-violet-300'}`}>{timeFilterLabel(applied)}</span>
+            <span className="rounded-full border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1 text-[10px] text-slate-400">Plant time: {timezone}</span>
+            <span className="rounded-full border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1 text-[10px] text-slate-400">{applied.granularity}</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 xl:max-w-xl xl:justify-end">
+          {([
+            ['live', 'Live'],
+            ['today', 'Today'],
+            ['24h', 'Last 24 h'],
+            ['7d', 'Last 7 d'],
+            ['custom', 'Custom'],
+          ] as Array<[TimeFilterPreset, string]>).map(([preset, label]) => (
+            <button key={preset} type="button" onClick={() => choosePreset(preset)} data-testid={`button-time-filter-preset-${preset}`} className={`rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-colors focus-ring ${draft.preset === preset ? 'bg-blue-500/15 text-blue-300' : 'text-slate-400 hover:bg-[#1e293b] hover:text-slate-200'}`}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {!isLive && <div className="mt-4 grid gap-3 border-t border-[#1e293b] pt-4 sm:grid-cols-2 xl:grid-cols-5">
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Window type
+          <select value={draft.mode} onChange={(event) => updateDraft({ mode: event.target.value as TimeFilterMode })} data-testid="select-time-filter-mode" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs font-medium normal-case tracking-normal text-slate-200 focus-ring">
+            <option value="single">Specific date</option><option value="range">Date range</option>
+          </select>
+        </label>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{draft.mode === 'single' ? 'Date' : 'Start date'}
+          <input type="date" value={draft.startDate} onChange={(event) => updateDraft({ startDate: event.target.value, endDate: draft.mode === 'single' ? addSiteDays(event.target.value, 1) : draft.endDate })} data-testid="input-time-filter-start-date" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" />
+        </label>
+        {draft.mode === 'range' && <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">End date
+          <input type="date" value={draft.endDate} onChange={(event) => updateDraft({ endDate: event.target.value })} data-testid="input-time-filter-end-date" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" />
+        </label>}
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Start time
+          <input type="time" value={draft.startTime} onChange={(event) => updateDraft({ startTime: event.target.value })} data-testid="input-time-filter-start-time" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" />
+        </label>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">End time
+          <input type="time" value={draft.endTime} onChange={(event) => updateDraft({ endTime: event.target.value, endDate: draft.mode === 'single' ? draft.endDate : draft.endDate })} data-testid="input-time-filter-end-time" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" />
+        </label>
+      </div>}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={apply} data-testid="button-apply-time-filter" className="rounded-md bg-blue-500 px-3 py-2 text-xs font-bold text-white hover:bg-blue-400 focus-ring">Apply filter</button>
+        <button type="button" onClick={reset} data-testid="button-reset-time-filter" className="rounded-md px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring">Reset to live</button>
+        <button type="button" onClick={onRefresh} data-testid="button-refresh-time-filter" className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring"><RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />Refresh</button>
+        {validationError && <span role="alert" data-testid="status-time-filter-error" className="text-xs text-amber-300">{validationError}</span>}
+      </div>
+      <p className="mt-3 text-[10px] leading-4 text-slate-500">Historical records are scheduled snapshots only. The selected end is excluded, so adjacent windows never duplicate a sample. Live, weather, raw payload, alarm, and inverter views remain clearly current-only.</p>
+    </section>
+  );
 }
 
 function telemetryEpoch(row: ModbusRow) {
@@ -903,38 +1081,35 @@ function latestEvidence(evidence: ElectricalEvidence[], kinds: ElectricalKind[])
   return kinds.map((kind) => evidence.filter((item) => item.kind === kind).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))[0]).filter(Boolean) as ElectricalEvidence[];
 }
 
-function ElectricalParametersChart({ rows, mode }: { rows: ModbusRow[]; mode: 'demo' | 'live' }) {
-  const [draftRange, setDraftRange] = useState<ElectricalRange>(() => electricalPresetRange('live'));
-  const [appliedRange, setAppliedRange] = useState<ElectricalRange>(() => electricalPresetRange('live'));
+function ElectricalParametersChart({ rows, mode, timeFilter, refreshToken }: { rows: ModbusRow[]; mode: 'demo' | 'live'; timeFilter: AppliedTimeFilter; refreshToken: number }) {
   const [historyRows, setHistoryRows] = useState<ModbusRow[]>([]);
-  const [historyState, setHistoryState] = useState<{ loading: boolean; error: string }>({ loading: false, error: '' });
-  const [reloadHistory, setReloadHistory] = useState(0);
-  const isHistorical = appliedRange.preset !== 'live';
+  const [historyState, setHistoryState] = useState<{ loading: boolean; error: string; truncated: boolean }>({ loading: false, error: '', truncated: false });
+  const isHistorical = timeFilter.preset !== 'live';
 
   useEffect(() => {
     if (!isHistorical || mode !== 'live') {
       setHistoryRows([]);
-      setHistoryState({ loading: false, error: '' });
+      setHistoryState({ loading: false, error: '', truncated: false });
       return;
     }
     const controller = new AbortController();
     const loadHistory = async () => {
-      setHistoryState({ loading: true, error: '' });
+      setHistoryState({ loading: true, error: '', truncated: false });
       try {
-        const response = await fetch(`/api/mqtt/electrical-history?from=${encodeURIComponent(new Date(appliedRange.from).toISOString())}&to=${encodeURIComponent(new Date(appliedRange.to).toISOString())}`, { signal: controller.signal });
-        const payload = await response.json() as { samples?: unknown[]; message?: string };
+        const response = await fetch(`/api/mqtt/electrical-history?from=${encodeURIComponent(timeFilter.from)}&to=${encodeURIComponent(timeFilter.to)}`, { signal: controller.signal });
+        const payload = await response.json() as { samples?: unknown[]; message?: string; semantics?: string; truncated?: boolean };
         if (!response.ok) throw new Error(payload.message || 'Unable to load persisted electrical telemetry.');
         setHistoryRows(Array.isArray(payload.samples) ? payload.samples.filter(isUnknownRecord).map((item) => item as ModbusRow) : []);
-        setHistoryState({ loading: false, error: '' });
+        setHistoryState({ loading: false, error: '', truncated: payload.truncated === true });
       } catch (error) {
         if (controller.signal.aborted) return;
         setHistoryRows([]);
-        setHistoryState({ loading: false, error: error instanceof Error ? error.message : 'Unable to load persisted electrical telemetry.' });
+        setHistoryState({ loading: false, error: error instanceof Error ? error.message : 'Unable to load persisted electrical telemetry.', truncated: false });
       }
     };
     void loadHistory();
     return () => controller.abort();
-  }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory]);
+  }, [timeFilter.from, timeFilter.to, isHistorical, mode, refreshToken]);
 
   const sourceRows = mode === 'live' ? (isHistorical ? historyRows : rows) : [];
   const discoveries = useMemo(() => sourceRows.map(electricalEvidence).filter(Boolean) as ElectricalEvidence[], [sourceRows]);
@@ -951,17 +1126,8 @@ function ElectricalParametersChart({ rows, mode }: { rows: ModbusRow[]; mode: 'd
     const average = values.reduce((sum, value) => sum + value, 0) / values.length;
     return average ? Math.max(...values.map((value) => Math.abs(value - average))) / average * 100 : null;
   }, [phaseVoltage]);
-  const rangeLabel = appliedRange.preset === 'live' ? 'Live telemetry' : `${new Date(appliedRange.from).toLocaleString()} — ${new Date(appliedRange.to).toLocaleString()}`;
-  const applyRange = () => {
-    if (draftRange.preset !== 'live' && (!draftRange.from || !draftRange.to || new Date(draftRange.from) > new Date(draftRange.to))) {
-      setHistoryState({ loading: false, error: 'Choose a valid start and end time before applying the range.' });
-      return;
-    }
-    setAppliedRange(draftRange);
-    setHistoryState({ loading: false, error: '' });
-  };
-  const choosePreset = (preset: ElectricalRangePreset) => setDraftRange(electricalPresetRange(preset));
-  const trendData = (kind: ElectricalKind) => discoveries.filter((item) => item.kind === kind && item.status === 'Validated' && item.value !== null).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0)).map((item) => ({ time: item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Time unavailable', value: item.value }));
+  const rangeLabel = timeFilterLabel(timeFilter);
+  const trendData = (kind: ElectricalKind) => discoveries.filter((item) => item.kind === kind && item.status === 'Validated' && item.value !== null).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0)).map((item) => ({ time: item.timestamp ? formatSiteDateTime(new Date(item.timestamp).toISOString(), timeFilter.timezone) : 'Time unavailable', value: item.value }));
 
   const Comparison = ({ title, data, unit, testId }: { title: string; data: ElectricalEvidence[]; unit: string; testId: string }) => (
     <div className="scada-chart-surface rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4" data-testid={testId}>
@@ -982,16 +1148,12 @@ function ElectricalParametersChart({ rows, mode }: { rows: ModbusRow[]; mode: 'd
         <CustomBadge tone={mode !== 'live' || !validated.length ? 'warning' : 'success'}>{mode !== 'live' ? 'Demo mode — not operational' : validated.length ? `${validated.length} validated value${validated.length === 1 ? '' : 's'}` : 'Validation required'}</CustomBadge>
       </header>
 
-      <div className="relative z-10 mb-4 rounded-xl border border-[#1e293b] bg-[#0f1423] p-3" data-testid="electrical-time-filter">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-          <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Electrical analysis window</p><p className="mt-1 truncate text-xs font-medium text-slate-300" title={rangeLabel}>{rangeLabel}</p></div>
-          <div className="flex flex-wrap items-center gap-2">
-            {(['live', 'today', '24h', '7d', 'custom'] as const).map((preset) => <button key={preset} type="button" onClick={() => choosePreset(preset)} data-testid={`button-electrical-preset-${preset}`} className={`rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-colors focus-ring ${draftRange.preset === preset ? 'bg-blue-500/15 text-blue-300' : 'text-slate-400 hover:bg-[#1e293b] hover:text-slate-200'}`}>{preset === 'live' ? 'Live' : preset === '24h' ? 'Last 24 h' : preset === '7d' ? 'Last 7 d' : preset[0].toUpperCase() + preset.slice(1)}</button>)}
-          </div>
-        </div>
-        {draftRange.preset !== 'live' && <div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Start<input type="datetime-local" value={draftRange.from} onChange={(event) => setDraftRange((range) => ({ ...range, from: event.target.value, preset: 'custom' }))} data-testid="input-electrical-start-time" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" /></label><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">End<input type="datetime-local" value={draftRange.to} onChange={(event) => setDraftRange((range) => ({ ...range, to: event.target.value, preset: 'custom' }))} data-testid="input-electrical-end-time" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" /></label></div>}
-        <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" onClick={applyRange} data-testid="button-apply-electrical-range" className="rounded-md bg-blue-500 px-3 py-2 text-xs font-bold text-white hover:bg-blue-400 focus-ring">Apply</button><button type="button" onClick={() => { const range = electricalPresetRange('live'); setDraftRange(range); setAppliedRange(range); }} data-testid="button-reset-electrical-range" className="rounded-md px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring">Reset</button><button type="button" onClick={() => setReloadHistory((key) => key + 1)} disabled={!isHistorical || historyState.loading} data-testid="button-refresh-electrical-history" className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50 focus-ring"><RefreshCw size={13} className={historyState.loading ? 'animate-spin' : ''} />Refresh</button>{historyState.error && <span role="alert" data-testid="status-electrical-history-error" className="text-xs text-amber-300">{historyState.error}</span>}</div>
-      </div>
+       <div className="relative z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#1e293b] bg-[#0f1423] px-3 py-2.5" data-testid="electrical-time-filter">
+         <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Applied electrical analysis window</p><p className="mt-1 truncate text-xs font-medium text-slate-300" title={rangeLabel}>{rangeLabel}</p></div>
+         <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${isHistorical ? 'bg-violet-500/10 text-violet-300' : 'bg-sky-500/10 text-sky-300'}`}>{isHistorical ? 'Persisted history' : 'Live · current only'}</span>
+         {historyState.error && <span role="alert" data-testid="status-electrical-history-error" className="basis-full text-xs text-amber-300">{historyState.error}</span>}
+         {historyState.truncated && <span role="status" data-testid="status-electrical-history-truncated" className="basis-full text-xs text-amber-300">This range exceeds the safe history result bound; showing the earliest 5,000 persisted windows. Narrow the range for complete results.</span>}
+       </div>
 
       {mode !== 'live' ? <div className="relative z-10 flex min-h-48 flex-1 flex-col items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/5 px-6 text-center"><AlertCircle size={26} className="mb-3 text-amber-400" /><h4 className="text-sm font-bold text-amber-200">Operational electrical analytics are unavailable in Demo mode</h4><p className="mt-2 max-w-lg text-xs leading-5 text-amber-100/70">Switch to Live Broker mode to inspect source-backed Modbus values, scaling validation, and persisted electrical history.</p></div> : <div className="relative z-10 space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1013,14 +1175,14 @@ function ElectricalParametersChart({ rows, mode }: { rows: ModbusRow[]; mode: 'd
   );
 }
 
-function InverterOverviewTable({ devices, onOpenInverter, onViewAll }: { devices: Device[]; onOpenInverter: (device: Device) => void; onViewAll: () => void }) {
+function InverterOverviewTable({ devices, onOpenInverter, onViewAll, timeFilter }: { devices: Device[]; onOpenInverter: (device: Device) => void; onViewAll: () => void; timeFilter: AppliedTimeFilter }) {
   const inverters = devices.filter(d => d.type === 'Power inverter');
   return (
     <div className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Layers3 size={16} className="text-slate-400" />
-          <h3 className="text-sm font-bold text-slate-200">Inverter Overview</h3>
+          <div><h3 className="text-sm font-bold text-slate-200">Inverter Overview</h3><p className="mt-0.5 text-[9px] text-slate-500">Current-only fleet status{timeFilter.preset !== 'live' ? ' · historical filter does not change status' : ''}</p></div>
         </div>
         <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-xs text-slate-400 hover:text-slate-200 focus-ring rounded">View all</button>
       </div>
@@ -1061,9 +1223,10 @@ function InverterOverviewTable({ devices, onOpenInverter, onViewAll }: { devices
   );
 }
 
-function EnergySummaryChart() {
+function EnergySummaryChart({ timeFilter }: { timeFilter: AppliedTimeFilter }) {
   const [range, setRange] = useState<keyof typeof energyDataByRange>('daily');
   const data = energyDataByRange[range];
+  const historicalUnavailable = timeFilter.preset !== 'live';
   return (
     <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
@@ -1072,12 +1235,13 @@ function EnergySummaryChart() {
              <Activity size={14} className="text-slate-400" /> Energy Summary
            </h3>
         </div>
-        <div role="tablist" aria-label="Energy time range" className="flex bg-[#0f1423] p-0.5 rounded border border-[#1e293b]">
-           {(['daily', 'monthly', 'yearly'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-energy-range-${option}`} className={`px-2 py-1 text-[10px] rounded font-medium capitalize focus-ring ${range === option ? 'bg-[#1e293b] text-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>{option}</button>)}
-        </div>
+        <span className={`rounded px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${historicalUnavailable ? 'bg-amber-500/10 text-amber-300' : 'bg-sky-500/10 text-sky-300'}`}>{historicalUnavailable ? 'History unavailable' : 'Current reference'}</span>
       </div>
-      <div className="mb-6">
+      {historicalUnavailable ? <div className="flex min-h-[190px] flex-1 items-center justify-center rounded-lg border border-dashed border-amber-500/25 bg-amber-500/5 px-4 text-center text-xs text-amber-200"><span>Energy history is not available from persisted electrical snapshots.<span className="mt-1 block text-[10px] text-amber-100/70">The selected range is not represented by estimated energy values.</span></span></div> : <><div className="mb-6">
         <span className="text-2xl font-bold text-slate-100 tracking-tight">{range === 'daily' ? '14.13' : range === 'monthly' ? '96.1' : '3,862'}</span> <span className="text-[11px] text-slate-500">{range === 'yearly' ? 'MWh this year' : `MWh ${range === 'daily' ? 'today' : 'this month'}`}</span>
+      </div>
+      <div role="tablist" aria-label="Energy time range" className="mb-3 flex w-fit bg-[#0f1423] p-0.5 rounded border border-[#1e293b]">
+         {(['daily', 'monthly', 'yearly'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-energy-range-${option}`} className={`px-2 py-1 text-[10px] rounded font-medium capitalize focus-ring ${range === option ? 'bg-[#1e293b] text-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>{option}</button>)}
       </div>
       <div className="flex-1 min-h-[140px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -1090,12 +1254,14 @@ function EnergySummaryChart() {
       <div className="flex justify-between text-[9px] text-slate-500 mt-2 font-mono">
         <span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span>
       </div>
+      </>}
     </div>
   );
 }
 
-function PowerTrendChart({ currentKw }: { currentKw: number }) {
+function PowerTrendChart({ currentKw, timeFilter }: { currentKw: number; timeFilter: AppliedTimeFilter }) {
   const [range, setRange] = useState<keyof typeof powerTrendByRange>('today');
+  const historicalUnavailable = timeFilter.preset !== 'live';
   return (
     <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
@@ -1103,12 +1269,13 @@ function PowerTrendChart({ currentKw }: { currentKw: number }) {
           <Activity size={14} className="text-slate-400" />
           <h3 className="text-sm font-bold text-slate-200">Power Trend</h3>
         </div>
-        <div role="tablist" aria-label="Power trend time range" className="flex items-center rounded border border-[#1e293b] bg-[#0f1423] p-0.5">
-          {(['today', 'week', 'month'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-power-range-${option}`} className={`rounded px-2 py-1 text-[10px] capitalize focus-ring ${range === option ? 'bg-[#1e293b] text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}>{option}</button>)}
-        </div>
+        <span className={`rounded px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${historicalUnavailable ? 'bg-amber-500/10 text-amber-300' : 'bg-sky-500/10 text-sky-300'}`}>{historicalUnavailable ? 'History unavailable' : 'Current-only'}</span>
       </div>
-      <div className="mb-6">
+      {historicalUnavailable ? <div className="flex min-h-[190px] flex-1 items-center justify-center rounded-lg border border-dashed border-amber-500/25 bg-amber-500/5 px-4 text-center text-xs text-amber-200"><span>Power trend history is unavailable for this filter.<span className="mt-1 block text-[10px] text-amber-100/70">Only validated electrical parameter history is currently persisted.</span></span></div> : <><div className="mb-6">
         <span className="text-2xl font-bold text-slate-100 tracking-tight">{currentKw.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> <span className="text-[11px] text-slate-500">kW right now</span>
+      </div>
+      <div role="tablist" aria-label="Power trend time range" className="mb-3 flex w-fit items-center rounded border border-[#1e293b] bg-[#0f1423] p-0.5">
+        {(['today', 'week', 'month'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-power-range-${option}`} className={`rounded px-2 py-1 text-[10px] capitalize focus-ring ${range === option ? 'bg-[#1e293b] text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}>{option}</button>)}
       </div>
       <div className="flex-1 min-h-[140px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -1133,16 +1300,17 @@ function PowerTrendChart({ currentKw }: { currentKw: number }) {
         <span className="text-orange-500 font-bold">Now</span>
         <span>24:00</span>
       </div>
+      </>}
     </div>
   );
 }
 
-function PowerDistributionChart() {
+function PowerDistributionChart({ timeFilter }: { timeFilter: AppliedTimeFilter }) {
   return (
     <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center gap-2 mb-6">
         <Activity size={14} className="text-slate-400" />
-        <h3 className="text-sm font-bold text-slate-200">Power Distribution</h3>
+        <div><h3 className="text-sm font-bold text-slate-200">Power Distribution</h3><p className="mt-0.5 text-[9px] text-slate-500">Current-only reference{timeFilter.preset !== 'live' ? ' · historical range not applied' : ''}</p></div>
       </div>
       
       <div className="flex-1 flex flex-col items-center relative">
@@ -1286,13 +1454,13 @@ function EnvironmentDetails({ siteName, sites = [], weather, onRefresh, onSiteCh
   );
 }
 
-function SidePanels() {
+function SidePanels({ timeFilter }: { timeFilter: AppliedTimeFilter }) {
   return (
     <div className="flex flex-col gap-4 h-full">
       <div className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex-1">
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle size={14} className="text-slate-400" />
-          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Alarms & Faults</h3>
+          <div><h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Alarms & Faults</h3><p className="mt-0.5 text-[9px] text-slate-500">Current-only{timeFilter.preset !== 'live' ? ' · not historical events' : ''}</p></div>
         </div>
         <div className="space-y-2.5">
           <div className="flex items-center justify-between text-[10px]">
@@ -1347,7 +1515,7 @@ function SidePanels() {
   );
 }
 
-function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persistence: PersistenceStatus }) {
+function DetailedLiveDataTable({ rows, persistence, timeFilter }: { rows: ModbusRow[]; persistence: PersistenceStatus; timeFilter: AppliedTimeFilter }) {
   const [filter, setFilter] = useState('');
   const [filterCategory, setFilterCategory] = useState('All categories');
   const [filterSource, setFilterSource] = useState('All sources');
@@ -1394,6 +1562,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   const lastSnapshotLabel = persistence.lastSnapshotAt
     ? `${persistence.lastSnapshotStatus === 'missing' ? 'Missing window' : 'Saved'} · ${formatInPlantTimezone(persistence.lastSnapshotScheduledFor ?? persistence.lastSnapshotAt, persistence.timezone)}`
     : 'No scheduled snapshot recorded yet';
+  const timeScopeLabel = timeFilterLabel(timeFilter);
   const resetFilters = () => {
     setFilter('');
     setFilterCategory('All categories');
@@ -1405,7 +1574,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
     const cell = (value: unknown) => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
     const reportRows = [
       `<Row>${cell(title)}</Row>`,
-      `<Row>${cell(`Filter: ${filter || 'All parameters'} | Category: ${filterCategory} | Source: ${filterSource} | Sort: ${sortLabel} | Rows: ${sortedRows.length}`)}</Row>`,
+      `<Row>${cell(`Time scope: ${timeScopeLabel} | Current-only table: yes | Filter: ${filter || 'All parameters'} | Category: ${filterCategory} | Source: ${filterSource} | Sort: ${sortLabel} | Rows: ${sortedRows.length}`)}</Row>`,
       `<Row>${columns.map(cell).join('')}</Row>`,
       ...sortedRows.map((row) => {
         const dateTime = telemetryDateTime(row);
@@ -1432,7 +1601,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
     }).join('');
     reportWindow.document.write(`<!doctype html><html><head><title>${escapeHtml(title)}</title><style>
       @page{size:landscape;margin:12mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}h1{font-size:18px;margin:0 0 4px}p{margin:3px 0;color:#5c6b80}.meta{border-bottom:2px solid #dbe3ef;padding-bottom:10px;margin-bottom:12px}table{width:100%;border-collapse:collapse}th{background:#e8eef7;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.05em}th,td{border:1px solid #dbe3ef;padding:6px 5px;vertical-align:top}td:nth-child(3),td:nth-child(4),td:nth-child(6),td:nth-child(10){font-family:monospace} .empty{text-align:center;padding:24px;color:#5c6b80}@media print{thead{display:table-header-group}tr{break-inside:avoid}}
-    </style></head><body><div class="meta"><h1>${escapeHtml(title)}</h1><p>Generated: ${escapeHtml(new Date().toLocaleString())}</p><p>Filter: ${escapeHtml(filter || 'All parameters')} · Category: ${escapeHtml(filterCategory)} · Source: ${escapeHtml(filterSource)} · Sort: ${escapeHtml(sortLabel)} · Rows: ${sortedRows.length}</p></div><table><thead><tr>${['Category', 'Parameter', 'Raw Value', 'Customer Value', 'Unit', 'Register Address', 'Data Quality', 'Source', 'Date', 'Time'].map((heading) => `<th>${heading}</th>`).join('')}</tr></thead><tbody>${htmlRows || '<tr><td class="empty" colspan="10">No telemetry rows match the current filters.</td></tr>'}</tbody></table></body></html>`);
+    </style></head><body><div class="meta"><h1>${escapeHtml(title)}</h1><p>Generated: ${escapeHtml(new Date().toLocaleString())}</p><p>Time scope: ${escapeHtml(timeScopeLabel)} · Current-only table: yes</p><p>Filter: ${escapeHtml(filter || 'All parameters')} · Category: ${escapeHtml(filterCategory)} · Source: ${escapeHtml(filterSource)} · Sort: ${escapeHtml(sortLabel)} · Rows: ${sortedRows.length}</p></div><table><thead><tr>${['Category', 'Parameter', 'Raw Value', 'Customer Value', 'Unit', 'Register Address', 'Data Quality', 'Source', 'Date', 'Time'].map((heading) => `<th>${heading}</th>`).join('')}</tr></thead><tbody>${htmlRows || '<tr><td class="empty" colspan="10">No telemetry rows match the current filters.</td></tr>'}</tbody></table></body></html>`);
     reportWindow.document.close();
     reportWindow.focus();
     window.setTimeout(() => reportWindow.print(), 250);
@@ -1448,7 +1617,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
             <Database size={16} className="text-slate-400" />
             <h3 className="text-sm font-bold text-slate-200">Detailed Live Data</h3>
           </div>
-          <p className="text-xs text-slate-500">Live MQTT/SSE data updates 24/7. Historical data includes only scheduled, persisted snapshots.</p>
+           <p className="text-xs text-slate-500">Live MQTT/SSE data updates 24/7. This table is current-only; historical electrical samples appear in Electrical Parameters.</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span data-testid="status-live-telemetry" className="rounded bg-sky-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-sky-300">Live · 24/7</span>
@@ -1464,6 +1633,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
         <span><strong className="font-semibold text-slate-300">Next window:</strong> {formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}</span>
         <span><strong className="font-semibold text-slate-300">Last record:</strong> {lastSnapshotLabel}</span>
       </div>
+      {timeFilter.preset !== 'live' && <div data-testid="status-live-table-current-only" className="border-b border-violet-500/20 bg-violet-500/5 px-5 py-2 text-[10px] text-violet-200">Selected range: {timeScopeLabel}. This live table remains current-only and is not substituted for persisted history.</div>}
       <div className="flex flex-wrap items-center gap-2 border-b border-[#1e293b] bg-[#0f1423] p-4">
         <label className="relative min-w-[220px] flex-1 sm:flex-none">
           <span className="sr-only">Search live Modbus data</span>
@@ -1534,7 +1704,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   );
 }
 
-function CompletePayloadInspector({ rawPayload, rawJson, topic, onCopy }: any) {
+function CompletePayloadInspector({ rawPayload, rawJson, topic, onCopy, timeFilter }: { rawPayload: string; rawJson: JsonValue | null; topic: string; onCopy: (payload: string) => void; timeFilter: AppliedTimeFilter }) {
   const rows = rawJson ? flattenJson(rawJson) : [];
   return (
     <section id="raw-data" data-section="raw-data" className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden mt-6">
@@ -1545,7 +1715,8 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, onCopy }: any) {
              <h3 className="text-sm font-bold text-slate-200">Raw MQTT Payload</h3>
              <CustomBadge tone="success"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-soft" />Live</CustomBadge>
           </div>
-          <p className="text-[11px] text-slate-500 font-mono mt-1">{topic}</p>
+           <p className="text-[11px] text-slate-500 font-mono mt-1">{topic}</p>
+           {timeFilter.preset !== 'live' && <p data-testid="status-raw-payload-current-only" className="mt-1 text-[10px] text-violet-300">Current-only message · selected historical range does not alter this raw payload.</p>}
         </div>
         <button type="button" onClick={() => onCopy(rawPayload)} data-testid="button-copy-raw-payload" title="Copy the exact MQTT message without formatting changes" className="flex items-center gap-2 px-3 py-1.5 rounded bg-[#1e293b] text-[11px] font-medium text-slate-200 hover:bg-slate-700 transition-colors border border-[#334155] focus-ring">
           <Copy size={13} /> Copy Exact Message
@@ -1733,11 +1904,14 @@ function AppShell() {
   const [rawJson, setRawJson] = useState<JsonValue | null>(null);
   const [modbusRows, setModbusRows] = useState<ModbusRow[]>([]);
   const [persistence, setPersistence] = useState<PersistenceStatus>({ intervalMinutes: 10, pendingMessages: 0 });
+  const [appliedTimeFilter, setAppliedTimeFilter] = useState<AppliedTimeFilter>(() => appliedTimeFilterFromDraft(timeFilterDraftForPreset('live', DEFAULT_SITE_TIMEZONE), DEFAULT_SITE_TIMEZONE)!);
+  const [timeFilterRefreshToken, setTimeFilterRefreshToken] = useState(0);
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
   const [activeSite, setActiveSite] = useState(() => initialDevices.find((device) => device.type.toLowerCase().includes('weather'))?.site ?? initialDevices[0]?.site ?? 'Plant site');
   const [weatherState, setWeatherState] = useState<WeatherState>({ status: 'unavailable', message: 'No configured coordinates are available for the selected plant/site.' });
   const [weatherRefreshToken, setWeatherRefreshToken] = useState(0);
   const streamRef = useRef<EventSource | null>(null);
+  const plantTimezone = persistence.timezone || DEFAULT_SITE_TIMEZONE;
 
   useEffect(() => { localStorage.setItem('northline-mode', mode); }, [mode]);
   useEffect(() => {
@@ -1745,6 +1919,9 @@ function AppShell() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
   useEffect(() => { localStorage.setItem('solar-scada-navigation-collapsed', String(navigationCollapsed)); }, [navigationCollapsed]);
+  useEffect(() => {
+    setAppliedTimeFilter((current) => current.preset === 'live' ? { ...current, timezone: plantTimezone } : current);
+  }, [plantTimezone]);
   useEffect(() => {
     if (!mobileNav) return;
     const previousOverflow = document.body.style.overflow;
@@ -1931,6 +2108,10 @@ function AppShell() {
     if (mode === 'live') connect();
     else setNow(Date.now());
   };
+  const refreshTimeFilter = () => {
+    setTimeFilterRefreshToken((token) => token + 1);
+    if (appliedTimeFilter.preset === 'live') refreshTelemetry();
+  };
   const refreshWeather = () => {
     if (weatherLocation) setWeatherRefreshToken((token) => token + 1);
     else setWeatherState({ status: 'unavailable', message: 'Weather data unavailable for this site: configure plant/site or registered device coordinates in SCADA telemetry.' });
@@ -1948,7 +2129,8 @@ function AppShell() {
       const unit = lowerName.includes('voltage') ? 'V' : lowerName.includes('current') ? 'A' : lowerName.includes('frequency') ? 'Hz' : lowerName.includes('power') ? 'kW' : lowerName.includes('temp') ? '°C' : '';
       return [name, row.raw_data ?? row.data, row.data, unit, row.full_addr ?? row.addr, row.server_name ?? 'Modbus', row.date_iso_8601 ?? row.timestamp ?? row.date].map(escapeCell).join(',');
     });
-    const blob = new Blob([[columns.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+    const metadata = ['SCADA time scope', timeFilterLabel(appliedTimeFilter), `Timezone: ${appliedTimeFilter.timezone}`, 'Current-only export: yes'].map(escapeCell).join(',');
+    const blob = new Blob([[metadata, columns.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -1986,6 +2168,8 @@ function AppShell() {
               </div>
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="ml-auto whitespace-nowrap text-xs font-semibold underline focus-ring">Retry connection</button></div>}
+            {appliedTimeFilter.preset !== 'live' && <div role="status" data-testid="status-dashboard-current-only" className="mb-4 rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-2 text-[10px] leading-4 text-violet-200">Historical window applied: {timeFilterLabel(appliedTimeFilter)}. Dashboard KPI cards, data quality, alarms, inverter status, weather, and raw payload remain current-only; Electrical Parameters is the range-backed historical view.</div>}
+            <TimeFilterPanel applied={appliedTimeFilter} timezone={plantTimezone} onApply={setAppliedTimeFilter} onReset={() => setAppliedTimeFilter(appliedTimeFilterFromDraft(timeFilterDraftForPreset('live', plantTimezone), plantTimezone)!)} onRefresh={refreshTimeFilter} refreshing={appliedTimeFilter.preset !== 'live' && false} />
             <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
               <KpiCard title="Total AC Power" value={totalAcPower.toLocaleString(undefined, { maximumFractionDigits: 2 })} unit="kW" icon={Zap} colorClass="bg-blue-500/10 text-blue-400" onClick={() => navigateTo('power')} help="Open the realtime plant power trend and choose a time range." />
               <KpiCard title="Today's Energy" value="14.13" unit="MWh" icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext="Daily energy" onClick={() => navigateTo('energy')} help="Open energy analytics for daily, monthly, or yearly production." />
@@ -1998,33 +2182,33 @@ function AppShell() {
           
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
             <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6 xl:col-span-2">
-                <ElectricalParametersChart rows={modbusRows} mode={mode} />
+                <ElectricalParametersChart rows={modbusRows} mode={mode} timeFilter={appliedTimeFilter} refreshToken={timeFilterRefreshToken} />
             </div>
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
-               <InverterOverviewTable devices={devices} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
+               <InverterOverviewTable devices={devices} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} timeFilter={appliedTimeFilter} />
             </div>
           </div>
           
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 xl:grid-cols-5">
               <div id="energy" data-section="energy" className="min-w-0 scroll-mt-6 xl:col-span-1">
-               <EnergySummaryChart />
+                <EnergySummaryChart timeFilter={appliedTimeFilter} />
              </div>
               <div id="power" data-section="power" className="min-w-0 scroll-mt-6 xl:col-span-2">
-               <PowerTrendChart currentKw={totalAcPower} />
+                <PowerTrendChart currentKw={totalAcPower} timeFilter={appliedTimeFilter} />
              </div>
              <div className="min-w-0 xl:col-span-1">
-               <PowerDistributionChart />
+                <PowerDistributionChart timeFilter={appliedTimeFilter} />
              </div>
               <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6 xl:col-span-1">
-                <SidePanels />
+                 <SidePanels timeFilter={appliedTimeFilter} />
              </div>
           </div>
 
           <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} onRefresh={refreshWeather} onSiteChange={changeActiveSite} />
 
-          <DetailedLiveDataTable rows={modbusRows} persistence={persistence} />
+           <DetailedLiveDataTable rows={modbusRows} persistence={persistence} timeFilter={appliedTimeFilter} />
 
-          <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} onCopy={handleCopy} />
+           <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} onCopy={handleCopy} timeFilter={appliedTimeFilter} />
           
         </main>
       </div>
