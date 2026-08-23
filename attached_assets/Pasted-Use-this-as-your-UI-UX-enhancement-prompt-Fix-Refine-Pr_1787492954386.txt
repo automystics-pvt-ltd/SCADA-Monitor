@@ -1,0 +1,441 @@
+Use this as your **UI/UX enhancement prompt**:
+
+> ### Fix, Refine & Productionize the Solar SCADA UI/UX
+>
+> Completely review and enhance the existing Solar SCADA application UI/UX. **Do not simply redesign the appearance**—fix the overall usability, navigation, responsiveness, alignment, interactions, information hierarchy, and consistency so the application feels like a professional enterprise-grade SCADA platform.
+>
+> ### 1. Clean & Professional UI
+>
+> * Create a modern, premium, clean Solar SCADA design.
+> * Maintain a consistent design system across every screen.
+> * Use consistent typography, font sizes, spacing, padding, borders, corner radius, icons, buttons, cards, tables, charts, and status indicators.
+> * Remove unnecessary visual clutter, duplicated information, excessive colors, oversized components, and inconsistent styling.
+> * Improve alignment and visual hierarchy so users immediately understand:
+>   **Plant → Site → Inverter → Parameter → Value → Status → Analytics**.
+> * Ensure every section has a clear purpose and readable heading.
+> * Use professional solar/energy visual language without making the interface look decorative or like a generic dashboard.
+>
+> ### 2. Light & Dark Mode Toggle
+>
+> Add a fully functional **Light / Dark mode toggle**.
+>
+> The entire application must dynamically adapt:
+>
+> * Dashboard
+> * Sidebar
+> * Header
+> * Cards
+> * Tables
+> * Charts
+> * Forms
+> * Modals
+> * Dropdowns
+> * Tooltips
+> * Notifications
+> * Inverter details
+> * Analytics
+> * Reports
+> * Settings
+>
+> Do not implement dark mode by simply changing the page background.
+>
+> Create proper design tokens for:
+>
+> * Background
+> * Surface
+> * Card
+> * Primary text
+> * Secondary text
+> * Border
+> * Accent
+> * Success
+> * Warning
+> * Error
+> * Chart colors
+> * Hover states
+> * Selected states
+>
+> Remember the user's selected theme and apply it consistently across navigation and all screens.
+>
+> ### 3. Professional Hover Information
+>
+> Every important interactive object should provide useful hover information.
+>
+> Add polished tooltips for:
+>
+> * KPI cards
+> * Charts
+> * Chart data points
+> * Inverter status
+> * Parameter values
+> * Modbus addresses
+> * Alarm indicators
+> * Fault indicators
+> * Data-quality indicators
+> * Icons
+> * Navigation items
+> * Action buttons
+> * Export/download buttons
+> * Refresh controls
+> * Settings
+>
+> Tooltips should explain **what the value means**, not merely repeat the label.
+>
+> Example:
+>
+> **Power Factor**
+> `Current: 1.000`
+> `Healthy operating range`
+> `Source: Modbus 305035`
+> `Last updated: 17:19:31`
+>
+> For telemetry:
+>
+> **Phase CA Voltage**
+> `Customer Value: 775.7 V`
+> `Raw Value: 7757`
+> `Modbus Address: 305021`
+> `Source: Modbus Register`
+> `Quality: Good`
+> `Updated: 17:19:31`
+>
+> ### 4. Dashboard Navigation
+>
+> Make navigation extremely simple and intuitive.
+>
+> From the Dashboard, users must be able to reach every major screen within **1–2 clicks**.
+>
+> Navigation structure:
+>
+> **Dashboard**
+> → Plant Overview
+> → Inverters
+> → Inverter Details
+> → Live Data
+> → Energy Analytics
+> → Performance
+> → Alarms & Events
+> → Reports
+> → Data Export
+> → Settings
+>
+> Add:
+>
+> * Breadcrumbs
+> * Back navigation
+> * Clear active navigation state
+> * Consistent page titles
+> * Context-aware navigation
+> * Quick actions
+> * "View All" links
+> * Clickable KPI cards
+> * Clickable inverter cards
+> * Clickable alarm summaries
+>
+> Example:
+>
+> **Dashboard → Inverters → INV-01 → Electrical → MPPT → String Details**
+>
+> Users should never feel lost.
+>
+> ### 5. Make EVERY Dashboard Object Functional
+>
+> Do not create visual-only cards or buttons.
+>
+> Every interactive object must perform the expected action.
+>
+> Examples:
+>
+> **Total AC Power**
+> → Open Power Analytics
+>
+> **Today's Energy**
+> → Open Energy Analytics
+>
+> **Inverters Online**
+> → Open Inverter Fleet
+>
+> **Active Alarms**
+> → Open Alarms & Events filtered to active alarms
+>
+> **INV-01**
+> → Open INV-01 detailed monitoring
+>
+> **Power chart**
+> → Allow time-range selection and detailed tooltip
+>
+> **View All**
+> → Navigate to the appropriate full page
+>
+> **Refresh**
+> → Refresh the latest telemetry
+>
+> **Export**
+> → Export the currently selected dataset
+>
+> **Settings**
+> → Open the correct configuration page
+>
+> **Notifications**
+> → Open notification/alarm center
+>
+> No dead buttons, fake interactions, or placeholder actions.
+>
+> ### 6. Inverter Navigation
+>
+> Create a clear inverter workflow:
+>
+> **Inverter Fleet**
+>
+> → INV-01
+> → INV-02
+> → INV-03
+> → INV-04
+> → INV-05
+>
+> Each inverter should open a detailed page containing:
+>
+> * Overview
+> * Live Power
+> * Electrical
+> * Energy
+> * MPPT
+> * Strings
+> * Temperature
+> * Alarms
+> * Faults
+> * Historical Trends
+> * Raw Data
+> * Data Quality
+>
+> Add tabs or segmented navigation that remains consistent throughout the application.
+>
+> ### 7. Responsive Design
+>
+> The entire application must work correctly on:
+>
+> * Large desktop monitors
+> * 1920×1080
+> * 1440×900
+> * Laptop screens
+> * Tablets
+> * iPad
+> * Mobile phones
+>
+> Do not simply shrink the desktop interface.
+>
+> Properly reflow:
+>
+> * Sidebar
+> * Header
+> * KPI cards
+> * Charts
+> * Tables
+> * Inverter cards
+> * Filters
+> * Forms
+> * Modals
+> * Navigation
+>
+> On mobile:
+>
+> * Convert sidebar into a collapsible navigation drawer.
+> * Stack KPI cards intelligently.
+> * Make tables horizontally scrollable where necessary.
+> * Keep critical columns visible.
+> * Convert complex tables into mobile-friendly cards where appropriate.
+> * Ensure charts remain readable.
+> * Maintain minimum touch target sizes.
+>
+> ### 8. Alignment & Spacing
+>
+> Perform a complete visual alignment audit.
+>
+> Fix:
+>
+> * Unequal card heights
+> * Misaligned headings
+> * Inconsistent margins
+> * Uneven padding
+> * Misaligned icons
+> * Inconsistent table columns
+> * Chart overflow
+> * Text wrapping problems
+> * Button alignment
+> * Sidebar spacing
+> * Header spacing
+> * Modal positioning
+> * Mobile overflow
+>
+> Use a consistent spacing system throughout the application.
+>
+> ### 9. Data Visualization
+>
+> Make charts professional and understandable.
+>
+> Every chart should include:
+>
+> * Clear title
+> * Unit
+> * Time range
+> * Legend
+> * Tooltip
+> * Current value
+> * Trend
+> * Empty state
+> * Loading state
+> * Error state
+>
+> Do not overload charts with unnecessary lines or colors.
+>
+> Use consistent colors throughout the SCADA application:
+>
+> 🟢 Healthy / Online
+> 🟡 Warning
+> 🔴 Critical / Fault
+> 🔵 Electrical / Live
+> 🟠 Power / Energy
+> 🟣 Analytics
+>
+> ### 10. Loading, Empty & Error States
+>
+> Every screen must have professionally designed states for:
+>
+> * Loading
+> * No data
+> * No inverter selected
+> * No alarms
+> * Device offline
+> * MQTT disconnected
+> * Data unavailable
+> * API error
+> * Invalid telemetry
+> * Scaling not configured
+>
+> Never show blank screens.
+>
+> Example:
+>
+> **No telemetry available**
+>
+> `INV-03 has not reported data recently.`
+>
+> `Last communication: 17:14:32`
+>
+> `[Retry Connection]`
+>
+> ### 11. SCADA Data Transparency
+>
+> Maintain a clear distinction between:
+>
+> **Raw Value**
+>
+> Value received directly from Modbus/MQTT.
+>
+> **Customer Value**
+>
+> Normalized/scaled value shown to the customer.
+>
+> **Data Quality**
+>
+> Whether the value is valid, unavailable, or requires scaling.
+>
+> Example:
+>
+> `Phase CA Voltage`
+>
+> **775.7 V**
+>
+> Raw: `7757`
+> Modbus: `305021`
+> Source: `Modbus Register`
+> Quality: `Good`
+> Updated: `17:19:31`
+>
+> This information should be available through hover/expand/details rather than cluttering the primary dashboard.
+>
+> ### 12. Accessibility & Usability
+>
+> Ensure:
+>
+> * Sufficient color contrast
+> * Readable font sizes
+> * Clear focus states
+> * Keyboard navigation
+> * Accessible tooltips
+> * Accessible buttons
+> * Meaningful icons
+> * Icons must never be the only indication of status
+>
+> ### 13. Performance
+>
+> Keep the dashboard lightweight and responsive.
+>
+> Avoid:
+>
+> * Unnecessary animations
+> * Excessive shadows
+> * Heavy visual effects
+> * Re-rendering the entire dashboard for every telemetry update
+>
+> Update only the affected telemetry components when new MQTT data arrives.
+>
+> ### 14. Final Quality Check
+>
+> Before considering the UI complete, perform a complete application-wide audit:
+>
+> **Visual**
+>
+> * Alignment
+> * Spacing
+> * Typography
+> * Colors
+> * Icons
+> * Responsive behavior
+>
+> **Functional**
+>
+> * Navigation
+> * Buttons
+> * Cards
+> * Charts
+> * Filters
+> * Dropdowns
+> * Toggles
+> * Modals
+> * Export
+> * Refresh
+>
+> **Data**
+>
+> * Live telemetry
+> * Raw values
+> * Customer values
+> * Units
+> * Modbus addresses
+> * Data quality
+> * Timestamps
+>
+> **UX**
+>
+> * Hover information
+> * Breadcrumbs
+> * Back navigation
+> * Empty states
+> * Error states
+> * Loading states
+> * Mobile usability
+>
+> **Theme**
+>
+> * Light mode
+> * Dark mode
+> * Theme persistence
+> * Consistent chart colors
+> * Consistent status colors
+>
+> ### Final Objective
+>
+> **Transform the existing Solar SCADA UI into a polished, production-ready enterprise application where every screen, button, card, chart, table, navigation item, tooltip, toggle, and dashboard component works correctly and looks consistent across desktop, tablet, and mobile.**
+>
+> The final experience should be **clean, professional, intuitive, responsive, highly interactive, solar/SCADA-specific, and easy for both technical engineers and non-technical customers to understand.**

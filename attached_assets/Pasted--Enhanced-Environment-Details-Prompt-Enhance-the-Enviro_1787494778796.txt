@@ -1,0 +1,109 @@
+### Enhanced Environment Details Prompt
+
+Enhance the **Environment Details** section to display **accurate, live, site-specific environmental information based strictly on the configured Plant/Site location and registered device location — never the user's browser, IP, GPS, or current device location**.
+
+The system must use the **Plant/Site coordinates configured in the SCADA platform** as the single source of truth for all environmental and weather information.
+
+Display the following information dynamically:
+
+* **Plant / Site Name**
+* **Site Location**
+* **Latitude / Longitude**
+* **Device/Inverter Location**
+* **Live Weather**
+* **Weather Condition**
+* **Current Temperature**
+* **Wind Speed**
+* **Wind Direction**
+* **Humidity**
+* **Solar Irradiance**
+* **Cloud Cover**
+* **Precipitation**
+* **Weather Timezone**
+* **Weather Data Source**
+* **Last Updated Time**
+
+### Location Logic
+
+Implement the location hierarchy as:
+
+**Organization → Plant/Site → Device/Inverter → Configured Coordinates → Weather API → Live Environment Data**
+
+The weather service must always query the **selected Plant/Site or registered device coordinates**.
+
+**Never use:**
+
+* User browser location
+* User GPS location
+* User IP-based location
+* ChatGPT/user current location
+* Device accessing the dashboard location
+
+For example, if the SCADA user is physically in **Chennai** but the selected solar plant is located in **Dindigul**, all weather information must represent **Dindigul**, not Chennai.
+
+### Multi-Site Behavior
+
+When the user changes the selected plant/site:
+
+**Selected Site → Retrieve Site Coordinates → Fetch Weather → Update Environment Container**
+
+The environment dashboard must automatically refresh to the selected site's location.
+
+When viewing an individual inverter:
+
+**Plant → Site → Inverter → Registered Device Location**
+
+Use the inverter/device coordinates when they are explicitly configured; otherwise inherit the parent site's coordinates.
+
+### Accuracy & Data Integrity
+
+Do not display mocked, hard-coded, estimated, cached-as-live, or incorrectly located weather information.
+
+Every environmental value should include:
+
+**Value → Unit → Site → Timestamp → Data Source → Data Freshness**
+
+If live weather data is unavailable:
+
+> **Weather data unavailable for this site**
+
+Do not substitute the user's location or another nearby location.
+
+Clearly indicate:
+
+* **Live**
+* **Last Updated**
+* **Data Unavailable**
+* **Connection Error**
+* **Stale Data**
+
+### Professional UI/UX
+
+Create a premium Solar SCADA environment container with:
+
+* Live weather status
+* Solar-themed visual design
+* Weather icons
+* Wind direction compass
+* Wind-speed indicator
+* Humidity indicator
+* Irradiance KPI
+* Cloud-cover visualization
+* Precipitation indicator
+* Temperature trend
+* Weather condition card
+* Site location/map context
+* Last-updated timestamp
+* Data-source indicator
+
+Use compact **cards, gauges, indicators, mini charts, and visual analytics inside the environment container** so the information is easy to understand without overwhelming the dashboard.
+
+### Critical Requirement
+
+The **selected Plant/Site location must always take priority over the user's browser/device location**.
+
+The final system must ensure:
+
+> **SCADA Site Location ≠ User Location**
+
+and all weather/environment information must accurately represent the **actual configured solar plant/device location**.

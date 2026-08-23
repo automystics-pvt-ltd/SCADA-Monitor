@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Response } from "express";
-import { desc } from "drizzle-orm";
+import { and, asc, desc, gte, lte, sql } from "drizzle-orm";
 import mqtt, { type MqttClient } from "mqtt";
 import { db, mqttSnapshotsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -10,11 +10,17 @@ const subscriptionTopic = process.env.MQTT_TOPIC ?? "trn246/modbus";
 const username = process.env.MQTT_USERNAME;
 const password = process.env.MQTT_PASSWORD;
 const listeners = new Set<Response>();
-const SNAPSHOT_INTERVAL_MS = 15 * 60 * 1000;
+const SNAPSHOT_INTERVAL_MS = 15_000;
+const PERSISTENCE_INTERVAL_MINUTES = 10;
+const PERSISTENCE_START_MINUTE = 6 * 60;
+const PERSISTENCE_END_MINUTE = 18 * 60;
+const DEFAULT_PLANT_TIMEZONE = "Asia/Kolkata";
+const configuredTimezone = process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? DEFAULT_PLANT_TIMEZONE;
 
 type StoredMessage = { topic: string; payload: string; receivedAt: string };
 type SnapshotBuffer = {
   startedAt: Date;
+  slotKey: string;
   messages: StoredMessage[];
   latestParameters: Record<string, Record<string, unknown>>;
 };
@@ -27,9 +33,14 @@ let latestMessage: StoredMessage | undefined;
 const messageHistory: StoredMessage[] = [];
 const MESSAGE_HISTORY_LIMIT = 5000;
 let snapshotTimer: NodeJS.Timeout | undefined;
-let snapshotBuffer: SnapshotBuffer = { startedAt: new Date(), messages: [], latestParameters: {} };
+let snapshotBuffer: SnapshotBuffer | undefined;
 let lastSnapshotAt: string | undefined;
+let lastSnapshotScheduledFor: string | undefined;
+let lastSnapshotStatus: "saved" | "missing" | undefined;
 let snapshotError: string | undefined;
+let initializedScheduleDate: string | undefined;
+let scheduleRun: Promise<void> | undefined;
+const failedSnapshotQueue: Array<{ buffer: SnapshotBuffer; scheduledFor: Date }> = [];
 
 function send(res: Response, event: string, data: unknown) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -58,61 +69,244 @@ function snapshotParameterKey(parameter: Record<string, unknown>) {
   return `${String(parameter.server_name ?? "")}|${String(parameter.name ?? "")}|${String(parameter.addr ?? "")}`;
 }
 
+function validTimezone(timezone: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
+    return timezone;
+  } catch {
+    return DEFAULT_PLANT_TIMEZONE;
+  }
+}
+
+let plantTimezone = validTimezone(configuredTimezone);
+
+type ZonedParts = { year: number; month: number; day: number; hour: number; minute: number; second: number };
+
+function zonedParts(date: Date, timezone: string): ZonedParts {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+  return {
+    year: values.year,
+    month: values.month,
+    day: values.day,
+    hour: values.hour,
+    minute: values.minute,
+    second: values.second,
+  };
+}
+
+function localDateTimeToUtc(parts: Omit<ZonedParts, "second"> & { second?: number }, timezone: string) {
+  const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second ?? 0);
+  let guess = localAsUtc;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const observed = zonedParts(new Date(guess), timezone);
+    const observedAsUtc = Date.UTC(observed.year, observed.month - 1, observed.day, observed.hour, observed.minute, observed.second);
+    const candidate = localAsUtc - (observedAsUtc - guess);
+    if (candidate === guess) break;
+    guess = candidate;
+  }
+  return new Date(guess);
+}
+
+function dateKey(parts: ZonedParts) {
+  return `${parts.year.toString().padStart(4, "0")}-${parts.month.toString().padStart(2, "0")}-${parts.day.toString().padStart(2, "0")}`;
+}
+
+function slotKey(parts: ZonedParts) {
+  return `${dateKey(parts)}T${parts.hour.toString().padStart(2, "0")}:${parts.minute.toString().padStart(2, "0")}`;
+}
+
+function emptySnapshotBuffer(startedAt: Date, key: string): SnapshotBuffer {
+  return { startedAt, slotKey: key, messages: [], latestParameters: {} };
+}
+
+function persistenceSchedule(now: Date) {
+  const local = zonedParts(now, plantTimezone);
+  const minutes = local.hour * 60 + local.minute;
+  const collecting = minutes >= PERSISTENCE_START_MINUTE && minutes < PERSISTENCE_END_MINUTE;
+  const currentSlotMinute = Math.floor(minutes / PERSISTENCE_INTERVAL_MINUTES) * PERSISTENCE_INTERVAL_MINUTES;
+  const currentSlotParts = { ...local, hour: Math.floor(currentSlotMinute / 60), minute: currentSlotMinute % 60, second: 0 };
+  const currentSlotStart = localDateTimeToUtc(currentSlotParts, plantTimezone);
+  const nextSlotParts = { ...currentSlotParts, minute: currentSlotParts.minute + PERSISTENCE_INTERVAL_MINUTES };
+  const nextSlotStart = nextSlotParts.minute >= 60
+    ? localDateTimeToUtc({
+      ...nextSlotParts,
+      hour: nextSlotParts.hour + Math.floor(nextSlotParts.minute / 60),
+      minute: nextSlotParts.minute % 60,
+    }, plantTimezone)
+    : localDateTimeToUtc(nextSlotParts, plantTimezone);
+  const nextStart = minutes < PERSISTENCE_START_MINUTE
+    ? localDateTimeToUtc({ ...local, hour: 6, minute: 0, second: 0 }, plantTimezone)
+    : minutes < PERSISTENCE_END_MINUTE
+      ? nextSlotStart
+      : localDateTimeToUtc({ ...local, hour: 6, minute: 0, second: 0 }, plantTimezone) > now
+        ? localDateTimeToUtc({ ...local, hour: 6, minute: 0, second: 0 }, plantTimezone)
+        : localDateTimeToUtc({ ...local, day: local.day + 1, hour: 6, minute: 0, second: 0 }, plantTimezone);
+  return {
+    local,
+    localDate: dateKey(local),
+    minutes,
+    collecting,
+    currentSlotKey: slotKey(currentSlotParts),
+    currentSlotStart,
+    nextScheduledAt: nextStart,
+  };
+}
+
+function timezoneFromParameter(parameter: Record<string, unknown>) {
+  for (const [key, value] of Object.entries(parameter)) {
+    const normalized = key.toLowerCase().replace(/[^a-z]/g, "");
+    if (!["timezone", "sitetimezone", "planttimezone", "sitetz", "planttz", "tz"].includes(normalized)) continue;
+    if (typeof value !== "string" || !value.trim()) continue;
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+      return value;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function queueSnapshotMessage(message: StoredMessage) {
   const parameter = parameterFromPayload(message.payload);
+  const telemetryTimezone = parameter ? timezoneFromParameter(parameter) : undefined;
+  if (telemetryTimezone) plantTimezone = telemetryTimezone;
+  const now = new Date(message.receivedAt);
+  const schedule = persistenceSchedule(now);
+  if (!schedule.collecting) return;
+  if (!snapshotBuffer) snapshotBuffer = emptySnapshotBuffer(schedule.currentSlotStart, schedule.currentSlotKey);
+  if (snapshotBuffer.slotKey !== schedule.currentSlotKey) {
+    const previousBuffer = snapshotBuffer;
+    snapshotBuffer = emptySnapshotBuffer(schedule.currentSlotStart, schedule.currentSlotKey);
+    void persistSnapshot(previousBuffer, schedule.currentSlotStart, now);
+  }
   snapshotBuffer.messages.push(message);
   if (parameter) snapshotBuffer.latestParameters[snapshotParameterKey(parameter)] = parameter;
 }
 
-async function flushSnapshot() {
-  const buffer = snapshotBuffer;
-  const windowEndedAt = new Date();
-  snapshotBuffer = { startedAt: windowEndedAt, messages: [], latestParameters: {} };
-  if (!buffer.messages.length) return;
-
+async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, savedAt = new Date()) {
+  const scheduledForIso = scheduledFor.toISOString();
   try {
+    const [existing] = await db
+      .select({ id: mqttSnapshotsTable.id })
+      .from(mqttSnapshotsTable)
+      .where(sql`${mqttSnapshotsTable.data} ->> 'scheduledFor' = ${scheduledForIso}`)
+      .limit(1);
+    if (existing) return true;
+    const saveStatus = buffer.messages.length ? "saved" : "missing";
     await db.insert(mqttSnapshotsTable).values({
       windowStartedAt: buffer.startedAt,
-      windowEndedAt,
+      windowEndedAt: scheduledFor,
+      capturedAt: savedAt,
       topic: subscriptionTopic,
       messageCount: buffer.messages.length,
       parameterCount: Object.keys(buffer.latestParameters).length,
       data: {
+        schemaVersion: 2,
+        recordType: "scheduled-telemetry-snapshot",
+        saveStatus,
+        missingReason: buffer.messages.length ? undefined : "No MQTT telemetry was available in this scheduled window.",
+        scheduledFor: scheduledForIso,
+        capturedAt: savedAt.toISOString(),
+        timezone: plantTimezone,
         messages: buffer.messages,
         latestParameters: Object.values(buffer.latestParameters),
       },
     });
-    lastSnapshotAt = windowEndedAt.toISOString();
+    lastSnapshotAt = savedAt.toISOString();
+    lastSnapshotScheduledFor = scheduledForIso;
+    lastSnapshotStatus = saveStatus;
     snapshotError = undefined;
     broadcast("status", status());
-    logger.info({ messageCount: buffer.messages.length, parameterCount: Object.keys(buffer.latestParameters).length }, "MQTT snapshot stored");
+    logger.info({ scheduledFor: scheduledForIso, saveStatus, messageCount: buffer.messages.length, parameterCount: Object.keys(buffer.latestParameters).length }, "MQTT snapshot stored");
+    return true;
   } catch (error) {
-    snapshotBuffer = {
-      startedAt: buffer.startedAt,
-      messages: [...buffer.messages, ...snapshotBuffer.messages],
-      latestParameters: { ...buffer.latestParameters, ...snapshotBuffer.latestParameters },
-    };
+    const alreadyQueued = failedSnapshotQueue.some((pending) => pending.scheduledFor.getTime() === scheduledFor.getTime());
+    if (!alreadyQueued) failedSnapshotQueue.push({ buffer, scheduledFor });
     snapshotError = error instanceof Error ? error.message : "Snapshot write failed";
     logger.error({ err: error }, "MQTT snapshot write failed");
     broadcast("status", status());
+    return false;
   }
+}
+
+async function retryFailedSnapshots() {
+  while (failedSnapshotQueue.length) {
+    const pending = failedSnapshotQueue.shift();
+    if (!pending) return;
+    const stored = await persistSnapshot(pending.buffer, pending.scheduledFor);
+    if (!stored) return;
+  }
+}
+
+async function runSnapshotSchedule(now = new Date()) {
+  await retryFailedSnapshots();
+  const schedule = persistenceSchedule(now);
+  if (schedule.collecting) {
+    if (initializedScheduleDate !== schedule.localDate) {
+      initializedScheduleDate = schedule.localDate;
+      const dayStart = localDateTimeToUtc({ ...schedule.local, hour: 6, minute: 0, second: 0 }, plantTimezone);
+      await persistSnapshot(emptySnapshotBuffer(dayStart, `${schedule.localDate}T06:00`), dayStart, now);
+    }
+    if (!snapshotBuffer) snapshotBuffer = emptySnapshotBuffer(schedule.currentSlotStart, schedule.currentSlotKey);
+    else if (snapshotBuffer.slotKey !== schedule.currentSlotKey) {
+      const previousBuffer = snapshotBuffer;
+      snapshotBuffer = emptySnapshotBuffer(schedule.currentSlotStart, schedule.currentSlotKey);
+      await persistSnapshot(previousBuffer, schedule.currentSlotStart, now);
+    }
+  } else if (schedule.minutes >= PERSISTENCE_END_MINUTE && snapshotBuffer) {
+    const lastBoundary = localDateTimeToUtc({ ...schedule.local, hour: 18, minute: 0, second: 0 }, plantTimezone);
+    const previousBuffer = snapshotBuffer;
+    snapshotBuffer = undefined;
+    await persistSnapshot(previousBuffer, lastBoundary, now);
+  } else if (schedule.minutes < PERSISTENCE_START_MINUTE) {
+    snapshotBuffer = undefined;
+  }
+  broadcast("status", status());
+}
+
+function requestSnapshotScheduleRun() {
+  if (scheduleRun) return;
+  scheduleRun = runSnapshotSchedule().finally(() => {
+    scheduleRun = undefined;
+  });
 }
 
 function startSnapshotTimer() {
   if (snapshotTimer) return;
-  snapshotTimer = setInterval(() => void flushSnapshot(), SNAPSHOT_INTERVAL_MS);
+  requestSnapshotScheduleRun();
+  snapshotTimer = setInterval(requestSnapshotScheduleRun, SNAPSHOT_INTERVAL_MS);
 }
 
 function status() {
+  const schedule = persistenceSchedule(new Date());
   return {
     connected,
     brokerUrl,
     topic: subscriptionTopic,
     error: lastError,
     persistence: {
-      intervalMinutes: 15,
-      pendingMessages: snapshotBuffer.messages.length,
+      intervalMinutes: PERSISTENCE_INTERVAL_MINUTES,
+      scheduleStart: "06:00",
+      scheduleEnd: "18:00",
+      timezone: plantTimezone,
+      savingActive: schedule.collecting,
+      currentWindow: snapshotBuffer?.slotKey,
+      nextScheduledAt: schedule.nextScheduledAt.toISOString(),
+      pendingMessages: (snapshotBuffer?.messages.length ?? 0) + failedSnapshotQueue.reduce((total, pending) => total + pending.buffer.messages.length, 0),
       lastSnapshotAt,
+      lastSnapshotScheduledFor,
+      lastSnapshotStatus,
       error: snapshotError,
     },
   };
@@ -173,6 +367,7 @@ function startClient() {
   client.on("message", (topic, payload) => {
     latestMessage = { topic, payload: payload.toString("utf8"), receivedAt: new Date().toISOString() };
     queueSnapshotMessage(latestMessage);
+    requestSnapshotScheduleRun();
     messageHistory.push(latestMessage);
     if (messageHistory.length > MESSAGE_HISTORY_LIMIT) messageHistory.splice(0, messageHistory.length - MESSAGE_HISTORY_LIMIT);
     broadcast("message", latestMessage);
@@ -195,6 +390,82 @@ router.get("/mqtt/snapshots", async (_req, res) => {
   } catch (error) {
     logger.error({ err: error }, "MQTT snapshots query failed");
     res.status(500).json({ message: "Unable to load stored MQTT snapshots" });
+  }
+});
+
+function parseRangeBoundary(value: unknown, boundary: "start" | "end") {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  if (boundary === "end") parsed.setMilliseconds(999);
+  return parsed;
+}
+
+function isElectricalParameter(parameter: Record<string, unknown>) {
+  const name = typeof parameter.name === "string" ? parameter.name.toLowerCase() : "";
+  return /(voltage|current|amper|activepower|realpower|powerfactor|frequency|hz|(^|[^a-z])pf([^a-z]|$))/.test(name);
+}
+
+router.get("/mqtt/electrical-history", async (req, res) => {
+  const from = parseRangeBoundary(req.query.from, "start");
+  const to = parseRangeBoundary(req.query.to, "end");
+  if (from === undefined || to === undefined) {
+    res.status(400).json({ message: "Use valid ISO date/time values for the history range." });
+    return;
+  }
+
+  const rangeEnd = to ?? new Date();
+  const rangeStart = from ?? new Date(rangeEnd.getTime() - 24 * 60 * 60 * 1000);
+  if (rangeStart > rangeEnd) {
+    res.status(400).json({ message: "The history start must be before the end." });
+    return;
+  }
+  if (rangeEnd.getTime() - rangeStart.getTime() > 31 * 24 * 60 * 60 * 1000) {
+    res.status(400).json({ message: "Choose a history range of 31 days or less." });
+    return;
+  }
+
+  try {
+    const snapshots = await db
+      .select()
+      .from(mqttSnapshotsTable)
+      .where(and(gte(mqttSnapshotsTable.windowEndedAt, rangeStart), lte(mqttSnapshotsTable.windowStartedAt, rangeEnd)))
+      .orderBy(asc(mqttSnapshotsTable.windowEndedAt))
+      .limit(500);
+
+    const samples: Array<Record<string, unknown>> = [];
+    for (const snapshot of snapshots) {
+      if (!isRecord(snapshot.data) || !Array.isArray(snapshot.data.messages)) continue;
+      const scheduledFor = typeof snapshot.data.scheduledFor === "string" ? snapshot.data.scheduledFor : snapshot.windowEndedAt.toISOString();
+      const saveStatus = snapshot.data.saveStatus === "missing" ? "missing" : "saved";
+      const timezone = typeof snapshot.data.timezone === "string" ? snapshot.data.timezone : undefined;
+      for (const message of snapshot.data.messages) {
+        if (!isRecord(message) || typeof message.payload !== "string") continue;
+        const parameter = parameterFromPayload(message.payload);
+        if (!parameter || !isElectricalParameter(parameter)) continue;
+        const receivedAt = typeof message.receivedAt === "string" ? message.receivedAt : snapshot.capturedAt.toISOString();
+        const receivedTime = new Date(receivedAt);
+        if (Number.isNaN(receivedTime.getTime()) || receivedTime < rangeStart || receivedTime > rangeEnd) continue;
+        samples.push({
+          ...parameter,
+          timestamp: receivedAt,
+          topic: typeof message.topic === "string" ? message.topic : snapshot.topic,
+          snapshotCapturedAt: snapshot.capturedAt.toISOString(),
+          snapshotScheduledFor: scheduledFor,
+          snapshotSaveStatus: saveStatus,
+          snapshotTimezone: timezone,
+        });
+      }
+    }
+
+    res.json({
+      range: { from: rangeStart.toISOString(), to: rangeEnd.toISOString() },
+      snapshotCount: snapshots.length,
+      samples,
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Electrical history query failed");
+    res.status(500).json({ message: "Unable to load persisted electrical telemetry." });
   }
 });
 

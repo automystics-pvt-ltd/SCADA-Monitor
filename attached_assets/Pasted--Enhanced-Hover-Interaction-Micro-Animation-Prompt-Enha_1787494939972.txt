@@ -1,0 +1,90 @@
+### Enhanced Hover Interaction & Micro-Animation Prompt
+
+Enhance the entire Solar SCADA UI with **premium, smooth, highly polished hover interactions and micro-animations**. Whenever the user moves the mouse over any **container, card, KPI, chart, table row, button, navigation item, icon, or interactive element**, it should respond with a subtle, elegant animation that feels refined and intuitive—similar to the **smooth, tactile interaction quality of Apple/iPhone interfaces**.
+
+The animations must feel **premium and natural, not flashy or excessive**.
+
+* Apply subtle **lift/raise effects** on hover.
+* Use smooth **scale transitions** with very small movement to create depth.
+* Add elegant **shadow/elevation changes**.
+* Apply subtle **border or background transitions**.
+* Use gentle **glass/gradient highlights** where appropriate.
+* Add smooth icon movement or micro-interactions.
+* Highlight the active data point when hovering over charts.
+* Show detailed information through beautifully designed tooltips.
+* Highlight table rows smoothly without causing layout shifts.
+* Add subtle hover feedback to KPI cards and analytics containers.
+* Navigation items should have smooth active and hover transitions.
+* Buttons should have tactile hover/press feedback.
+* Interactive cards should clearly communicate that they are clickable.
+
+### Premium Interaction Feel
+
+Use **Apple-inspired interaction principles**:
+
+* Smooth easing
+* Natural acceleration/deceleration
+* Minimal movement
+* Soft elevation
+* Subtle depth
+* Clean transitions
+* Responsive touch feedback
+* No aggressive bouncing
+* No excessive zooming
+* No distracting animations
+
+Animations should typically be **fast and fluid**, around `150–300ms`, with carefully tuned easing and no sudden jumps.
+
+### SCADA-Specific Interactions
+
+For example:
+
+**KPI Card**
+
+Normal:
+
+> Total AC Power — 1.25 MW
+
+Hover:
+
+> Card gently lifts → subtle glow → value becomes slightly emphasized → trend information appears → tooltip provides additional context.
+
+**Inverter Card**
+
+Hover:
+
+> INV-01 card smoothly elevates → status indicator becomes more prominent → power/temperature trend becomes visible → cursor changes to indicate navigation.
+
+**Chart**
+
+Hover:
+
+> Crosshair appears smoothly → selected point highlights → tooltip follows the data point → exact timestamp/value/source information appears.
+
+**Alarm Card**
+
+Hover:
+
+> Subtle status animation → severity becomes visually emphasized → tooltip displays alarm details and timestamp.
+
+**Navigation**
+
+Hover:
+
+> Icon and label transition smoothly → active indicator slides/fades into position → sidebar remains stable without shifting surrounding content.
+
+### Important UX Requirements
+
+Ensure hover animations:
+
+* Never cause containers to overlap.
+* Never change the layout dimensions.
+* Never move neighboring components unexpectedly.
+* Never reduce readability.
+* Work consistently in **Light and Dark modes**.
+* Work across desktop and tablet devices.
+* Gracefully degrade on touch devices where hover is unavailable.
+* Respect `prefers-reduced-motion` accessibility settings.
+* Maintain excellent performance even with continuously updating live SCADA telemetry.
+
+The final experience should feel **premium, elegant, responsive, modern, and tactile**, giving the Solar SCADA platform a polished **Apple/iPhone-inspired quality of interaction** while still maintaining the seriousness, clarity, and reliability expected from an enterprise industrial monitoring system.

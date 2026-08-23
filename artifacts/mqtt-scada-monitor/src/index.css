@@ -30,25 +30,25 @@
 }
 
 :root {
-  --background: #0b0f19;
-  --foreground: #f1f5f9;
+  --background: #f4f7fb;
+  --foreground: #172033;
   
-  --card: #111827;
-  --card-foreground: #f1f5f9;
-  --card-border: #1e293b;
+  --card: #ffffff;
+  --card-foreground: #172033;
+  --card-border: #dbe3ef;
   
-  --popover: #111827;
-  --popover-foreground: #f1f5f9;
-  --popover-border: #1e293b;
+  --popover: #ffffff;
+  --popover-foreground: #172033;
+  --popover-border: #dbe3ef;
   
   --primary: #3b82f6;
   --primary-foreground: #ffffff;
   
-  --secondary: #1e293b;
-  --secondary-foreground: #f1f5f9;
+  --secondary: #e8eef7;
+  --secondary-foreground: #172033;
   
-  --muted: #1e293b;
-  --muted-foreground: #94a3b8;
+  --muted: #e8eef7;
+  --muted-foreground: #5c6b80;
   
   --accent: #f97316;
   --accent-foreground: #ffffff;
@@ -56,12 +56,48 @@
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
   
-  --border: #1e293b;
-  --input: #1e293b;
+  --border: #dbe3ef;
+  --input: #dbe3ef;
   --ring: #3b82f6;
+
+  --scada-bg: #f4f7fb;
+  --scada-surface: #ffffff;
+  --scada-surface-raised: #f8fafc;
+  --scada-border: #dbe3ef;
+  --scada-text: #172033;
+  --scada-muted: #5c6b80;
+  --scada-hover: #edf2f7;
+  --scada-tooltip: #162033;
+  --scada-shadow: 0 12px 30px rgba(30, 64, 175, .10);
   
   --app-font-sans: 'Inter', sans-serif;
   --app-font-mono: 'DM Mono', monospace;
+}
+
+.dark {
+  --background: #0b0f19;
+  --foreground: #f1f5f9;
+  --card: #111827;
+  --card-foreground: #f1f5f9;
+  --card-border: #1e293b;
+  --popover: #111827;
+  --popover-foreground: #f1f5f9;
+  --popover-border: #1e293b;
+  --secondary: #1e293b;
+  --secondary-foreground: #f1f5f9;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --border: #1e293b;
+  --input: #1e293b;
+  --scada-bg: #0b0f19;
+  --scada-surface: #111827;
+  --scada-surface-raised: #0f1423;
+  --scada-border: #1e293b;
+  --scada-text: #e2e8f0;
+  --scada-muted: #94a3b8;
+  --scada-hover: #1e293b;
+  --scada-tooltip: #0f1423;
+  --scada-shadow: 0 14px 34px rgba(0, 0, 0, .24);
 }
 
 @layer base {
@@ -86,3 +122,177 @@
 .focus-ring:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
+
+/* Shared premium interaction language. Transforms preserve layout dimensions,
+   and the hover media query keeps touch devices from getting sticky hover states. */
+button:not(:disabled),
+[role="button"],
+select,
+input {
+  transition:
+    transform 180ms cubic-bezier(.22, 1, .36, 1),
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 220ms cubic-bezier(.22, 1, .36, 1),
+    color 180ms ease;
+}
+
+button:not(:disabled):active,
+[role="button"]:active {
+  transform: scale(.985);
+}
+
+.scada-interactive-card,
+.scada-chart-surface {
+  position: relative;
+  isolation: isolate;
+  transition:
+    transform 220ms cubic-bezier(.22, 1, .36, 1),
+    border-color 220ms ease,
+    box-shadow 260ms cubic-bezier(.22, 1, .36, 1),
+    background-color 220ms ease;
+}
+
+.scada-interactive-card::after,
+.scada-chart-surface::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255,255,255,.075), transparent 42%);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 260ms ease;
+}
+
+.scada-icon,
+.scada-nav-arrow,
+.scada-kpi-value,
+.scada-status-indicator {
+  transition:
+    transform 220ms cubic-bezier(.22, 1, .36, 1),
+    color 180ms ease,
+    opacity 180ms ease;
+}
+
+.scada-table-row {
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+
+.scada-chart-surface .recharts-tooltip-wrapper {
+  transition: transform 100ms ease-out;
+}
+
+/* Some embedded desktop previews do not expose a fine-pointer media feature.
+   Desktop-width layouts still receive hover affordances; compact touch layouts
+   continue to degrade gracefully below this breakpoint. */
+@media (hover: hover), (min-width: 768px) {
+  .scada-interactive-card:hover,
+  .scada-chart-surface:hover {
+    border-color: color-mix(in srgb, var(--scada-border) 70%, var(--ring));
+    box-shadow: var(--scada-shadow);
+    transform: translateY(-2px) scale(1.002);
+  }
+
+  .scada-interactive-card:hover::after,
+  .scada-chart-surface:hover::after {
+    opacity: 1;
+  }
+
+  .scada-interactive-card:active,
+  .scada-chart-surface:active {
+    transform: translateY(0) scale(.999);
+  }
+
+  .scada-interactive-card:hover .scada-icon,
+  .scada-interactive-card:hover .scada-nav-arrow {
+    transform: translate3d(1px, -1px, 0);
+  }
+
+  .scada-kpi-card:hover .scada-kpi-value {
+    color: #f8fafc;
+    transform: translateX(1px);
+  }
+
+  .scada-kpi-card:hover .scada-icon {
+    transform: translate3d(1px, -1px, 0) rotate(3deg) scale(1.04);
+  }
+
+  .scada-nav-item:hover {
+    box-shadow: inset 3px 0 0 rgba(249, 115, 22, .5);
+    transform: translateX(2px);
+  }
+
+  .scada-nav-item[aria-current="page"]:hover {
+    box-shadow: inset 3px 0 0 #f97316, 0 6px 18px rgba(0, 0, 0, .12);
+    transform: translateX(2px);
+  }
+
+  .scada-nav-item:hover .scada-nav-icon {
+    transform: translate3d(1px, -1px, 0) scale(1.04);
+  }
+
+  .scada-button:hover {
+    box-shadow: 0 5px 16px rgba(59, 130, 246, .16);
+  }
+
+  .scada-icon-button:hover .scada-icon {
+    transform: translateY(-1px) scale(1.06);
+  }
+
+  .scada-table-row:hover {
+    background-color: color-mix(in srgb, var(--scada-hover) 72%, transparent);
+    box-shadow: inset 3px 0 0 rgba(59, 130, 246, .62);
+  }
+
+  .scada-table-row:hover .scada-status-indicator {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+
+  .scada-interactive-card:hover,
+  .scada-chart-surface:hover,
+  .scada-nav-item:hover {
+    transform: none;
+  }
+}
+
+/* The existing telemetry screens use a compact set of surface utilities. These
+   overrides keep every surface, table, drawer, and chart container in sync in light mode. */
+.scada-theme.light[class~="bg-[#0b0f19]"],
+.scada-theme.light [class~="bg-[#0b0f19]"] { background-color: var(--scada-bg) !important; }
+.scada-theme.light[class~="bg-[#111827]"],
+.scada-theme.light [class~="bg-[#111827]"] { background-color: var(--scada-surface) !important; }
+.scada-theme.light[class~="bg-[#0f1423]"],
+.scada-theme.light [class~="bg-[#0f1423]"] { background-color: var(--scada-surface-raised) !important; }
+.scada-theme.light[class~="bg-[#1e293b]"],
+.scada-theme.light [class~="bg-[#1e293b]"] { background-color: var(--scada-hover) !important; }
+.scada-theme.light [class*="border-[#1e293b]"],
+.scada-theme.light [class*="border-[#334155]"] { border-color: var(--scada-border) !important; }
+.scada-theme.light [class*="divide-[#1e293b]"] > :not(:last-child) { border-color: var(--scada-border) !important; }
+.scada-theme.light [class~="text-slate-100"],
+.scada-theme.light [class~="text-slate-200"],
+.scada-theme.light [class~="text-slate-300"] { color: var(--scada-text) !important; }
+.scada-theme.light [class~="text-slate-400"],
+.scada-theme.light [class~="text-slate-500"] { color: var(--scada-muted) !important; }
+.scada-theme.light .scrollbar-thin::-webkit-scrollbar-thumb { background: #c0cbda; }
+
+@media (max-width: 640px) {
+  .scada-theme main { padding: 0.875rem; }
+  .scada-theme [data-section] { scroll-margin-top: 0.75rem; }
+}

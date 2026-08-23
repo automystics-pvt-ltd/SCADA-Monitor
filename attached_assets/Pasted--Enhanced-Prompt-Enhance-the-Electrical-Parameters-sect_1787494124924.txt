@@ -1,0 +1,31 @@
+### Enhanced Prompt
+
+**Enhance the Electrical Parameters section with 100% accurate, source-backed information only. Do not display, calculate, assume, or fabricate any electrical value that is not reliably supported by the actual Modbus/MQTT telemetry and validated scaling configuration. Clearly distinguish between raw values, decoded values, and confirmed engineering values, and show “Validation Required” or “Data Unavailable” whenever the source data or scaling is uncertain.**
+
+Create a **professional, clean, solar-SCADA-specific electrical analytics container** where all available electrical parameters are presented in an easy-to-understand format. Include Phase AB/BC/CA Voltage, Phase A/B/C Current, Active Power, Power Factor, Frequency, and any other electrically relevant parameters automatically discovered from the live telemetry.
+
+Within the Electrical Parameters container, provide **multiple compact and meaningful visual analytics**, including appropriate **KPI cards, comparison bars, trend charts, gauges, balance indicators, and mini charts**. Use each visualization only where it improves understanding—for example:
+
+* **Phase Voltage Comparison** → comparison bar chart
+* **Phase Current Comparison** → comparison bar chart
+* **Voltage Trend** → line chart
+* **Current Trend** → line chart
+* **Active Power Trend** → line chart
+* **Power Factor** → KPI/gauge
+* **Frequency** → KPI + trend
+* **Phase Balance** → balance indicator
+* **Electrical Health** → compact status visualization
+
+Keep **all charts, bars, KPIs, legends, tooltips, and supporting information inside their respective containers**, with no overflow or disconnected visual elements.
+
+Every parameter must clearly show:
+
+**Parameter Name → Current Value → Unit → Timestamp → Source → Modbus Address → Raw Value → Data Quality → Status**
+
+Add professional hover tooltips so users can understand exactly **what the value represents and where it comes from** without overcrowding the dashboard.
+
+Use date/time filters for historical electrical analysis and ensure all charts dynamically update according to the selected time range.
+
+Most importantly, **never show false, estimated, hard-coded, or incorrectly scaled electrical information as real data**. If a value cannot be confidently converted into an engineering unit, preserve the original raw value and clearly mark it as **“Raw / Scaling Required”**.
+
+The final Electrical Parameters section should be **accurate, traceable, visually rich, compact, responsive, and easy for both technical engineers and end customers to understand at a glance**, while maintaining a professional solar-energy SCADA design in both Light and Dark modes.
