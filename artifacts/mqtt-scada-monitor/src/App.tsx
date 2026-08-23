@@ -94,7 +94,8 @@ function numberFrom(device: Device, path: string[], fallback = 0) {
 function formatValue(value: JsonValue) {
   if (value === null) return 'null';
   if (typeof value === 'object') return JSON.stringify(value);
-  return typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(value);
+  // Inspection views must preserve the exact MQTT value.
+  return String(value);
 }
 
 function flattenJson(value: JsonValue, path = ''): Array<{ path: string; value: string; type: string }> {
@@ -253,6 +254,7 @@ function AppShell() {
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState('');
   const [rawPayload, setRawPayload] = useState('Waiting for the first MQTT payload…');
+  const [rawJson, setRawJson] = useState<JsonValue | null>(null);
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
   const streamRef = useRef<EventSource | null>(null);
 
@@ -286,7 +288,9 @@ function AppShell() {
     if (next === 'demo' && !devices.length) {
       setDevices(initialDevices);
       setSelectedId(initialDevices[0].id);
-      setRawPayload(JSON.stringify(initialDevices[0].telemetry, null, 2));
+      const demoPayload = initialDevices[0].telemetry;
+      setRawPayload(JSON.stringify(demoPayload, null, 2));
+      setRawJson(demoPayload);
       setRawTopic('northline/site/north-array/telemetry');
     }
   };
@@ -295,6 +299,7 @@ function AppShell() {
     setRawTopic(topic);
     try {
       const payload = JSON.parse(raw) as JsonValue;
+      setRawJson(payload);
       const discovered = extractDevices(payload);
       if (!discovered.length) throw new Error('not an object');
       setDevices((current) => discovered.reduce((next, telemetry, index) => {
@@ -313,6 +318,7 @@ function AppShell() {
       }, current));
       setError('');
     } catch {
+      setRawJson(null);
       setError('A broker message arrived, but its payload was not valid JSON. The raw payload is still shown below.');
     }
   };
