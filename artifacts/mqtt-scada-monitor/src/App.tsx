@@ -206,13 +206,13 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, onCopy }: { rawP
       </div>
       <div className="border-b border-[#e1ebe6] bg-[#f8fbf9] p-4">
         <p className="mb-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Exact MQTT payload</p>
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[#dfeae5] bg-white p-3 mono text-[11px] leading-5 text-[#30494c]">{rawPayload}</pre>
+        <pre className="overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[#dfeae5] bg-white p-3 mono text-[11px] leading-5 text-[#30494c]">{rawPayload}</pre>
       </div>
       <div className="flex items-center justify-between bg-[#172c32] px-4 py-2.5">
         <p className="mono text-[10px] uppercase tracking-[.14em] text-[#8ee4cf]">All discovered JSON values</p>
         <span className="mono text-[10px] text-[#8aa8a1]">{rawJson ? `${rows.length} values` : 'waiting'}</span>
       </div>
-      <div className="max-h-[480px] overflow-auto">
+      <div className="overflow-auto">
         <table className="w-full min-w-[650px] text-left">
           <thead className="sticky top-0 z-[1] bg-[#edf6f1]">
             <tr><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Field path</th><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Exact value</th><th className="px-3 py-2 mono text-[10px] font-bold uppercase tracking-[.12em] text-[#53706c]">Type</th></tr>
