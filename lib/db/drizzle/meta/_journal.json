@@ -43,6 +43,13 @@
       "when": 1787546091592,
       "tag": "0005_jazzy_terror",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787547000000,
+      "tag": "0006_inverter_energy_history",
+      "breakpoints": true
     }
   ]
 }

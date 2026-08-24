@@ -28,6 +28,7 @@ type Device = {
   status: DeviceStatus;
   lastSeen: number;
   telemetry: Record<string, JsonValue>;
+  energyInverterId?: string;
   sourceEvidence?: {
     parameter: string;
     value: number;
@@ -43,6 +44,7 @@ type PersistenceStatus = {
   scheduleStart?: string;
   scheduleEnd?: string;
   timezone?: string;
+  inverterEnergySite?: string;
   savingActive?: boolean;
   currentWindow?: string;
   nextScheduledAt?: string;
@@ -2543,8 +2545,9 @@ function AppShell() {
       const sourceKey = `${sourceName}|${signal.parameter.toLowerCase()}|${signal.address.toLowerCase()}`;
       const candidate: Device = {
         id: `source-${encodeURIComponent(sourceKey)}`,
+        energyInverterId: signal.parameter.toLowerCase(),
         name: signal.parameter.toUpperCase(),
-        site: plantSiteName || 'Discovered site',
+        site: persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site',
         type: 'Power inverter',
         status: 'stale',
         lastSeen: Number.isFinite(parsedTime) ? parsedTime : now,
@@ -2559,13 +2562,13 @@ function AppShell() {
           },
           raw_modbus_row: row,
         },
-        sourceEvidence: { ...signal, sourceName, observedAt },
+          sourceEvidence: { ...signal, sourceName, observedAt },
       };
       const current = latestBySource.get(sourceKey);
       if (!current || candidate.lastSeen >= current.lastSeen) latestBySource.set(sourceKey, candidate);
     }
     return [...latestBySource.values()];
-  }, [modbusRows, now, plantSiteName]);
+  }, [modbusRows, now, persistence.inverterEnergySite, plantSiteName]);
   const inverterDisplayDevices = useMemo(() => [...operationalDevices, ...sourceTagInverters], [operationalDevices, sourceTagInverters]);
   const inverters = useMemo(() => operationalDevices.filter(d => d.type === 'Power inverter'), [operationalDevices]);
   const onlinePowerReadings = useMemo(() => electricalLiveState === 'fresh' ? inverters.filter((device) => device.status === 'online').map((device) => {
@@ -2737,7 +2740,7 @@ function AppShell() {
        <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} />
         {selectedInverter && (
           <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1e293b] bg-[#111827] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
-            <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />
+            <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} siteName={selectedInverter.site} plantTimezone={persistence.timezone} mode={mode} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />
           </Suspense>
         )}
       <Toaster />

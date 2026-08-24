@@ -20,5 +20,6 @@
 export * from "./mqtt-snapshots";
 export * from "./mqtt-communication-events";
 export * from "./mqtt-delivery-coordination";
+export * from "./mqtt-inverter-energy-history";
 export * from "./plant-locations";
 export * from "./auth";

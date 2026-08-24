@@ -3,6 +3,7 @@ import {
   Activity, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, CircleAlert,
   CloudSun, Cpu, Factory, Gauge, Info, MapPin, Power, Thermometer, X, Zap,
 } from 'lucide-react';
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type DeviceStatus = 'online' | 'stale' | 'offline';
@@ -22,6 +23,7 @@ type Device = {
   status: DeviceStatus;
   lastSeen: number;
   telemetry: Record<string, JsonValue>;
+  energyInverterId?: string;
   sourceEvidence?: SourceEvidence;
 };
 type WeatherContext = {
@@ -34,6 +36,24 @@ type Metric = {
   unit: string;
   source: string;
   quality: 'reported' | 'raw' | 'unavailable';
+};
+type EnergyRange = 'Day' | 'Week' | 'Month' | 'Year' | 'Lifetime';
+type EnergyHistorySample = {
+  id: number;
+  siteName: string;
+  siteScope: 'configured-source-site';
+  inverterId: string;
+  inverterName: string;
+  parameter: string;
+  value: number;
+  rawValue: string;
+  unit: string;
+  address: string;
+  sourceName: string;
+  observedAt: string;
+  receivedAt: string;
+  scalingStatus: 'validated' | 'raw';
+  sourcePayload: string;
 };
 
 function asNumber(value: JsonValue | undefined) {
@@ -301,13 +321,97 @@ function MetricCard({ icon: Icon, label, metric, detail }: { icon: typeof Zap; l
 }
 
 function dateLabel(date: Date) {
-  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
+  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
 }
 
-export default function InverterDetailPanel({ device, onClose, weather, now = Date.now() }: { device: Device; onClose: () => void; weather?: WeatherContext; now?: number }) {
+function dateKeyInTimezone(now: number, timezone?: string) {
+  const values = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(now)).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function calendarDateFromKey(key: string) {
+  return new Date(`${key}T12:00:00.000Z`);
+}
+
+function offsetCalendarDate(key: string, range: EnergyRange, offset: number) {
+  const date = calendarDateFromKey(key);
+  if (range === 'Day') date.setUTCDate(date.getUTCDate() + offset);
+  if (range === 'Week') date.setUTCDate(date.getUTCDate() + offset * 7);
+  if (range === 'Month') date.setUTCMonth(date.getUTCMonth() + offset);
+  if (range === 'Year') date.setUTCFullYear(date.getUTCFullYear() + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function energyRangeBounds(range: Exclude<EnergyRange, 'Lifetime'>, selectedDate: Date) {
+  const start = new Date(selectedDate);
+  if (range === 'Day') {
+    start.setHours(0, 0, 0, 0);
+  } else if (range === 'Week') {
+    start.setHours(0, 0, 0, 0);
+    const mondayOffset = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - mondayOffset);
+  } else if (range === 'Month') {
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+  } else {
+    start.setMonth(0, 1);
+    start.setHours(0, 0, 0, 0);
+  }
+  const end = new Date(start);
+  if (range === 'Day') end.setDate(end.getDate() + 1);
+  if (range === 'Week') end.setDate(end.getDate() + 7);
+  if (range === 'Month') end.setMonth(end.getMonth() + 1);
+  if (range === 'Year') end.setFullYear(end.getFullYear() + 1);
+  end.setMilliseconds(end.getMilliseconds() - 1);
+  return { from: start, to: end };
+}
+
+function energyRangeLabel(range: EnergyRange, selectedDate: Date) {
+  if (range === 'Lifetime') return 'Lifetime device record';
+  const bounds = energyRangeBounds(range, selectedDate);
+  if (range === 'Day') return dateLabel(selectedDate);
+  return `${dateLabel(bounds.from)} — ${dateLabel(new Date(bounds.to.getTime() - 1))}`;
+}
+
+function validEnergyHistory(value: unknown): EnergyHistorySample[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const sample = item as Record<string, unknown>;
+    const id = typeof sample.id === 'number' ? sample.id : Number(sample.id);
+    const numeric = typeof sample.value === 'number' ? sample.value : Number(sample.value);
+    if (!Number.isInteger(id) || !Number.isFinite(numeric) || typeof sample.observedAt !== 'string' || typeof sample.parameter !== 'string') return [];
+    return [{
+      id,
+      siteName: typeof sample.siteName === 'string' ? sample.siteName : 'Selected site',
+      siteScope: 'configured-source-site',
+      inverterId: typeof sample.inverterId === 'string' ? sample.inverterId : '',
+      inverterName: typeof sample.inverterName === 'string' ? sample.inverterName : 'Selected inverter',
+      parameter: sample.parameter,
+      value: numeric,
+      rawValue: typeof sample.rawValue === 'string' ? sample.rawValue : String(sample.value),
+      unit: typeof sample.unit === 'string' ? sample.unit : 'source units',
+      address: typeof sample.address === 'string' ? sample.address : '—',
+      sourceName: typeof sample.sourceName === 'string' ? sample.sourceName : 'MQTT source',
+      observedAt: sample.observedAt,
+      receivedAt: typeof sample.receivedAt === 'string' ? sample.receivedAt : sample.observedAt,
+      scalingStatus: sample.scalingStatus === 'validated' ? 'validated' : 'raw',
+      sourcePayload: typeof sample.sourcePayload === 'string' ? sample.sourcePayload : '',
+    } satisfies EnergyHistorySample];
+  });
+}
+
+export default function InverterDetailPanel({ device, onClose, weather, siteName, plantTimezone, mode = 'live', now = Date.now() }: { device: Device; onClose: () => void; weather?: WeatherContext; siteName: string; plantTimezone?: string; mode?: 'demo' | 'live'; now?: number }) {
   const [tab, setTab] = useState<'Overview' | 'Device'>('Overview');
-  const [range, setRange] = useState<'Day' | 'Week' | 'Month' | 'Year' | 'Lifetime'>('Day');
+  const [range, setRange] = useState<EnergyRange>('Day');
   const [dateOffset, setDateOffset] = useState(0);
+  const [energyHistory, setEnergyHistory] = useState<EnergyHistorySample[]>([]);
+  const [energyHistoryState, setEnergyHistoryState] = useState<{ loading: boolean; error: string }>({ loading: false, error: '' });
   const dialogRef = useModalAccessibility(onClose);
 
   useEffect(() => {
@@ -315,6 +419,45 @@ export default function InverterDetailPanel({ device, onClose, weather, now = Da
     setRange('Day');
     setDateOffset(0);
   }, [device.id]);
+
+  const plantToday = dateKeyInTimezone(now, plantTimezone);
+  const selectedDateKey = useMemo(() => offsetCalendarDate(plantToday, range, dateOffset), [dateOffset, plantToday, range]);
+  const selectedDate = useMemo(() => calendarDateFromKey(selectedDateKey), [selectedDateKey]);
+  const selectedHistoryBounds = useMemo(
+    () => range === 'Lifetime' ? null : energyRangeBounds(range, selectedDate),
+    [dateOffset, range, selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()],
+  );
+
+  useEffect(() => {
+    if (mode !== 'live' || !selectedHistoryBounds) {
+      setEnergyHistory([]);
+      setEnergyHistoryState({ loading: false, error: '' });
+      return;
+    }
+    const controller = new AbortController();
+    const loadEnergyHistory = async () => {
+      setEnergyHistoryState({ loading: true, error: '' });
+      try {
+        const params = new URLSearchParams({
+          siteName,
+          inverterId: device.energyInverterId ?? device.id,
+          period: range,
+          anchor: selectedDateKey,
+        });
+        const response = await fetch(`/api/mqtt/inverter-energy-history?${params.toString()}`, { signal: controller.signal, cache: 'no-store' });
+        const payload = await response.json() as { samples?: unknown[]; message?: string };
+        if (!response.ok) throw new Error(payload.message ?? 'Unable to load per-inverter energy history.');
+        setEnergyHistory(validEnergyHistory(payload.samples));
+        setEnergyHistoryState({ loading: false, error: '' });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setEnergyHistory([]);
+        setEnergyHistoryState({ loading: false, error: error instanceof Error ? error.message : 'Unable to load per-inverter energy history.' });
+      }
+    };
+    void loadEnergyHistory();
+    return () => controller.abort();
+  }, [device.energyInverterId, device.id, mode, range, selectedDateKey, selectedHistoryBounds?.from.getTime(), selectedHistoryBounds?.to.getTime(), siteName]);
 
   const metrics = useMemo(() => ({
     power: telemetryMetric(device, [['power', 'active_kw'], ['power', 'activePower'], ['ac', 'active_kw']], ['activekw', 'activepower', 'powerkw', 'realpowerkw', 'outputpowerkw'], 'kW', true),
@@ -329,21 +472,26 @@ export default function InverterDetailPanel({ device, onClose, weather, now = Da
     reactive: telemetryMetric(device, [['power', 'reactive_kvar']], ['reactivekvar', 'reactivepowerkvar'], 'kVAr'),
   }), [device]);
   const rawRows = useMemo(() => flattenJson(device.telemetry), [device.telemetry]);
-  const selectedDate = new Date(now);
-  selectedDate.setDate(selectedDate.getDate() + dateOffset);
   const alarms = Array.isArray(device.telemetry.alarms) ? device.telemetry.alarms : null;
   const faults = Array.isArray(device.telemetry.faults) ? device.telemetry.faults : null;
   const firmware = typeof device.telemetry.firmware === 'string' ? device.telemetry.firmware : null;
   const statusLabel = device.sourceEvidence ? 'Source tag' : device.status === 'online' ? 'Reporting' : device.status === 'stale' ? 'Telemetry stale' : 'Not reporting';
   const statusTone = device.sourceEvidence ? 'warning' : device.status === 'online' ? 'success' : device.status === 'offline' ? 'destructive' : 'warning';
-  const energyMetric = range === 'Day'
-    ? metrics.dailyEnergy
-    : range === 'Lifetime'
-      ? metrics.lifetimeEnergy
-      : { value: null, unit: '', source: 'No per-inverter time series reported', quality: 'unavailable' as const };
+  const validatedEnergyHistory = energyHistory.filter((sample) => sample.scalingStatus === 'validated');
+  const latestEnergySample = validatedEnergyHistory.at(-1);
+  const energyMetric = range === 'Lifetime'
+    ? metrics.lifetimeEnergy
+    : latestEnergySample
+      ? { value: latestEnergySample.value, unit: latestEnergySample.unit, source: `${latestEnergySample.parameter} · ${latestEnergySample.address}`, quality: 'reported' as const }
+      : { value: null, unit: '', source: 'No validated per-inverter time series reported', quality: 'unavailable' as const };
   const energyUnit = range === 'Lifetime'
     ? metrics.lifetimeEnergy.value === null ? 'No lifetime energy telemetry' : 'Device-reported lifetime energy'
-    : metrics.dailyEnergy.source.toLowerCase().includes('mwh') ? 'MWh' : metrics.dailyEnergy.value !== null ? 'Device-reported daily energy' : 'No daily energy telemetry';
+    : latestEnergySample?.unit ?? (energyHistory.length ? 'source units' : 'No energy series');
+  const chartData = validatedEnergyHistory.map((sample) => ({
+    time: new Date(sample.observedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    value: sample.value,
+  }));
+  const rawEnergyCount = energyHistory.length - validatedEnergyHistory.length;
   const rawTimestamp = new Date(device.lastSeen);
   const lastSeen = Number.isFinite(rawTimestamp.getTime()) ? rawTimestamp.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' }) : 'Timestamp unavailable';
 
@@ -385,19 +533,20 @@ export default function InverterDetailPanel({ device, onClose, weather, now = Da
               <div className="flex flex-col gap-4 border-b border-[#1e293b] pb-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><h3 className="text-base font-bold text-slate-100">Energy analysis</h3><p className="mt-1 text-xs text-slate-500">Uses only energy values reported by {device.name}.</p></div>
                 <div role="tablist" aria-label="Inverter energy period" className="scrollbar-thin -mx-1 flex max-w-full gap-1 overflow-x-auto rounded-full bg-[#0b0f19] p-1">
-                  {(['Day', 'Week', 'Month', 'Year', 'Lifetime'] as const).map((item) => <button key={item} type="button" role="tab" aria-selected={range === item} onClick={() => setRange(item)} data-testid={`button-inverter-range-${item.toLowerCase()}`} className={`rounded-full px-3 py-2 text-xs font-semibold focus-ring ${range === item ? 'bg-orange-500/15 text-orange-300' : 'text-slate-500 hover:bg-[#1e293b] hover:text-slate-200'}`}>{item}</button>)}
+                  {(['Day', 'Week', 'Month', 'Year', 'Lifetime'] as const).map((item) => <button key={item} type="button" role="tab" aria-selected={range === item} onClick={() => { setRange(item); setDateOffset(0); }} data-testid={`button-inverter-range-${item.toLowerCase()}`} className={`rounded-full px-3 py-2 text-xs font-semibold focus-ring ${range === item ? 'bg-orange-500/15 text-orange-300' : 'text-slate-500 hover:bg-[#1e293b] hover:text-slate-200'}`}>{item}</button>)}
                 </div>
               </div>
               <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-[#1e293b] bg-[#0f1423] px-3 py-2">
-                <button type="button" disabled aria-label="Previous energy date unavailable without a per-inverter history" title="Per-inverter history is not reported" className="rounded-md p-2 text-slate-600 disabled:cursor-not-allowed"><ChevronLeft size={18} /></button>
-                <div className="flex min-w-0 items-center gap-2 text-center text-sm font-semibold text-slate-200"><CalendarDays size={15} className="shrink-0 text-slate-500" /><span>{range === 'Lifetime' ? 'Lifetime device record' : range === 'Day' ? dateLabel(selectedDate) : `${range} history not reported`}</span></div>
-                <button type="button" disabled aria-label="Next energy date unavailable without a per-inverter history" title="Per-inverter history is not reported" className="rounded-md p-2 text-slate-600 disabled:cursor-not-allowed"><ChevronRight size={18} /></button>
+                <button type="button" disabled={range === 'Lifetime'} onClick={() => setDateOffset((offset) => offset - 1)} aria-label="Previous energy period" title={range === 'Lifetime' ? 'Lifetime history has no date navigation' : 'Previous energy period'} className="rounded-md p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 disabled:cursor-not-allowed disabled:text-slate-600"><ChevronLeft size={18} /></button>
+                <div className="flex min-w-0 items-center gap-2 text-center text-sm font-semibold text-slate-200"><CalendarDays size={15} className="shrink-0 text-slate-500" /><span>{energyRangeLabel(range, selectedDate)}</span></div>
+                <button type="button" disabled={range === 'Lifetime' || dateOffset >= 0} onClick={() => setDateOffset((offset) => offset + 1)} aria-label="Next energy period" title={range === 'Lifetime' ? 'Lifetime history has no date navigation' : dateOffset >= 0 ? 'Future energy history is unavailable' : 'Next energy period'} className="rounded-md p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 disabled:cursor-not-allowed disabled:text-slate-600"><ChevronRight size={18} /></button>
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end">
-                <div><p className="text-xs font-semibold text-orange-300">Production ({energyUnit})</p><p data-testid="inverter-energy-value" className={`mt-2 font-mono text-4xl font-bold tracking-tight ${energyMetric.value === null ? 'text-slate-500' : energyMetric.quality === 'raw' ? 'text-amber-300' : 'text-orange-400'}`}>{formatMetric(energyMetric, 2)}</p><p className="mt-2 text-[11px] leading-5 text-slate-500">{energyMetric.value === null ? range === 'Lifetime' ? 'Lifetime energy is not reported by this inverter.' : 'No per-inverter production value is reported for this range.' : energyMetric.quality === 'raw' ? 'Raw source value · scaling required before analysis.' : `Source: ${energyMetric.source}`}</p></div>
-                <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-[#334155] bg-[#0b0f19] px-5 text-center text-xs leading-5 text-slate-500" aria-label="Energy history unavailable without a per-inverter telemetry series">No per-inverter energy series reported.<br /><span className="text-[10px]">Historical analysis will appear when this inverter sends timestamped energy samples.</span></div>
+                <div><p className="text-xs font-semibold text-orange-300">Production ({energyUnit})</p><p data-testid="inverter-energy-value" className={`mt-2 font-mono text-4xl font-bold tracking-tight ${energyMetric.value === null ? 'text-slate-500' : 'text-orange-400'}`}>{formatMetric(energyMetric, 2)}</p><p className="mt-2 text-[11px] leading-5 text-slate-500">{energyMetric.value === null ? range === 'Lifetime' ? 'Lifetime energy is not reported by this inverter.' : energyHistoryState.loading ? 'Loading source-backed inverter samples…' : rawEnergyCount ? `${rawEnergyCount} raw source sample${rawEnergyCount === 1 ? '' : 's'} found; engineering scaling is required.` : 'No per-inverter production samples are available for this range.' : `Source: ${energyMetric.source}`}</p></div>
+                 <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-[#334155] bg-[#0b0f19] px-5 text-center text-xs leading-5 text-slate-500" aria-label={chartData.length ? 'Validated per-inverter energy history chart' : 'Energy history unavailable for the selected range'}>{energyHistoryState.loading ? 'Loading per-inverter history…' : chartData.length > 1 ? <ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 4, left: 4 }}><CartesianGrid strokeDasharray="2 4" stroke="#1e293b" vertical={false} /><XAxis dataKey="time" hide /><YAxis hide domain={['auto', 'auto']} /><Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} formatter={(value) => [`${Number(value).toLocaleString()} ${energyUnit}`, 'Energy']} /><Line type="monotone" dataKey="value" stroke="#f97316" strokeWidth={2} dot={false} isAnimationActive={false} /></LineChart></ResponsiveContainer> : energyHistory.length ? rawEnergyCount ? 'Raw source samples available.' : 'One validated sample in this range.' : 'No per-inverter energy samples reported.'}</div>
               </div>
-              <p className="mt-3 flex items-start gap-2 text-[10px] leading-4 text-slate-500"><Info size={13} className="mt-0.5 shrink-0 text-blue-400" />The selected date and longer periods are intentionally unavailable until this inverter reports a timestamped energy series. Plant totals are never used as a substitute.</p>
+               <div className="mt-3 flex items-start gap-2 text-[10px] leading-4 text-slate-500"><Info size={13} className="mt-0.5 shrink-0 text-blue-400" /><span>{energyHistoryState.error ? <span role="alert" data-testid="status-inverter-energy-error" className="text-amber-300">{energyHistoryState.error}</span> : <>Samples are scoped to the configured source site {siteName} · {device.name}. Only explicitly scaling-validated samples drive the chart; raw MQTT values remain visible below. Plant totals are never used as a substitute.</>}</span></div>
+               {energyHistory.length > 0 && <details className="mt-4 overflow-hidden rounded-xl border border-[#1e293b] bg-[#0f1423]"><summary className="cursor-pointer px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Source samples <span className="ml-1 font-normal normal-case tracking-normal text-slate-600">{energyHistory.length} retained</span></summary><div className="max-h-48 overflow-auto border-t border-[#1e293b]"><table className="min-w-[720px] w-full text-left text-[10px]"><thead className="sticky top-0 bg-[#0f1423]"><tr>{['Observed', 'Value', 'Parameter', 'Source', 'Address', 'Raw value', 'Scaling'].map((heading) => <th key={heading} className="px-3 py-2 font-bold uppercase tracking-wider text-slate-600">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{energyHistory.map((sample) => <tr key={sample.id}><td className="px-3 py-2 text-slate-400">{new Date(sample.observedAt).toLocaleString()}</td><td className="px-3 py-2 font-mono text-slate-300">{sample.scalingStatus === 'validated' ? `${sample.value.toLocaleString()} ${sample.unit}` : 'Raw only'}</td><td className="px-3 py-2 font-mono text-blue-300">{sample.parameter}</td><td className="px-3 py-2 text-slate-400">{sample.sourceName}<span className="block text-[9px] text-slate-600">Configured source site</span></td><td className="px-3 py-2 font-mono text-slate-400">{sample.address}</td><td className="px-3 py-2 font-mono text-slate-300">{sample.rawValue}</td><td className={`px-3 py-2 ${sample.scalingStatus === 'validated' ? 'text-emerald-400' : 'text-amber-400'}`}>{sample.scalingStatus === 'validated' ? 'Validated' : 'Raw / Scaling Required'}</td></tr>)}</tbody></table></div></details>}
             </section>
           </div> : <div className="mx-auto max-w-5xl space-y-5">
             <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
@@ -416,39 +565,21 @@ export default function InverterDetailPanel({ device, onClose, weather, now = Da
               </div>
             </section>
 
-            {device.sourceEvidence ? <section data-testid="inverter-source-evidence" className="rounded-2xl border border-amber-500/20 bg-[linear-gradient(135deg,rgba(245,158,11,.08),transparent_46%),#111827] p-4 sm:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Reported inverter evidence</p>
-                  <h3 className="mt-1 text-base font-bold text-slate-100">Raw source register for {device.name}</h3>
-                  <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">This broker sends a standalone inverter tag rather than a full device telemetry record. The exact source evidence is shown below; unreported engineering measurements are not invented.</p>
-                </div>
-                <CustomBadge tone="warning">Scaling required</CustomBadge>
-              </div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-xl border border-amber-500/15 bg-[#0f1423]/90 p-4"><Zap size={16} className="text-amber-400" /><p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-slate-500">Reported raw value</p><p className="mt-1 font-mono text-xl font-bold text-amber-300">{device.sourceEvidence.value.toLocaleString()} raw</p><p className="mt-1 text-[10px] text-slate-500">{device.sourceEvidence.parameter}</p></div>
-                <div className="rounded-xl border border-[#1e293b] bg-[#0f1423] p-4"><Cpu size={16} className="text-blue-300" /><p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-slate-500">Modbus register</p><p className="mt-1 font-mono text-sm font-bold text-slate-100">{device.sourceEvidence.address}</p><p className="mt-1 text-[10px] text-slate-500">Exact source address</p></div>
-                <div className="rounded-xl border border-[#1e293b] bg-[#0f1423] p-4"><MapPin size={16} className="text-blue-300" /><p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-slate-500">MQTT source</p><p className="mt-1 break-words font-mono text-sm font-bold text-slate-100">{device.sourceEvidence.sourceName ?? 'Not reported'}</p><p className="mt-1 text-[10px] text-slate-500">{device.sourceEvidence.provenance} delivery</p></div>
-                <div className="rounded-xl border border-[#1e293b] bg-[#0f1423] p-4"><Activity size={16} className="text-blue-300" /><p className="mt-2 text-[9px] font-bold uppercase tracking-wider text-slate-500">Observed</p><p className="mt-1 break-words font-mono text-[11px] font-bold leading-5 text-slate-100">{device.sourceEvidence.observedAt ?? 'Timestamp unavailable'}</p><p className="mt-1 text-[10px] text-slate-500">Source record timestamp</p></div>
-              </div>
-              <div className="mt-4 rounded-xl border border-[#1e293b] bg-[#0b0f19]/70 px-4 py-3 text-xs leading-5 text-slate-400"><strong className="font-semibold text-slate-200">Not present in this inverter tag:</strong> DC bus voltage, DC bus current, cabinet temperature, heatsink temperature, efficiency, reactive power, alarms, faults, installed power, and per-inverter energy. These will populate automatically only when the broker sends them under the selected inverter identity.</div>
-            </section> : <>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard icon={Zap} label="DC bus voltage" metric={metrics.voltage} detail="Device telemetry" />
-                <MetricCard icon={Activity} label="DC bus current" metric={metrics.current} detail="Device telemetry" />
-                <MetricCard icon={Thermometer} label="Cabinet temperature" metric={metrics.cabinetTemp} detail="Device telemetry" />
-                <MetricCard icon={Thermometer} label="Heatsink temperature" metric={metrics.heatsinkTemp} detail="Device telemetry" />
-                <MetricCard icon={Gauge} label="Efficiency" metric={metrics.efficiency} detail="Device telemetry" />
-                <MetricCard icon={Power} label="Reactive power" metric={metrics.reactive} detail="Device telemetry" />
-                <MetricCard icon={CloudSun} label="Ambient temperature" metric={{ value: weather?.temperatureC ?? null, unit: '°C', source: weather?.locationLabel ?? 'Weather not reported', quality: weather?.temperatureC === null || weather?.temperatureC === undefined ? 'unavailable' : 'reported' }} detail="Configured site weather" />
-                <MetricCard icon={CircleAlert} label="Alarm count" metric={{ value: alarms?.length ?? null, unit: '', source: alarms ? 'alarms' : 'Not reported', quality: alarms ? 'reported' : 'unavailable' }} detail="Device telemetry" />
-              </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard icon={Zap} label="DC bus voltage" metric={metrics.voltage} detail="Device telemetry" />
+              <MetricCard icon={Activity} label="DC bus current" metric={metrics.current} detail="Device telemetry" />
+              <MetricCard icon={Thermometer} label="Cabinet temperature" metric={metrics.cabinetTemp} detail="Device telemetry" />
+              <MetricCard icon={Thermometer} label="Heatsink temperature" metric={metrics.heatsinkTemp} detail="Device telemetry" />
+              <MetricCard icon={Gauge} label="Efficiency" metric={metrics.efficiency} detail="Device telemetry" />
+              <MetricCard icon={Power} label="Reactive power" metric={metrics.reactive} detail="Device telemetry" />
+              <MetricCard icon={CloudSun} label="Ambient temperature" metric={{ value: weather?.temperatureC ?? null, unit: '°C', source: weather?.locationLabel ?? 'Weather not reported', quality: weather?.temperatureC === null || weather?.temperatureC === undefined ? 'unavailable' : 'reported' }} detail="Configured site weather" />
+              <MetricCard icon={CircleAlert} label="Alarm count" metric={{ value: alarms?.length ?? null, unit: '', source: alarms ? 'alarms' : 'Not reported', quality: alarms ? 'reported' : 'unavailable' }} detail="Device telemetry" />
+            </div>
 
-              <div className="grid gap-5 lg:grid-cols-2">
-                <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Alarms</p><h3 className="mt-1 text-sm font-bold text-slate-100">{alarms === null ? 'Alarm state not reported' : alarms.length ? `${alarms.length} reported alarm${alarms.length === 1 ? '' : 's'}` : 'No active alarms reported'}</h3></div><CircleAlert size={20} className={alarms?.length ? 'text-rose-400' : alarms === null ? 'text-slate-500' : 'text-emerald-400'} /></div>{alarms?.length ? <ul className="mt-4 space-y-2">{alarms.map((alarm, index) => <li key={index} className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">{formatRawValue(alarm)}</li>)}</ul> : <p className="mt-4 text-xs leading-5 text-slate-500">{alarms === null ? 'This inverter has not sent an alarm field.' : 'The device explicitly reported an empty alarm list.'}</p>}</section>
-                <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Faults</p><h3 className="mt-1 text-sm font-bold text-slate-100">{faults === null ? 'Fault state not reported' : faults.length ? `${faults.length} reported fault${faults.length === 1 ? '' : 's'}` : 'No active faults reported'}</h3></div><CircleAlert size={20} className={faults?.length ? 'text-rose-400' : faults === null ? 'text-slate-500' : 'text-emerald-400'} /></div>{faults?.length ? <ul className="mt-4 space-y-2">{faults.map((fault, index) => <li key={index} className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">{formatRawValue(fault)}</li>)}</ul> : <p className="mt-4 text-xs leading-5 text-slate-500">{faults === null ? 'This inverter has not sent a fault field.' : 'The device explicitly reported an empty fault list.'}</p>}</section>
-              </div>
-            </>}
+            <div className="grid gap-5 lg:grid-cols-2">
+              <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Alarms</p><h3 className="mt-1 text-sm font-bold text-slate-100">{alarms === null ? 'Alarm state not reported' : alarms.length ? `${alarms.length} reported alarm${alarms.length === 1 ? '' : 's'}` : 'No active alarms reported'}</h3></div><CircleAlert size={20} className={alarms?.length ? 'text-rose-400' : alarms === null ? 'text-slate-500' : 'text-emerald-400'} /></div>{alarms?.length ? <ul className="mt-4 space-y-2">{alarms.map((alarm, index) => <li key={index} className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">{formatRawValue(alarm)}</li>)}</ul> : <p className="mt-4 text-xs leading-5 text-slate-500">{alarms === null ? 'This inverter has not sent an alarm field.' : 'The device explicitly reported an empty alarm list.'}</p>}</section>
+              <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Faults</p><h3 className="mt-1 text-sm font-bold text-slate-100">{faults === null ? 'Fault state not reported' : faults.length ? `${faults.length} reported fault${faults.length === 1 ? '' : 's'}` : 'No active faults reported'}</h3></div><CircleAlert size={20} className={faults?.length ? 'text-rose-400' : faults === null ? 'text-slate-500' : 'text-emerald-400'} /></div>{faults?.length ? <ul className="mt-4 space-y-2">{faults.map((fault, index) => <li key={index} className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">{formatRawValue(fault)}</li>)}</ul> : <p className="mt-4 text-xs leading-5 text-slate-500">{faults === null ? 'This inverter has not sent a fault field.' : 'The device explicitly reported an empty fault list.'}</p>}</section>
+            </div>
 
             <details className="group overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827]">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 text-sm font-bold text-slate-200 marker:content-none sm:px-5">Raw device telemetry <span className="text-[10px] font-semibold text-slate-500 group-open:text-blue-300">{rawRows.length} fields · evidence view</span></summary>

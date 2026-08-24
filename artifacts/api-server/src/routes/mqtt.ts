@@ -6,12 +6,14 @@ import {
   mqttCommunicationEventsTable,
   mqttConsumerLeasesTable,
   mqttDeliverySequencesTable,
+  mqttInverterEnergyHistoryTable,
   mqttSnapshotsTable,
   plantLocationsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
 import { deviceCommunicationState, heartbeatWindows, medianCadenceMs, recoveryNeedsResync, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
+import { inverterEnergyObservationFromParameter } from "../lib/inverter-energy";
 
 const router: IRouter = Router();
 const brokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
@@ -35,6 +37,7 @@ const PERSISTENCE_START_MINUTE = 6 * 60;
 const PERSISTENCE_END_MINUTE = 18 * 60;
 const DEFAULT_PLANT_TIMEZONE = "Asia/Kolkata";
 const configuredTimezone = process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? DEFAULT_PLANT_TIMEZONE;
+const configuredMqttPlantSite = process.env.MQTT_PLANT_SITE?.trim() || subscriptionTopic;
 
 type StoredMessage = { topic: string; payload: string; receivedAt: string; sequence: number; sourceTimestamp?: string };
 type CommunicationState = "live" | "stale" | "interrupted" | "awaiting-first-data";
@@ -973,6 +976,7 @@ function status() {
       scheduleStart: "06:00",
       scheduleEnd: "18:00",
       timezone: plantTimezone,
+      inverterEnergySite: configuredMqttPlantSite,
       savingActive: schedule.collecting,
       currentWindow: snapshotBuffer?.slotKey,
       nextScheduledAt: schedule.nextScheduledAt.toISOString(),
@@ -1099,12 +1103,13 @@ function startClient() {
 
 async function captureMqttMessage(topic: string, payload: Buffer) {
     const rawPayload = payload.toString("utf8");
+    const parameter = parameterFromPayload(rawPayload);
     latestMessage = {
       topic,
       payload: rawPayload,
       receivedAt: new Date().toISOString(),
       sequence: await allocateDeliverySequence(),
-      sourceTimestamp: sourceTimestampFromPayload(rawPayload),
+      sourceTimestamp: parameter ? parameterObservationTime(parameter) : undefined,
     };
     await db.insert(mqttCommunicationEventsTable).values({
       eventType: "telemetry",
@@ -1115,6 +1120,35 @@ async function captureMqttMessage(topic: string, payload: Buffer) {
       receivedAt: new Date(latestMessage.receivedAt),
       metadata: { qos: 1, preservedRawPayload: true },
     });
+    const energy = parameter ? inverterEnergyObservationFromParameter(parameter, configuredMqttPlantSite) : undefined;
+    if (energy) {
+      await db.insert(mqttInverterEnergyHistoryTable).values({
+        topic,
+        siteName: energy.siteName,
+        inverterId: energy.inverterId,
+        inverterName: energy.inverterName,
+        parameter: energy.parameter,
+        value: energy.value,
+        rawValue: energy.rawValue,
+        unit: energy.unit,
+        address: energy.address,
+        sourceName: energy.sourceName,
+        observedAt: new Date(energy.observedAt),
+        receivedAt: new Date(latestMessage.receivedAt),
+        scalingStatus: energy.scalingStatus,
+        sourcePayload: rawPayload,
+        metadata: energy.metadata,
+      }).onConflictDoNothing({
+        target: [
+          mqttInverterEnergyHistoryTable.siteName,
+          mqttInverterEnergyHistoryTable.topic,
+          mqttInverterEnergyHistoryTable.inverterId,
+          mqttInverterEnergyHistoryTable.parameter,
+          mqttInverterEnergyHistoryTable.address,
+          mqttInverterEnergyHistoryTable.observedAt,
+        ],
+      });
+    }
     recordTelemetryHeartbeat(latestMessage);
     queueSnapshotMessage(latestMessage);
     requestSnapshotScheduleRun();
@@ -1207,6 +1241,49 @@ function parseRangeBoundary(value: unknown, boundary: "start" | "end") {
   return parsed;
 }
 
+type EnergyHistoryPeriod = "Day" | "Week" | "Month" | "Year";
+
+function energyHistoryPeriod(value: unknown): EnergyHistoryPeriod | undefined {
+  return value === "Day" || value === "Week" || value === "Month" || value === "Year" ? value : undefined;
+}
+
+function parseCalendarDate(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const [year, month, day] = value.split("-").map(Number);
+  const test = new Date(Date.UTC(year, month - 1, day));
+  return test.getUTCFullYear() === year && test.getUTCMonth() === month - 1 && test.getUTCDate() === day ? { year, month, day } : undefined;
+}
+
+function shiftCalendarDate(parts: { year: number; month: number; day: number }, period: EnergyHistoryPeriod) {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  if (period === "Day") date.setUTCDate(date.getUTCDate() + 1);
+  if (period === "Week") date.setUTCDate(date.getUTCDate() + 7);
+  if (period === "Month") date.setUTCMonth(date.getUTCMonth() + 1);
+  if (period === "Year") date.setUTCFullYear(date.getUTCFullYear() + 1);
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+function energyHistoryRange(period: EnergyHistoryPeriod, anchor: { year: number; month: number; day: number }) {
+  const start = { ...anchor };
+  if (period === "Week") {
+    const weekday = new Date(Date.UTC(start.year, start.month - 1, start.day)).getUTCDay();
+    const mondayOffset = (weekday + 6) % 7;
+    const monday = new Date(Date.UTC(start.year, start.month - 1, start.day - mondayOffset));
+    start.year = monday.getUTCFullYear();
+    start.month = monday.getUTCMonth() + 1;
+    start.day = monday.getUTCDate();
+  }
+  if (period === "Month") start.day = 1;
+  if (period === "Year") {
+    start.month = 1;
+    start.day = 1;
+  }
+  const next = shiftCalendarDate(start, period);
+  const rangeStart = localDateTimeToUtc({ ...start, hour: 0, minute: 0, second: 0 }, plantTimezone);
+  const rangeEnd = new Date(localDateTimeToUtc({ ...next, hour: 0, minute: 0, second: 0 }, plantTimezone).getTime() - 1);
+  return { rangeStart, rangeEnd };
+}
+
 function isElectricalParameter(parameter: Record<string, unknown>) {
   const name = typeof parameter.name === "string" ? parameter.name.toLowerCase() : "";
   return /(voltage|current|amper|activepower|realpower|powerfactor|frequency|hz|(^|[^a-z])pf([^a-z]|$))/.test(name);
@@ -1272,6 +1349,70 @@ router.get("/mqtt/electrical-history", async (req, res) => {
   } catch (error) {
     logger.error({ err: error }, "Electrical history query failed");
     res.status(500).json({ message: "Unable to load persisted electrical telemetry." });
+  }
+});
+
+router.get("/mqtt/inverter-energy-history", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.query.siteName);
+  const inverterId = typeof req.query.inverterId === "string" ? req.query.inverterId.trim() : "";
+  const period = energyHistoryPeriod(req.query.period);
+  const anchor = parseCalendarDate(req.query.anchor);
+  if (!siteName || siteName.length > 160 || !inverterId || inverterId.length > 160) {
+    res.status(400).json({ message: "A plant/site and inverter identifier are required." });
+    return;
+  }
+  if (!period || !anchor) {
+    res.status(400).json({ message: "Use a Day, Week, Month, or Year period and a valid plant-calendar anchor date." });
+    return;
+  }
+
+  const { rangeStart, rangeEnd } = energyHistoryRange(period, anchor);
+  const samplingInterval = period === "Day" ? "1 minute" : period === "Week" ? "15 minutes" : period === "Month" ? "1 hour" : "1 day";
+  const bucket = sql`date_bin(${sql.raw(`interval '${samplingInterval}'`)}, ${mqttInverterEnergyHistoryTable.observedAt}, TIMESTAMPTZ '1970-01-01 00:00:00+00')`;
+
+  try {
+    const samples = await db
+      .selectDistinctOn([bucket])
+      .from(mqttInverterEnergyHistoryTable)
+      .where(and(
+        eq(mqttInverterEnergyHistoryTable.topic, subscriptionTopic),
+        eq(mqttInverterEnergyHistoryTable.siteName, siteName),
+        eq(mqttInverterEnergyHistoryTable.inverterId, inverterId),
+        gte(mqttInverterEnergyHistoryTable.observedAt, rangeStart),
+        lte(mqttInverterEnergyHistoryTable.observedAt, rangeEnd),
+      ))
+      .orderBy(bucket, desc(mqttInverterEnergyHistoryTable.observedAt));
+    samples.sort((first, second) => first.observedAt.getTime() - second.observedAt.getTime());
+
+    res.set("Cache-Control", "no-store").json({
+      range: { from: rangeStart.toISOString(), to: rangeEnd.toISOString() },
+      siteName,
+      inverterId,
+      period,
+      timezone: plantTimezone,
+      sampling: { interval: samplingInterval, method: "latest exact source observation in each interval" },
+      samples: samples.map((sample) => ({
+        id: sample.id,
+        siteName: sample.siteName,
+        siteScope: "configured-source-site",
+        inverterId: sample.inverterId,
+        inverterName: sample.inverterName,
+        parameter: sample.parameter,
+        value: sample.value,
+        rawValue: sample.rawValue,
+        unit: sample.unit,
+        address: sample.address,
+        sourceName: sample.sourceName,
+        observedAt: sample.observedAt.toISOString(),
+        receivedAt: sample.receivedAt.toISOString(),
+        scalingStatus: sample.scalingStatus === "validated" ? "validated" : "raw",
+        sourcePayload: sample.sourcePayload,
+        metadata: sample.metadata,
+      })),
+    });
+  } catch (error) {
+    logger.error({ err: error, siteName, inverterId }, "Inverter energy history query failed");
+    res.status(500).json({ message: "Unable to load per-inverter energy history." });
   }
 });
 
