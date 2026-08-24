@@ -290,8 +290,9 @@ function PowerFlow({ power, status, mode, provenance }: { power: Metric; status:
   return (
       <section className="scada-power-flow relative overflow-hidden rounded-2xl border px-3 py-5 sm:px-6" data-testid="inverter-power-flow" data-flow-state={isFlowing ? 'streaming' : 'paused'} data-stream-mode={mode}>
        <div className="scada-power-flow-grid pointer-events-none absolute inset-0" />
-      <div className="relative mx-auto h-[330px] max-w-2xl sm:h-[350px]">
-        <svg viewBox="0 0 720 380" role="img" aria-label="Solar power flow from array through selected inverter to grid export" className="h-full w-full">
+       <div className="relative mx-auto max-w-2xl">
+        <div className="relative h-[330px] sm:h-[350px]">
+         <svg viewBox="0 0 720 380" role="img" aria-label="Solar power flow from array through selected inverter to grid export" className="h-full w-full">
           <defs>
             <linearGradient id="inverterFlowLine" x1="0%" x2="100%">
               <stop offset="0%" stopColor="#FF5C00" />
@@ -329,11 +330,12 @@ function PowerFlow({ power, status, mode, provenance }: { power: Metric; status:
           <text x="360" y="247" fill="#00E5FF" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">INVERTER</text>
           <text x="603" y="262" fill="var(--flow-label)" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">GRID</text>
           <text x="186" y="365" fill="var(--flow-muted)" fontSize="12" fontWeight="700" letterSpacing="2" textAnchor="middle">PLANT LOAD</text>
-        </svg>
-        <FlowLabel label="Source power" metric={power} className="left-[3%] top-[2%] sm:left-[6%]" />
-        <FlowLabel label="Reported export" metric={power} className="right-[0%] top-[63%] sm:right-[4%]" />
-          <div className="scada-flow-status absolute bottom-0 left-1/2 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-full border px-4 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur">
-           {flow.statusLabel}
+         </svg>
+         <FlowLabel label="Source power" metric={power} className="left-[3%] top-[2%] sm:left-[6%]" />
+         <FlowLabel label="Reported export" metric={power} className="right-[0%] top-[63%] sm:right-[4%]" />
+        </div>
+        <div className="scada-flow-status relative mx-auto mt-3 w-fit max-w-[calc(100%-1rem)] rounded-full border px-4 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur">
+         {flow.statusLabel}
         </div>
       </div>
     </section>
