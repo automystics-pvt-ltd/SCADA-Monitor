@@ -1224,7 +1224,7 @@ function electricalDisplayLabel(item: ElectricalEvidence) {
   return labels[item.kind] ?? electricalKindLabels[item.kind];
 }
 
-function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null }: { rows: ModbusRow[]; mode: 'demo' | 'live'; liveState: 'fresh' | 'stale' | 'unavailable'; savedSnapshot?: SavedKpiSnapshot | null }) {
+function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null, siteName }: { rows: ModbusRow[]; mode: 'demo' | 'live'; liveState: 'fresh' | 'stale' | 'unavailable'; savedSnapshot?: SavedKpiSnapshot | null; siteName: string }) {
   const [draftRange, setDraftRange] = useState<ElectricalRange>(() => electricalPresetRange('live'));
   const [appliedRange, setAppliedRange] = useState<ElectricalRange>(() => electricalPresetRange('live'));
   const [historyRows, setHistoryRows] = useState<ModbusRow[]>([]);
@@ -1254,7 +1254,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
         const now = new Date();
         const from = isHistorical ? new Date(appliedRange.from) : new Date(now.getTime() - recentWindowMs);
         const to = isHistorical ? new Date(appliedRange.to) : now;
-        const response = await fetch(`/api/mqtt/electrical-history?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`, { signal: controller.signal, cache: 'no-store' });
+        const response = await fetch(`/api/mqtt/electrical-history?siteName=${encodeURIComponent(siteName)}&from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`, { signal: controller.signal, cache: 'no-store' });
         const payload = await response.json() as { samples?: unknown[]; message?: string };
         if (!response.ok) throw new Error(payload.message || 'Unable to load persisted electrical telemetry.');
         setHistoryRows(Array.isArray(payload.samples) ? payload.samples.filter(isUnknownRecord).map((item) => item as ModbusRow) : []);
@@ -1271,7 +1271,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
       controller.abort();
       if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
     };
-  }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory]);
+  }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory, siteName]);
 
   // The live view prefers fresh SSE evidence. When delivery is not fresh, the
   // immutable latest saved snapshot replaces the cleared/stale browser buffer.
@@ -1734,7 +1734,7 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
   if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><InverterFaultBoard devices={devices} rows={rows} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error|warning/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
   if (section === 'raw-data') return <Suspense fallback={<div role="status" className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-[#334155] bg-[#090B13] text-sm text-slate-400">Loading Report Center…</div>}><ReportCenter siteName={siteName} sites={sites} devices={devices} parameters={Array.from(new Set([...rows, ...savedSnapshotRows].map((row) => String(row.name ?? row.parameter ?? '').trim()).filter(Boolean))).sort()} /></Suspense>;
-  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} /></div></div>;
+  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} siteName={siteName} /></div></div>;
 }
 
 function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calculation: VerifiedKpiCalculation; mode: 'demo' | 'live'; rawFallback?: RawKpiFallback; savedLabel?: string }) {
@@ -2819,7 +2819,8 @@ function AppShell() {
   const [resyncNotice, setResyncNotice] = useState('');
   const [savedKpiSnapshot, setSavedKpiSnapshot] = useState<SavedKpiSnapshot | null>(null);
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
-  const [activeSite, setActiveSite] = useState('Plant site');
+  const [activeSite, setActiveSite] = useState('');
+  const [siteAccessState, setSiteAccessState] = useState<{ sites: string[]; roles: Record<string, string>; global: boolean; loading: boolean; error: string }>({ sites: [], roles: {}, global: false, loading: true, error: '' });
   const [weatherState, setWeatherState] = useState<WeatherState>({ status: 'unavailable', message: 'No configured coordinates are available for the selected plant/site.' });
   const [weatherRefreshToken, setWeatherRefreshToken] = useState(0);
   const [siteLocations, setSiteLocations] = useState<Record<string, PlantLocation>>({});
@@ -2836,6 +2837,22 @@ function AppShell() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
   useEffect(() => { localStorage.setItem('solar-scada-navigation-collapsed', String(navigationCollapsed)); }, [navigationCollapsed]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const loadSiteAccess = async () => {
+      try {
+        const response = await fetch('/api/mqtt/site-access', { signal: controller.signal, cache: 'no-store' });
+        const payload = await response.json() as { sites?: string[]; roles?: Record<string, string>; global?: boolean; message?: string };
+        if (!response.ok || !Array.isArray(payload.sites)) throw new Error(payload.message ?? 'Site access could not be loaded.');
+        setSiteAccessState({ sites: payload.sites, roles: payload.roles ?? {}, global: payload.global === true, loading: false, error: '' });
+        if (payload.sites.length && !activeSite) setActiveSite(payload.sites[0]);
+      } catch (loadError) {
+        if (!controller.signal.aborted) setSiteAccessState((current) => ({ ...current, loading: false, error: loadError instanceof Error ? loadError.message : 'Site access could not be loaded.' }));
+      }
+    };
+    void loadSiteAccess();
+    return () => controller.abort();
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     const loadSiteLocations = async () => {
@@ -2857,7 +2874,8 @@ function AppShell() {
     const controller = new AbortController();
     const loadSavedKpiSnapshot = async () => {
       try {
-        const response = await fetch('/api/mqtt/snapshots/latest', { signal: controller.signal, cache: 'no-store' });
+        if (!activeSite) return;
+        const response = await fetch(`/api/mqtt/snapshots/latest?siteName=${encodeURIComponent(activeSite)}`, { signal: controller.signal, cache: 'no-store' });
         const payload = await response.json() as { snapshot?: unknown };
         if (!response.ok || controller.signal.aborted) return;
         const snapshot = parseSavedKpiSnapshot(payload.snapshot);
@@ -2874,7 +2892,7 @@ function AppShell() {
       controller.abort();
       window.clearInterval(refreshTimer);
     };
-  }, [mode]);
+  }, [activeSite, mode]);
   useEffect(() => {
     const controller = new AbortController();
     const loadLocationPermissions = async () => {
@@ -2892,11 +2910,10 @@ function AppShell() {
   }, []);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
   const availableSites = useMemo(
-    () => Array.from(new Set([
-      ...devices.map((device) => device.site).filter(Boolean),
-      ...Object.keys(siteLocations),
-    ])).sort(),
-    [devices, siteLocations],
+    () => siteAccessState.global
+      ? Array.from(new Set([...devices.map((device) => device.site).filter(Boolean), ...Object.keys(siteLocations)])).sort()
+      : siteAccessState.sites,
+    [devices, siteLocations, siteAccessState.global, siteAccessState.sites],
   );
   useEffect(() => {
     if (availableSites.length && !availableSites.includes(activeSite)) setActiveSite(availableSites[0]);
@@ -3046,7 +3063,12 @@ function AppShell() {
     streamRef.current?.close();
     const generation = streamGenerationRef.current + 1;
     streamGenerationRef.current = generation;
-    const stream = new EventSource('/api/mqtt/stream');
+    if (!plantSiteName) {
+      setStreamPhase('closed');
+      setError('No assigned site is available. Ask a platform administrator to grant site access.');
+      return;
+    }
+    const stream = new EventSource(`/api/mqtt/stream?siteName=${encodeURIComponent(plantSiteName)}`);
     streamRef.current = stream;
     stream.onopen = () => {
       if (generation !== streamGenerationRef.current) return;
@@ -3117,7 +3139,7 @@ function AppShell() {
       streamRef.current = null;
       setStreamPhase('closed');
     };
-  }, [mode]);
+  }, [mode, plantSiteName]);
 
   const disconnect = () => {
     streamGenerationRef.current += 1;
@@ -3536,6 +3558,8 @@ function AppShell() {
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} onSettings={() => setSettingsOpen(true)} now={now} weather={weatherState} siteName={plantSiteName} />
         
         <main className="scada-main-content min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-6">
+          {!siteAccessState.loading && !plantSiteName && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-amber-400" /><h1 className="text-lg font-bold text-slate-100">No SCADA site assigned</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error || 'Your account does not have an active site assignment. Ask a platform administrator to grant access before viewing live telemetry.'}</p></div></section>}
+          {!siteAccessState.loading && plantSiteName && <><div className="mb-1 flex items-center justify-between rounded-xl border border-blue-500/20 bg-blue-500/[.04] px-3 py-2 text-xs text-slate-400"><span>Viewing assigned site</span><strong className="text-blue-300">{plantSiteName}</strong>{siteAccessState.roles[plantSiteName] && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>
           {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
@@ -3618,7 +3642,7 @@ function AppShell() {
           </section>
           
           <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
-            <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} savedSnapshot={eligibleSavedSnapshot} />
+            <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} savedSnapshot={eligibleSavedSnapshot} siteName={plantSiteName} />
           </div>
 
               <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,1.2fr)_minmax(0,1.8fr)]">
@@ -3648,6 +3672,7 @@ function AppShell() {
 
           <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={handleCopy} />
           
+          </>}
           </>}
         </main>
       </div>

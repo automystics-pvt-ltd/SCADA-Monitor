@@ -14,7 +14,7 @@ import {
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
-import { allowGrantedSite, allowUnscopedScadaEvidence, grantedSiteNames } from "../middlewares/platformSiteAccess";
+import { allowGrantedSite, allowSiteRole, allowUnscopedScadaEvidence, grantedSiteNames, siteAccess } from "../middlewares/platformSiteAccess";
 import { deviceCommunicationState, heartbeatWindows, latestBootstrapMessages, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
@@ -41,6 +41,7 @@ const mqttLeaseOwnerId = `lease-${Buffer.from(mqttInstanceIdentity).toString("he
 const username = process.env.MQTT_USERNAME;
 const password = process.env.MQTT_PASSWORD;
 type SseListenerState = {
+  siteName?: string;
   pending: string[];
   deferredMessages: Array<{ event: string; data: unknown; eventId: number }>;
   paused: boolean;
@@ -55,6 +56,25 @@ const PERSISTENCE_END_MINUTE = 18 * 60;
 const DEFAULT_PLANT_TIMEZONE = "Asia/Kolkata";
 const configuredTimezone = process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? DEFAULT_PLANT_TIMEZONE;
 const configuredMqttPlantSite = process.env.MQTT_PLANT_SITE?.trim() || subscriptionTopic;
+
+function payloadSiteName(payload: unknown) {
+  return isRecord(payload) ? parseSiteName(payload.site_name ?? payload.siteName ?? payload.plant_name ?? payload.plantName) : "";
+}
+
+function messageBelongsToSite(message: StoredMessage, siteName?: string) {
+  if (!siteName) return true;
+  return payloadSiteName(message.parameter) === siteName || payloadSiteName(parameterFromPayload(message.payload)) === siteName;
+}
+
+function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
+  if (!siteName) return true;
+  if (!isRecord(snapshot.data)) return false;
+  const messages = Array.isArray(snapshot.data.messages) ? snapshot.data.messages : [];
+  const parameters = Array.isArray(snapshot.data.parameters) ? snapshot.data.parameters : [];
+  return messages.some((message) => isRecord(message) && typeof message.payload === "string"
+    && messageBelongsToSite({ ...message, sequence: 0, receivedAt: "", topic: "" } as StoredMessage, siteName))
+    || parameters.some((parameter) => payloadSiteName(parameter) === siteName);
+}
 
 type StoredMessage = {
   topic: string;
@@ -361,7 +381,11 @@ function send(res: Response, event: string, data: unknown, eventId?: number) {
 }
 
 function broadcast(event: string, data: unknown, eventId?: number) {
-  for (const listener of listeners.keys()) send(listener, event, data, eventId);
+  for (const [listener, state] of listeners) {
+    if (event === "message" && state.siteName && !messageBelongsToSite(data as StoredMessage, state.siteName)) continue;
+    if (event === "snapshot" && state.siteName && !snapshotBelongsToSite({ data: data }, state.siteName)) continue;
+    send(listener, event, data, eventId);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -953,14 +977,14 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
   }
 }
 
-async function latestSavedSnapshotEvidence() {
+async function latestSavedSnapshotEvidence(siteName?: string) {
   const snapshots = await db
     .select()
     .from(mqttSnapshotsTable)
     .where(eq(mqttSnapshotsTable.topic, subscriptionTopic))
     .orderBy(desc(mqttSnapshotsTable.windowEndedAt), desc(mqttSnapshotsTable.capturedAt))
     .limit(96);
-  const snapshot = snapshots.find((candidate) => isRecord(candidate.data) && (candidate.data.schemaVersion === 3 || candidate.data.schemaVersion === 4) && snapshotSaveStatus(candidate.data, candidate.messageCount, candidate.parameterCount) === "saved");
+  const snapshot = snapshots.find((candidate) => isRecord(candidate.data) && (candidate.data.schemaVersion === 3 || candidate.data.schemaVersion === 4) && snapshotSaveStatus(candidate.data, candidate.messageCount, candidate.parameterCount) === "saved" && snapshotBelongsToSite(candidate, siteName));
   return snapshot ? snapshotEvidence(snapshot) : null;
 }
 
@@ -1400,14 +1424,15 @@ router.get("/mqtt/status", (_req, res) => {
 });
 
 router.get("/mqtt/snapshots", async (req, res) => {
-  if (!await allowUnscopedScadaEvidence(req, res)) return;
+  const siteName = parseSiteName(req.query.siteName);
+  if (siteName && !await allowGrantedSite(req, res, siteName)) return;
   try {
     const snapshots = await db
       .select()
       .from(mqttSnapshotsTable)
       .orderBy(desc(mqttSnapshotsTable.capturedAt))
-      .limit(20);
-    res.json({ snapshots });
+      .limit(100);
+    res.json({ snapshots: snapshots.filter((snapshot) => snapshotBelongsToSite(snapshot, siteName || undefined)).slice(0, 20) });
   } catch (error) {
     logger.error({ err: error }, "MQTT snapshots query failed");
     res.status(500).json({ message: "Unable to load stored MQTT snapshots" });
@@ -1415,9 +1440,11 @@ router.get("/mqtt/snapshots", async (req, res) => {
 });
 
 router.get("/mqtt/snapshots/latest", async (req, res): Promise<void> => {
-  if (!await allowUnscopedScadaEvidence(req, res)) return;
+  const siteName = parseSiteName(req.query.siteName);
+  if (siteName && !await allowGrantedSite(req, res, siteName)) return;
+  if (!siteName && !await allowUnscopedScadaEvidence(req, res)) return;
   try {
-    const snapshot = await latestSavedSnapshotEvidence();
+    const snapshot = await latestSavedSnapshotEvidence(siteName || undefined);
     res.set("Cache-Control", "no-store").json({ snapshot });
   } catch (error) {
     req.log.error({ err: error }, "Latest MQTT snapshot query failed");
@@ -1441,6 +1468,16 @@ router.get("/mqtt/site-locations", async (req, res) => {
   }
 });
 
+router.get("/mqtt/site-access", async (req, res) => {
+  const access = await siteAccess(req);
+  res.set("Cache-Control", "no-store").json({
+    sites: [...access.sites].sort(),
+    roles: Object.fromEntries(access.roles),
+    global: access.global,
+    policy: access.global ? "global" : "assigned-sites",
+  });
+});
+
 router.put("/mqtt/site-locations/:siteName", async (req, res): Promise<void> => {
   const siteName = parseSiteName(req.params.siteName);
   const latitude = parseCoordinate(req.body?.latitude, -90, 90);
@@ -1458,6 +1495,7 @@ router.put("/mqtt/site-locations/:siteName", async (req, res): Promise<void> => 
     return;
   }
   if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSiteRole(req, res, siteName, ["site-admin"])) return;
 
   try {
     const [location] = await db
@@ -1616,6 +1654,7 @@ router.post("/mqtt/calibration-preview", async (req, res): Promise<void> => {
     return;
   }
   if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSiteRole(req, res, siteName, ["operator", "site-admin"])) return;
   const nowMs = Date.now();
   const mappings = requestedSources.map((value: unknown, index: number) => {
     const source = calibrationPreviewSource(value);
@@ -1739,7 +1778,10 @@ function isElectricalParameter(parameter: Record<string, unknown>) {
 }
 
 router.get("/mqtt/electrical-history", async (req, res) => {
-  if (!await allowUnscopedScadaEvidence(req, res)) return;
+  const siteName = parseSiteName(req.query.siteName);
+  if (siteName) {
+    if (!await allowGrantedSite(req, res, siteName)) return;
+  } else if (!await allowUnscopedScadaEvidence(req, res)) return;
   const from = parseRangeBoundary(req.query.from, "start");
   const to = parseRangeBoundary(req.query.to, "end");
   if (from === undefined || to === undefined) {
@@ -1767,7 +1809,7 @@ router.get("/mqtt/electrical-history", async (req, res) => {
       .limit(500);
 
     const samples: Array<Record<string, unknown>> = [];
-    for (const snapshot of snapshots) {
+    for (const snapshot of snapshots.filter((candidate) => snapshotBelongsToSite(candidate, siteName || undefined))) {
       if (!isRecord(snapshot.data) || !Array.isArray(snapshot.data.messages)) continue;
       const scheduledFor = typeof snapshot.data.scheduledFor === "string" ? snapshot.data.scheduledFor : snapshot.windowEndedAt.toISOString();
       const saveStatus = snapshot.data.saveStatus === "missing" ? "missing" : "saved";
@@ -2489,7 +2531,10 @@ function bootstrapMessages(highWater: number) {
 }
 
 router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
-  if (!await allowUnscopedScadaEvidence(req, res)) return;
+  const siteName = parseSiteName(req.query.siteName);
+  if (siteName) {
+    if (!await allowGrantedSite(req, res, siteName)) return;
+  } else if (!await allowUnscopedScadaEvidence(req, res)) return;
   const requestedLimit = Number(req.query.limit);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 200) : 50;
   try {
@@ -2498,8 +2543,9 @@ router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
       .from(mqttCommunicationEventsTable)
       .where(eq(mqttCommunicationEventsTable.topic, subscriptionTopic))
       .orderBy(desc(mqttCommunicationEventsTable.receivedAt))
-      .limit(limit);
-    res.set("Cache-Control", "no-store").json({ events });
+      .limit(limit * 4);
+    const filteredEvents = siteName ? events.filter((event) => typeof event.rawPayload === "string" && payloadSiteName(parameterFromPayload(event.rawPayload)) === siteName).slice(0, limit) : events.slice(0, limit);
+    res.set("Cache-Control", "no-store").json({ events: filteredEvents });
   } catch (error) {
     req.log.error({ err: error }, "MQTT communication events query failed");
     res.status(500).json({ message: "Unable to load MQTT communication evidence." });
@@ -2507,13 +2553,17 @@ router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
 });
 
 router.get("/mqtt/stream", async (req, res) => {
-  if (!await allowUnscopedScadaEvidence(req, res)) return;
+  const siteName = parseSiteName(req.query.siteName);
+  if (siteName) {
+    if (!await allowGrantedSite(req, res, siteName)) return;
+  } else if (!await allowUnscopedScadaEvidence(req, res)) return;
   requestMqttConsumer();
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
   const listenerState: SseListenerState = {
+    siteName: siteName || undefined,
     pending: [] as string[],
     deferredMessages: [] as Array<{ event: string; data: unknown; eventId: number }>,
     paused: true,
@@ -2522,13 +2572,17 @@ router.get("/mqtt/stream", async (req, res) => {
   };
   listeners.set(res, listenerState);
   send(res, "status", status());
-  void latestSavedSnapshotEvidence()
+  void latestSavedSnapshotEvidence(siteName || undefined)
     .then((snapshot) => {
       if (snapshot && listeners.has(res) && !res.writableEnded) send(res, "snapshot", snapshot);
     })
     .catch((error) => logger.warn({ err: error }, "Latest MQTT snapshot stream hydration failed"));
 
   const requestedAfter = parseDeliverySequence(req.get("Last-Event-ID"));
+  const enqueueSiteMessage = (message: StoredMessage, replay: boolean, recovered: boolean) =>
+    messageBelongsToSite(message, siteName || undefined)
+      ? enqueueReplayFrame(res, listenerState, "message", { ...message, replay, recovered }, message.sequence)
+      : Promise.resolve(true);
   let replayHighWater: number | undefined;
   let deliveredThrough = requestedAfter;
   let recoveryComplete = false;
@@ -2545,7 +2599,7 @@ router.get("/mqtt/stream", async (req, res) => {
         // historical broker frame. Replaying the full process buffer can
         // trigger proxy backpressure and an avoidable reconnect loop.
         for (const message of bootstrapMessages(highWater)) {
-          if (!await enqueueReplayFrame(res, listenerState, "message", { ...message, replay: true, recovered: false }, message.sequence)) return;
+              if (!await enqueueSiteMessage(message, true, false)) return;
         }
       } else {
         const recovered = await replayableMessagesAfter(requestedAfter, highWater);
@@ -2559,12 +2613,12 @@ router.get("/mqtt/stream", async (req, res) => {
           });
           for (const message of messageHistory) {
             if (message.sequence <= highWater) {
-              if (!await enqueueReplayFrame(res, listenerState, "message", { ...message, replay: true, recovered: false }, message.sequence)) return;
+              if (!await enqueueSiteMessage(message, true, false)) return;
             }
           }
         } else {
           for (const message of recovered) {
-            if (!await enqueueReplayFrame(res, listenerState, "message", { ...message, replay: false, recovered: true }, message.sequence)) return;
+            if (!await enqueueSiteMessage(message, false, true)) return;
           }
         }
       }
@@ -2578,7 +2632,9 @@ router.get("/mqtt/stream", async (req, res) => {
       });
     } finally {
       for (const message of listenerState.deferredMessages.sort((left, right) => left.eventId - right.eventId)) {
-        if (!await enqueueReplayFrame(res, listenerState, message.event, message.data, message.eventId)) return;
+        if (message.event !== "message" || messageBelongsToSite(message.data as StoredMessage, siteName || undefined)) {
+          if (!await enqueueReplayFrame(res, listenerState, message.event, message.data, message.eventId)) return;
+        }
       }
       listenerState.deferredMessages.length = 0;
       listenerState.paused = false;
@@ -2613,7 +2669,7 @@ router.get("/mqtt/stream", async (req, res) => {
         return;
       }
       for (const message of recovered) {
-        send(res, "message", { ...message, replay: false, recovered: true }, message.sequence);
+        if (messageBelongsToSite(message, siteName || undefined)) send(res, "message", { ...message, replay: false, recovered: true }, message.sequence);
       }
       deliveredThrough = highWater;
     } catch (error) {
