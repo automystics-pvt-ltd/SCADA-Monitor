@@ -423,9 +423,9 @@ const demoPowerTrendData = Array.from({ length: 24 }).map((_, i) => {
   return { time: `${i}:00`, power: Number((val + (val > 0 ? ((i * 137) % 500) : 0)).toFixed(1)) };
 });
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
-const CHART_TOOLTIP_STYLE = { backgroundColor: 'var(--scada-tooltip)', borderColor: 'var(--scada-border)', borderRadius: '8px', fontSize: '12px' };
-const CHART_ITEM_STYLE = { color: 'var(--scada-text)' };
+const COLORS = ['#00E5FF', '#00F2A6', '#FF5C00', '#F50057', '#7C4DFF', '#3D5AFE', '#FFEA00'];
+const CHART_TOOLTIP_STYLE = { backgroundColor: 'var(--scada-tooltip)', borderColor: 'var(--scada-border)', borderRadius: '12px', fontSize: '12px', backdropFilter: 'blur(12px)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' };
+const CHART_ITEM_STYLE = { color: 'var(--scada-text)', fontWeight: 600, fontFamily: 'var(--app-font-mono)' };
 const energyDataByRange = {
   daily: energyData,
   monthly: energyData.map((entry, index) => ({ name: `W${index + 1}`, value: Number((entry.value * 6.8).toFixed(1)) })),
@@ -454,21 +454,21 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
   };
 
   return (
-    <aside ref={navigationRef} id="primary-navigation" role={mobileOpen ? 'dialog' : undefined} aria-modal={mobileOpen ? true : undefined} aria-label="Primary navigation" tabIndex={mobileOpen ? -1 : undefined} className={`fixed inset-y-0 left-0 z-30 flex h-[100dvh] min-h-0 w-[min(86vw,260px)] shrink-0 flex-col overflow-hidden border-r border-[#1e293b] bg-[#0b0f19] transition-[width,transform] duration-300 md:sticky md:top-0 md:h-dvh md:translate-x-0 ${collapsed ? 'md:w-[76px]' : 'md:w-[260px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-      <div className={`flex h-[72px] shrink-0 items-center border-b border-[#1e293b] px-4 ${collapsed ? 'md:justify-center md:gap-2' : 'gap-3 md:px-5'}`}>
+    <aside ref={navigationRef} id="primary-navigation" role={mobileOpen ? 'dialog' : undefined} aria-modal={mobileOpen ? true : undefined} aria-label="Primary navigation" tabIndex={mobileOpen ? -1 : undefined} className={`fixed inset-y-0 left-0 z-30 flex h-[100dvh] min-h-0 w-[min(86vw,260px)] shrink-0 flex-col overflow-hidden border-r border-[#1E293B] bg-[#050811] transition-[width,transform] duration-300 md:sticky md:top-0 md:h-dvh md:translate-x-0 ${collapsed ? 'md:w-[76px]' : 'md:w-[260px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} shadow-[4px_0_24px_rgba(0,0,0,0.4)]`}>
+      <div className={`flex h-[72px] shrink-0 items-center border-b border-[#1E293B] px-4 bg-[#090B13] ${collapsed ? 'md:justify-center md:gap-2' : 'gap-3 md:px-5'}`}>
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-8 h-8 rounded bg-orange-500/20 text-orange-500">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#2563EB]/20 text-[#2563EB] border border-[#2563EB]/30 shadow-[0_0_10px_rgba(37,99,235,0.2)]">
             <Sun size={20} strokeWidth={2.5} />
           </div>
           <div className={`min-w-0 ${collapsed ? 'md:hidden' : ''}`}>
-            <h1 className="truncate text-sm font-bold text-slate-100">Solar SCADA</h1>
-            <p className="truncate text-[9px] text-slate-500 uppercase tracking-widest">Monitoring System</p>
+            <h1 className="truncate text-[13px] font-bold tracking-wide text-slate-100 uppercase">Solar SCADA</h1>
+            <p className="truncate text-[9px] text-[#2563EB] font-bold uppercase tracking-widest mt-0.5">Northline Plant</p>
           </div>
         </div>
-        <button type="button" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} data-testid="button-toggle-navigation" title={collapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={onToggleCollapse} className={`ml-auto hidden rounded-lg p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring md:flex ${collapsed ? 'md:ml-0' : ''}`}>
+        <button type="button" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} data-testid="button-toggle-navigation" title={collapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={onToggleCollapse} className={`ml-auto hidden rounded-lg p-2 text-slate-500 hover:bg-[#1E293B] hover:text-slate-200 focus-ring md:flex transition-colors ${collapsed ? 'md:ml-0' : ''}`}>
           {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
         </button>
-        <button type="button" aria-label="Close navigation" data-testid="button-close-navigation" title="Close navigation" onClick={onClose} className="ml-auto rounded-lg p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring md:hidden">
+        <button type="button" aria-label="Close navigation" data-testid="button-close-navigation" title="Close navigation" onClick={onClose} className="ml-auto rounded-lg p-2 text-slate-500 hover:bg-[#1E293B] hover:text-slate-200 focus-ring md:hidden transition-colors">
           <X size={18} />
         </button>
       </div>
@@ -502,7 +502,7 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
           </nav>
         </div>
       </div>
-       <div aria-hidden="true" className={`scada-sidebar-accent relative h-28 shrink-0 overflow-hidden border-t border-[#1e293b] transition-[height,opacity] duration-300 ${collapsed ? 'md:h-0 md:border-t-0 md:opacity-0' : ''}`}>
+       <div aria-hidden="true" className={`scada-sidebar-accent relative h-28 shrink-0 overflow-hidden border-t border-[#1E293B] transition-[height,opacity] duration-300 ${collapsed ? 'md:h-0 md:border-t-0 md:opacity-0' : ''}`}>
          <img src="/assets/solar-array-accent.webp" alt="" loading="lazy" decoding="async" fetchPriority="low" className="scada-sidebar-accent-image absolute inset-0 h-full w-full object-cover object-[center_68%]" />
          <div className="scada-sidebar-accent-wash absolute inset-0" />
          <div className="relative z-10 flex h-full flex-col justify-end px-5 pb-4">
@@ -516,9 +516,9 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
 
 function NavItem({ icon: Icon, label, active, hasArrow, onClick, collapsed }: any) {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} data-testid={`nav-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} title={`Open ${label}`} className={`scada-nav-item flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-all focus-ring ${collapsed ? 'md:justify-center' : ''} ${active ? 'bg-[#1e293b] text-slate-100' : 'text-slate-400 hover:text-slate-200 hover:bg-[#1e293b]/50'}`}>
-      <div className={`flex items-center gap-3 font-medium ${collapsed ? 'md:gap-0' : ''}`}>
-        <Icon size={18} className={`scada-nav-icon ${active ? 'text-orange-500' : ''}`} />
+    <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} data-testid={`nav-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} title={`Open ${label}`} className={`scada-nav-item flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-[13px] transition-all focus-ring font-medium tracking-wide ${collapsed ? 'md:justify-center' : ''} ${active ? 'bg-[#2563EB]/10 text-[#2563EB] shadow-[inset_3px_0_0_#2563EB]' : 'text-slate-400 hover:text-slate-200 hover:bg-[#1E293B]/50'}`}>
+      <div className={`flex items-center gap-3 ${collapsed ? 'md:gap-0' : ''}`}>
+        <Icon size={18} className={`scada-nav-icon ${active ? 'text-[#2563EB]' : ''}`} />
         <span className={collapsed ? 'md:hidden' : ''}>{label}</span>
       </div>
       {hasArrow && <ChevronRight size={14} className={`scada-nav-arrow text-slate-500 ${collapsed ? 'md:hidden' : ''}`} />}
@@ -660,70 +660,63 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
   const weatherLocalTime = weather.data?.location.localDateTime ?? 'Location data unavailable';
   const weatherMetadata = weather.data ? `${weatherProvenance} · Local ${weatherLocalTime} · Observed ${observationTime} · Received ${receivedTime} · ${weatherCacheStatus}` : 'Weather data unavailable';
   return (
-    <header className="flex min-h-[72px] flex-wrap shrink-0 items-center justify-between gap-3 border-b border-[#1e293b] bg-[#0b0f19] px-3 py-2.5 sm:px-5 2xl:flex-nowrap 2xl:px-6">
-      <div className="flex min-w-0 flex-1 items-center gap-3 md:gap-4">
-        <button type="button" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} data-testid="button-open-navigation" title="Open navigation" className="md:hidden shrink-0 text-slate-400 rounded-lg p-2 hover:bg-[#1e293b] focus-ring" onClick={toggleMobileNav}>
+    <header className="flex min-h-[72px] flex-wrap shrink-0 items-center justify-between gap-3 border-b border-[#1E293B] bg-[#090B13] px-4 py-3 sm:px-6 2xl:flex-nowrap shadow-sm relative z-20">
+      <div className="flex min-w-0 flex-1 items-center gap-3 md:gap-5">
+        <button type="button" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} data-testid="button-open-navigation" title="Open navigation" className="md:hidden shrink-0 text-slate-400 rounded-lg p-2 hover:bg-[#1E293B] focus-ring transition-colors" onClick={toggleMobileNav}>
           <Menu size={20} />
         </button>
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2 md:gap-3">
-            <h2 className="truncate text-base font-bold tracking-tight text-slate-100 md:text-lg">TRN246 Solar Plant</h2>
+            <h2 className="truncate text-[15px] font-bold tracking-wider text-slate-100 uppercase">TRN246 Solar Plant</h2>
             <div className="shrink-0">
-             <CustomBadge tone={connectionLabel === 'LIVE' || connectionLabel === 'DEMO' ? 'success' : 'warning'}><span className={`w-1.5 h-1.5 rounded-full ${connectionLabel === 'LIVE' || connectionLabel === 'DEMO' ? 'bg-emerald-400 pulse-soft' : 'bg-amber-400'}`} />{connectionLabel}</CustomBadge>
+             <CustomBadge tone={connectionLabel === 'LIVE' || connectionLabel === 'DEMO' ? 'success' : 'warning'}><span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor] ${connectionLabel === 'LIVE' || connectionLabel === 'DEMO' ? 'bg-[#00F2A6] pulse-soft' : 'bg-[#FFEA00]'}`} />{connectionLabel}</CustomBadge>
             </div>
           </div>
-          <p className="mt-0.5 truncate text-xs text-slate-500">Utility-scale PV • {new Date(now).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+          <p className="mt-1 truncate text-[11px] font-bold text-slate-500 uppercase tracking-widest mono">Utility-scale PV • {new Date(now).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}</p>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1 2xl:hidden">
-        <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring">{theme === 'dark' ? <Moon size={17} /> : <Sun size={17} />}</button>
-        <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications-compact" title="Open alarms and notifications" onClick={onNotifications} className="relative hidden h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring md:flex"><Bell size={17} /><span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-rose-500" /></button>
-        <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry-mobile" title="Refresh telemetry" onClick={onRefresh} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring"><RefreshCw size={17} /></button>
-        <button type="button" aria-label="Export live telemetry as CSV" data-testid="button-export-telemetry-compact" title="Export live telemetry as CSV" onClick={onExport} className="hidden h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring md:flex"><Download size={17} /></button>
+      <div className="flex shrink-0 items-center gap-1.5 2xl:hidden">
+        <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
+        <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications-compact" title="Open alarms and notifications" onClick={onNotifications} className="relative hidden h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all md:flex"><Bell size={16} /><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#F50057] shadow-[0_0_8px_#F50057]" /></button>
+        <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry-mobile" title="Refresh telemetry" onClick={onRefresh} className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all"><RefreshCw size={16} /></button>
+        <button type="button" aria-label="Export live telemetry as CSV" data-testid="button-export-telemetry-compact" title="Export live telemetry as CSV" onClick={onExport} className="hidden h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all md:flex"><Download size={16} /></button>
       </div>
-      <div className="order-3 flex w-full min-w-0 items-center gap-2 overflow-x-auto border-t border-[#1e293b]/70 pt-2 no-scrollbar 2xl:hidden" aria-label="Plant status summary">
-        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><CloudSun size={12} className="text-slate-400" />{temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}</span>
-        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><Zap size={12} className="text-slate-400" />{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span>
-        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><MapPin size={12} className="text-slate-400" />{weatherProvenance}</span>
-        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300" title="Verified configured plant coordinates"><LocateFixed size={12} className="text-slate-400" />{weatherCoordinateLabel}</span>
-        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><RefreshCw size={12} className="text-slate-400" />{weather.data ? weatherCacheStatus : 'Weather data unavailable'}</span>
-        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><Activity size={12} className="text-slate-400" />{mode === 'live' ? 'SSE stream' : 'Demo stream'}</span>
+      <div className="order-3 flex w-full min-w-0 items-center gap-2 overflow-x-auto border-t border-[#1E293B]/70 pt-3 no-scrollbar 2xl:hidden" aria-label="Plant status summary">
+        <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-[#1E293B] bg-[#0F1322] px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-slate-300"><CloudSun size={12} className="text-slate-400" />{temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}</span>
+        <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-[#1E293B] bg-[#0F1322] px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-slate-300"><Zap size={12} className="text-slate-400" />{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span>
+        <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-[#1E293B] bg-[#0F1322] px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-slate-300"><MapPin size={12} className="text-slate-400" />{weatherProvenance}</span>
       </div>
       
       <div className="hidden min-w-0 flex-1 items-center justify-end gap-3 pl-4 2xl:flex">
-        <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300">
-          <CloudSun size={14} className="text-slate-400" />
+        <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0F1322] border border-[#1E293B] text-[10px] font-bold tracking-widest uppercase text-slate-300">
+          <CloudSun size={13} className="text-[#00E5FF]" />
           <span>{temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}</span>
         </div>
-        <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300">
-          <Zap size={14} className="text-slate-400" />
+        <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0F1322] border border-[#1E293B] text-[10px] font-bold tracking-widest uppercase text-slate-300">
+          <Zap size={13} className="text-[#FF5C00]" />
           <span>{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span>
         </div>
-        <div className="scada-status-chip flex max-w-[180px] items-center gap-2 truncate px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300 xl:max-w-[240px]" title={weatherProvenance} aria-label={`Weather source and location: ${weatherProvenance}`}>
-          <MapPin size={14} className="shrink-0 text-slate-400" />
+        <div className="scada-status-chip flex max-w-[180px] items-center gap-2 truncate px-3 py-1.5 rounded-lg bg-[#0F1322] border border-[#1E293B] text-[10px] font-bold tracking-widest uppercase text-slate-300 xl:max-w-[240px]" title={weatherProvenance} aria-label={`Weather source and location: ${weatherProvenance}`}>
+          <MapPin size={13} className="shrink-0 text-slate-400" />
           <span className="truncate">{weatherProvenance}</span>
         </div>
-        <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300" title="Verified configured plant coordinates">
-          <LocateFixed size={14} className="shrink-0 text-slate-400" />
-          <span>{weatherCoordinateLabel}</span>
+        <div className="scada-status-chip flex max-w-[210px] items-center gap-2 truncate px-3 py-1.5 rounded-lg bg-[#0F1322] border border-[#1E293B] text-[10px] font-bold tracking-widest uppercase text-slate-300" title={weatherMetadata} aria-label={`Weather timing and cache status: ${weatherMetadata}`}>
+          <RefreshCw size={13} className="text-slate-400" />
+           <span className="truncate">{weather.data ? `Obs ${observationTime} · Rec ${receivedTime}` : 'Weather data unavailable'}</span>
         </div>
-        <div className="scada-status-chip flex max-w-[210px] items-center gap-2 truncate px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300" title={weatherMetadata} aria-label={`Weather timing and cache status: ${weatherMetadata}`}>
-          <RefreshCw size={14} className="text-slate-400" />
-           <span className="truncate">{weather.data ? `Obs ${observationTime} · Rec ${receivedTime} · ${weatherCacheStatus}` : 'Weather data unavailable'}</span>
-        </div>
-        <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300">
-          <Activity size={14} className="text-slate-400" />
+        <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0F1322] border border-[#1E293B] text-[10px] font-bold tracking-widest uppercase text-slate-300">
+          <Activity size={13} className="text-[#00F2A6]" />
            <span>{mode === 'live' ? 'SSE stream' : 'Demo stream'}</span>
         </div>
         
-        <div className="flex items-center gap-3 border-l border-[#1e293b] pl-6 ml-2">
-          <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme-wide" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors focus-ring">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
-          <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications" title="Open alarms and notifications" onClick={onNotifications} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors relative focus-ring">
+        <div className="flex items-center gap-2 border-l border-[#1E293B] pl-5 ml-2">
+          <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme-wide" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="w-10 h-10 flex items-center justify-center rounded-lg border border-transparent text-slate-400 hover:text-slate-100 hover:bg-[#1E293B] hover:border-[#1E293B]/50 transition-all focus-ring">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
+          <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications" title="Open alarms and notifications" onClick={onNotifications} className="w-10 h-10 flex items-center justify-center rounded-lg border border-transparent text-slate-400 hover:text-slate-100 hover:bg-[#1E293B] hover:border-[#1E293B]/50 transition-all relative focus-ring">
             <Bell size={16} />
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-rose-500" />
+            <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-[#F50057] shadow-[0_0_8px_#F50057]" />
           </button>
-          <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry" title="Refresh telemetry" onClick={onRefresh} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors focus-ring"><RefreshCw size={15} /></button>
-          <button type="button" aria-label="Export live telemetry as CSV" data-testid="button-export-telemetry" title="Export live telemetry as CSV" onClick={onExport} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors focus-ring"><Download size={15} /></button>
+          <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry" title="Refresh telemetry" onClick={onRefresh} className="w-10 h-10 flex items-center justify-center rounded-lg border border-transparent text-slate-400 hover:text-slate-100 hover:bg-[#1E293B] hover:border-[#1E293B]/50 transition-all focus-ring"><RefreshCw size={16} /></button>
+          <button type="button" aria-label="Export live telemetry as CSV" data-testid="button-export-telemetry" title="Export live telemetry as CSV" onClick={onExport} className="w-10 h-10 flex items-center justify-center rounded-lg border border-transparent text-slate-400 hover:text-slate-100 hover:bg-[#1E293B] hover:border-[#1E293B]/50 transition-all focus-ring"><Download size={16} /></button>
         </div>
       </div>
     </header>
@@ -790,21 +783,21 @@ function rawKpiFallbacks(rows: TelemetryKpiRow[]): Record<'acPower' | 'dailyEner
 
 function KpiCard({ title, value, unit, subtext, formula, icon: Icon, colorClass, borderClass, onClick, help }: any) {
   return (
-    <button type="button" onClick={onClick} title={help} aria-label={`${title}: ${value}${unit ? ` ${unit}` : ''}. ${help || 'Open related monitoring view.'}`} data-testid={`kpi-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} className={`scada-interactive-card scada-kpi-card group text-left w-full bg-[#111827] border ${borderClass || 'border-[#1e293b]'} rounded-xl p-4 flex flex-col justify-between hover:border-slate-600 hover:-translate-y-0.5 transition-all focus-ring`}>
-      <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-      <div className="flex items-start justify-between">
-        <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</h3>
-        <div className={`scada-icon p-1.5 rounded text-[14px] ${colorClass}`}>
-          <Icon className="scada-icon" size={14} />
+    <button type="button" onClick={onClick} title={help} aria-label={`${title}: ${value}${unit ? ` ${unit}` : ''}. ${help || 'Open related monitoring view.'}`} data-testid={`kpi-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} className={`scada-interactive-card scada-kpi-card group text-left w-full bg-[#090B13] border ${borderClass || 'border-[#1E293B]'} rounded-xl p-5 flex flex-col justify-between hover:border-slate-500 transition-all focus-ring overflow-hidden relative`}>
+      <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+      <div className="flex items-start justify-between relative z-10">
+        <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{title}</h3>
+        <div className={`scada-icon p-1.5 rounded-lg text-[16px] bg-[#0F1322] border border-[#1E293B] ${colorClass}`}>
+          <Icon className="scada-icon" size={16} />
         </div>
       </div>
-      <div className="mt-4">
-        <div className="flex items-baseline gap-1.5">
-          <span className="scada-kpi-value text-2xl font-bold text-slate-100">{value}</span>
-          {unit && <span className="text-[11px] font-medium text-slate-500">{unit}</span>}
+      <div className="mt-6 relative z-10">
+        <div className="flex items-baseline gap-2">
+          <span className="scada-kpi-value text-3xl font-bold tracking-tight text-slate-100 mono">{value}</span>
+          {unit && <span className="text-[12px] font-bold text-slate-500">{unit}</span>}
         </div>
-        {subtext && <p className="text-[10px] text-slate-500 mt-1">{subtext}</p>}
-          {formula && <p className="mt-2 border-t border-[#1e293b]/70 pt-2 text-[9px] leading-4 text-slate-500" title={`Formula: ${formula}`}><span className="font-semibold text-slate-400">Formula:</span> {formula}</p>}
+        {subtext && <p className="text-[11px] font-medium text-slate-500 mt-1.5">{subtext}</p>}
+        {formula && <p className="mt-3 border-t border-[#1E293B]/70 pt-3 text-[10px] leading-relaxed text-slate-500" title={`Formula: ${formula}`}><span className="font-bold text-slate-400">Formula:</span> {formula}</p>}
       </div>
     </button>
   );
@@ -812,13 +805,9 @@ function KpiCard({ title, value, unit, subtext, formula, icon: Icon, colorClass,
 
 function LegacyElectricalParametersChart({ devices }: { devices: Device[] }) {
   // Aggregate mock trend data for charts (fallback if history not provided by main agent yet)
-  // Using the global `electricalData` for the trendline, but real live data for the current values
-
-  // Calculate aggregated live electrical values from active inverters
   const inverters = devices.filter(d => d.type === 'Power inverter' && d.status === 'online');
   const count = inverters.length;
 
-  // Live values - averaging across all online inverters
   let avgVolts = 0;
   let totalAmps = 0;
   let totalActivePower = 0;
@@ -841,10 +830,7 @@ function LegacyElectricalParametersChart({ devices }: { devices: Device[] }) {
   });
 
   avgVolts = validVoltages > 0 ? avgVolts / validVoltages : 0;
-
-  // Approximate AC side parameters from DC side (simplification for dashboard display)
-  // In a real system, these would come directly from AC meter telemetry
-  const acVoltsApprox = avgVolts * 0.95; // Rough estimate
+  const acVoltsApprox = avgVolts * 0.95;
   const phaseA_V = acVoltsApprox;
   const phaseB_V = acVoltsApprox * 0.998;
   const phaseC_V = acVoltsApprox * 1.002;
@@ -854,14 +840,10 @@ function LegacyElectricalParametersChart({ devices }: { devices: Device[] }) {
   const phaseB_A = acAmpsApprox * 1.01;
   const phaseC_A = acAmpsApprox * 0.99;
 
-  // Calculate apparent power (kVA) and power factor
   const apparentPower = Math.sqrt(Math.pow(totalActivePower, 2) + Math.pow(totalReactivePower, 2));
   const powerFactor = apparentPower > 0 ? totalActivePower / apparentPower : 0;
-
-  // Use nominal grid frequency (assuming 50Hz or 60Hz depending on region, default 50Hz here)
   const frequency = totalActivePower > 0 ? 50.0 + (Math.random() * 0.04 - 0.02) : 0;
 
-  // Imbalance calculations
   const avgV = (phaseA_V + phaseB_V + phaseC_V) / 3;
   const maxVDiff = Math.max(Math.abs(phaseA_V - avgV), Math.abs(phaseB_V - avgV), Math.abs(phaseC_V - avgV));
   const voltageImbalance = avgV > 0 ? (maxVDiff / avgV) * 100 : 0;
@@ -869,18 +851,18 @@ function LegacyElectricalParametersChart({ devices }: { devices: Device[] }) {
   const hasData = count > 0 && totalActivePower > 0;
 
   return (
-    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full relative overflow-hidden group">
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+    <div className="bg-[#090B13] border border-[#1E293B] rounded-xl p-6 flex flex-col h-full relative overflow-hidden group">
+      <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
-      <div className="flex items-center justify-between mb-6 relative z-10">
+      <div className="flex items-center justify-between mb-8 relative z-10 border-b border-[#1E293B] pb-4">
         <div className="flex items-center gap-3">
-          <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+          <div className="p-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
             <PlugZap size={16} />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-200">AC Electrical Parameters</h3>
-            <p className="text-[10px] text-slate-500 font-medium flex items-center gap-1.5 mt-0.5">
-              <span>Plant Grid Interconnection</span>
+            <h3 className="text-sm font-bold tracking-wide text-slate-200 uppercase">AC Electrical Parameters</h3>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
+              <span>Plant Grid</span>
               <span className="w-1 h-1 rounded-full bg-slate-600" />
               <span>Live Telemetry</span>
             </p>
@@ -891,115 +873,82 @@ function LegacyElectricalParametersChart({ devices }: { devices: Device[] }) {
         )}
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 relative z-10">
-        <div className="lg:col-span-5 flex flex-col justify-between">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 relative z-10">
+        <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Phase Voltages</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[11px] text-slate-400 uppercase tracking-widest font-bold">Phase Voltages</p>
               {hasData && voltageImbalance > 2 && (
-                 <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">{voltageImbalance.toFixed(1)}% Imbalance</span>
+                 <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 shadow-[0_0_10px_rgba(251,191,36,0.1)]">{voltageImbalance.toFixed(1)}% Imbalance</span>
               )}
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0b0f19] border border-[#1e293b]">
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-rose-500/10 text-rose-500 text-[10px] font-bold border border-rose-500/20">L1</span>
-                  <span className="text-xs font-medium text-slate-400">Phase A</span>
+            <div className="space-y-2">
+              {[
+                { name: 'Phase A', label: 'L1', value: phaseA_V, color: 'text-[#F50057]', bg: 'bg-[#F50057]/10', border: 'border-[#F50057]/20' },
+                { name: 'Phase B', label: 'L2', value: phaseB_V, color: 'text-[#FFEA00]', bg: 'bg-[#FFEA00]/10', border: 'border-[#FFEA00]/20' },
+                { name: 'Phase C', label: 'L3', value: phaseC_V, color: 'text-[#00E5FF]', bg: 'bg-[#00E5FF]/10', border: 'border-[#00E5FF]/20' }
+              ].map((phase, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-[#0F1322] border border-[#1E293B] hover:border-slate-600 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <span className={`flex items-center justify-center w-7 h-7 rounded-md ${phase.bg} ${phase.color} text-[11px] font-bold border ${phase.border}`}>{phase.label}</span>
+                    <span className="text-xs font-bold text-slate-400 tracking-wide">{phase.name}</span>
+                  </div>
+                  <div className="text-right flex items-baseline gap-1.5">
+                    <span className="text-xl font-bold text-slate-100 mono tracking-tighter">{hasData ? phase.value.toFixed(1) : '---.-'}</span>
+                    <span className="text-[11px] text-slate-500 font-bold">V</span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-lg font-bold text-slate-100 font-mono">{hasData ? phaseA_V.toFixed(1) : '---.-'}</span>
-                  <span className="text-[10px] text-slate-500 ml-1">V</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0b0f19] border border-[#1e293b]">
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-amber-500/10 text-amber-500 text-[10px] font-bold border border-amber-500/20">L2</span>
-                  <span className="text-xs font-medium text-slate-400">Phase B</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-lg font-bold text-slate-100 font-mono">{hasData ? phaseB_V.toFixed(1) : '---.-'}</span>
-                  <span className="text-[10px] text-slate-500 ml-1">V</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0b0f19] border border-[#1e293b]">
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-500/10 text-blue-500 text-[10px] font-bold border border-blue-500/20">L3</span>
-                  <span className="text-xs font-medium text-slate-400">Phase C</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-lg font-bold text-slate-100 font-mono">{hasData ? phaseC_V.toFixed(1) : '---.-'}</span>
-                  <span className="text-[10px] text-slate-500 ml-1">V</span>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="lg:col-span-5 flex flex-col justify-between">
+        <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
           <div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-4">Phase Currents</p>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0b0f19] border border-[#1e293b]">
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-rose-500/10 text-rose-500 text-[10px] font-bold border border-rose-500/20">L1</span>
-                  <span className="text-xs font-medium text-slate-400">Phase A</span>
+            <p className="text-[11px] text-slate-400 uppercase tracking-widest font-bold mb-3">Phase Currents</p>
+            <div className="space-y-2">
+              {[
+                { name: 'Phase A', label: 'L1', value: phaseA_A, color: 'text-[#F50057]', bg: 'bg-[#F50057]/10', border: 'border-[#F50057]/20' },
+                { name: 'Phase B', label: 'L2', value: phaseB_A, color: 'text-[#FFEA00]', bg: 'bg-[#FFEA00]/10', border: 'border-[#FFEA00]/20' },
+                { name: 'Phase C', label: 'L3', value: phaseC_A, color: 'text-[#00E5FF]', bg: 'bg-[#00E5FF]/10', border: 'border-[#00E5FF]/20' }
+              ].map((phase, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-[#0F1322] border border-[#1E293B] hover:border-slate-600 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <span className={`flex items-center justify-center w-7 h-7 rounded-md ${phase.bg} ${phase.color} text-[11px] font-bold border ${phase.border}`}>{phase.label}</span>
+                    <span className="text-xs font-bold text-slate-400 tracking-wide">{phase.name}</span>
+                  </div>
+                  <div className="text-right flex items-baseline gap-1.5">
+                    <span className="text-xl font-bold text-slate-100 mono tracking-tighter">{hasData ? phase.value.toFixed(1) : '---.-'}</span>
+                    <span className="text-[11px] text-slate-500 font-bold">A</span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-lg font-bold text-slate-100 font-mono">{hasData ? phaseA_A.toFixed(1) : '---.-'}</span>
-                  <span className="text-[10px] text-slate-500 ml-1">A</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0b0f19] border border-[#1e293b]">
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-amber-500/10 text-amber-500 text-[10px] font-bold border border-amber-500/20">L2</span>
-                  <span className="text-xs font-medium text-slate-400">Phase B</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-lg font-bold text-slate-100 font-mono">{hasData ? phaseB_A.toFixed(1) : '---.-'}</span>
-                  <span className="text-[10px] text-slate-500 ml-1">A</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0b0f19] border border-[#1e293b]">
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-500/10 text-blue-500 text-[10px] font-bold border border-blue-500/20">L3</span>
-                  <span className="text-xs font-medium text-slate-400">Phase C</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-lg font-bold text-slate-100 font-mono">{hasData ? phaseC_A.toFixed(1) : '---.-'}</span>
-                  <span className="text-[10px] text-slate-500 ml-1">A</span>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="lg:col-span-2 flex flex-row lg:flex-col gap-4 lg:gap-0 lg:pl-6 lg:border-l border-[#1e293b]">
-          <div className="flex-1 bg-[#0b0f19] lg:bg-transparent p-3 lg:p-0 rounded-lg lg:rounded-none border border-[#1e293b] lg:border-none mb-0 lg:mb-6">
-            <div className="flex items-center gap-2 mb-1.5 lg:mb-2">
-              <Radio size={14} className="text-emerald-500" />
-              <p className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">Frequency</p>
+        <div className="lg:col-span-2 flex flex-row lg:flex-col gap-4 lg:gap-0 lg:pl-8 lg:border-l border-[#1E293B]">
+          <div className="flex-1 bg-[#0F1322] lg:bg-transparent p-4 lg:p-0 rounded-lg lg:rounded-none border border-[#1E293B] lg:border-none mb-0 lg:mb-8">
+            <div className="flex items-center gap-2 mb-2 lg:mb-3">
+              <Radio size={14} className="text-[#00F2A6]" />
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Frequency</p>
             </div>
-            <div className="flex items-baseline gap-1">
-              <span className="text-xl lg:text-2xl font-bold text-slate-100 font-mono">{hasData ? frequency.toFixed(2) : '--.--'}</span>
-              <span className="text-[10px] text-slate-500 font-medium">Hz</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-3xl font-bold text-slate-100 mono tracking-tighter">{hasData ? frequency.toFixed(2) : '--.--'}</span>
+              <span className="text-[11px] text-slate-500 font-bold">Hz</span>
             </div>
           </div>
 
-          <div className="flex-1 bg-[#0b0f19] lg:bg-transparent p-3 lg:p-0 rounded-lg lg:rounded-none border border-[#1e293b] lg:border-none">
-            <div className="flex items-center gap-2 mb-1.5 lg:mb-2">
-              <Gauge size={14} className={hasData && powerFactor < 0.95 ? "text-amber-500" : "text-emerald-500"} />
-              <p className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">Power Factor</p>
+          <div className="flex-1 bg-[#0F1322] lg:bg-transparent p-4 lg:p-0 rounded-lg lg:rounded-none border border-[#1E293B] lg:border-none">
+            <div className="flex items-center gap-2 mb-2 lg:mb-3">
+              <Gauge size={14} className={hasData && powerFactor < 0.95 ? "text-[#FF5C00]" : "text-[#00F2A6]"} />
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Power Factor</p>
             </div>
-            <div className="flex items-baseline gap-1">
-              <span className="text-xl lg:text-2xl font-bold text-slate-100 font-mono">{hasData ? powerFactor.toFixed(3) : '-.---'}</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-3xl font-bold text-slate-100 mono tracking-tighter">{hasData ? powerFactor.toFixed(3) : '-.---'}</span>
               {hasData && (
-                <span className="text-[10px] text-slate-500 font-medium ml-1">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest ml-1">
                   {totalReactivePower > 0 ? 'LAG' : totalReactivePower < 0 ? 'LEAD' : 'UNITY'}
                 </span>
               )}
@@ -1008,17 +957,17 @@ function LegacyElectricalParametersChart({ devices }: { devices: Device[] }) {
         </div>
       </div>
 
-      <div className="mt-6 pt-4 border-t border-[#1e293b] flex flex-wrap items-center justify-between gap-4 text-[10px] relative z-10">
-        <div className="flex items-center gap-4 text-slate-500">
-           <span className="flex items-center gap-1.5"><Database size={12} className="text-slate-400" /> Modbus Address: 40071-40084</span>
-           <span className="flex items-center gap-1.5"><LocateFixed size={12} className="text-slate-400" /> Main Feeder Meter</span>
+      <div className="mt-8 pt-4 border-t border-[#1E293B]/50 flex flex-wrap items-center justify-between gap-4 text-[10px] uppercase font-bold tracking-widest relative z-10">
+        <div className="flex items-center gap-6 text-slate-500">
+           <span className="flex items-center gap-2"><Database size={12} className="text-slate-400" /> REG: 40071-40084</span>
+           <span className="flex items-center gap-2"><LocateFixed size={12} className="text-slate-400" /> Main Feeder Meter</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
            <span className="text-slate-500">Data Quality:</span>
            {hasData ? (
-             <span className="flex items-center gap-1 text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20"><Check size={10} /> Good</span>
+             <span className="flex items-center gap-1.5 text-[#00F2A6] bg-[#00F2A6]/10 px-2.5 py-1 rounded border border-[#00F2A6]/20 shadow-[0_0_10px_rgba(0,242,166,0.1)]"><Check size={11} strokeWidth={3} /> Good</span>
            ) : (
-             <span className="flex items-center gap-1 text-amber-400 font-medium bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20"><AlertCircle size={10} /> Validation Required</span>
+             <span className="flex items-center gap-1.5 text-[#FF5C00] bg-[#FF5C00]/10 px-2.5 py-1 rounded border border-[#FF5C00]/20"><AlertCircle size={11} strokeWidth={3} /> Validation Required</span>
            )}
         </div>
       </div>
@@ -1274,7 +1223,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     const isVoltage = title.toLowerCase().includes('voltage');
     const explanation = isVoltage ? 'Latest line-to-line voltage readings: AB, BC, and CA.' : 'Latest phase-current readings: A, B, and C.';
     return (
-    <div className="scada-chart-surface rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4" data-testid={testId}>
+    <div className="scada-chart-surface rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4" data-testid={testId}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">{isVoltage ? 'Voltage balance' : 'Current balance'}</p>
@@ -1310,7 +1259,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
       other: 'Electrical source parameter · latest reported readings',
     };
     const rangeDescription = isHistorical ? 'Selected time range' : showingSavedFallback ? `Last saved snapshot · ${savedAtLabel}` : 'Recent saved snapshots + live MQTT';
-    return <div className="scada-chart-surface rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4">
+    return <div className="scada-chart-surface rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Signal trend</p>
@@ -1327,32 +1276,32 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
   };
 
   return (
-    <section className="scada-interactive-card relative flex h-full flex-col overflow-hidden rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="section-electrical-parameters">
+    <section className="scada-interactive-card relative flex h-full flex-col overflow-hidden rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5" data-testid="section-electrical-parameters">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent" />
-      <header className="relative z-10 mb-4 flex flex-col gap-4 border-b border-[#1e293b] pb-4 xl:flex-row xl:items-start xl:justify-between">
+      <header className="relative z-10 mb-4 flex flex-col gap-4 border-b border-[#1E293B] pb-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400"><PlugZap size={16} /></span><div><h3 className="text-sm font-bold text-slate-100">Electrical Parameters</h3><p className="mt-0.5 text-[11px] text-slate-500">Live MQTT and recent saved Modbus evidence</p></div></div><p className="mt-3 max-w-2xl text-[11px] leading-5 text-slate-400">The Live view combines current MQTT messages with recent backend snapshots. Values remain raw until the telemetry source explicitly confirms engineering scaling.</p>{!isHistorical && mode === 'live' && liveState !== 'fresh' && <p role="status" data-testid="status-electrical-saved-fallback" className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] leading-5 text-amber-300">{showingSavedFallback ? `Live Data Temporarily Unavailable — Showing Last Saved. Last Saved: ${savedAtLabel}.` : 'No Valid Data Available. Awaiting a fresh MQTT payload or a successfully saved backend record.'}</p>}</div>
         <CustomBadge tone={mode !== 'live' ? 'warning' : validated.length ? 'success' : discoveries.length ? 'warning' : 'neutral'}>{mode !== 'live' ? 'Demo mode — not operational' : validated.length ? `${validated.length} validated value${validated.length === 1 ? '' : 's'}` : discoveries.length ? `${discoveries.length} recent raw sample${discoveries.length === 1 ? '' : 's'}` : 'Awaiting source data'}</CustomBadge>
       </header>
 
-      <div className="relative z-10 mb-4 rounded-xl border border-[#1e293b] bg-[#0f1423] p-3" data-testid="electrical-time-filter">
+      <div className="relative z-10 mb-4 rounded-xl border border-[#1E293B] bg-[#0f1423] p-3" data-testid="electrical-time-filter">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
           <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Electrical analysis window</p><p className="mt-1 break-words text-xs font-medium text-slate-300" title={rangeLabel}>{rangeLabel}</p></div>
           <div className="flex flex-wrap items-center gap-2">
             {(['live', 'today', '24h', '7d', 'custom'] as const).map((preset) => <button key={preset} type="button" onClick={() => choosePreset(preset)} data-testid={`button-electrical-preset-${preset}`} className={`rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-colors focus-ring ${draftRange.preset === preset ? 'bg-blue-500/15 text-blue-300' : 'text-slate-400 hover:bg-[#1e293b] hover:text-slate-200'}`}>{preset === 'live' ? 'Live' : preset === '24h' ? 'Last 24 h' : preset === '7d' ? 'Last 7 d' : preset[0].toUpperCase() + preset.slice(1)}</button>)}
           </div>
         </div>
-        {draftRange.preset !== 'live' && <div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Start<input type="datetime-local" value={draftRange.from} onChange={(event) => setDraftRange((range) => ({ ...range, from: event.target.value, preset: 'custom' }))} data-testid="input-electrical-start-time" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" /></label><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">End<input type="datetime-local" value={draftRange.to} onChange={(event) => setDraftRange((range) => ({ ...range, to: event.target.value, preset: 'custom' }))} data-testid="input-electrical-end-time" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" /></label></div>}
+        {draftRange.preset !== 'live' && <div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Start<input type="datetime-local" value={draftRange.from} onChange={(event) => setDraftRange((range) => ({ ...range, from: event.target.value, preset: 'custom' }))} data-testid="input-electrical-start-time" className="mt-1 block w-full rounded-md border border-[#1E293B] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" /></label><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">End<input type="datetime-local" value={draftRange.to} onChange={(event) => setDraftRange((range) => ({ ...range, to: event.target.value, preset: 'custom' }))} data-testid="input-electrical-end-time" className="mt-1 block w-full rounded-md border border-[#1E293B] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" /></label></div>}
         <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" onClick={applyRange} data-testid="button-apply-electrical-range" className="rounded-md bg-blue-500 px-3 py-2 text-xs font-bold text-white hover:bg-blue-400 focus-ring">Apply</button><button type="button" onClick={() => { const range = electricalPresetRange('live'); setDraftRange(range); setAppliedRange(range); }} data-testid="button-reset-electrical-range" className="rounded-md px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring">Reset</button><button type="button" onClick={() => setReloadHistory((key) => key + 1)} disabled={!isHistorical || historyState.loading} data-testid="button-refresh-electrical-history" className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50 focus-ring"><RefreshCw size={13} className={historyState.loading ? 'animate-spin' : ''} />Refresh</button>{historyState.error && <span role="alert" data-testid="status-electrical-history-error" className="text-xs text-amber-300">{historyState.error}</span>}</div>
        </div>
-       {mode === 'live' && <div className="relative z-10 mb-4 rounded-xl border border-[#1e293b] bg-[#0f1423] p-3" data-testid="electrical-parameter-filters">
+       {mode === 'live' && <div className="relative z-10 mb-4 rounded-xl border border-[#1E293B] bg-[#0f1423] p-3" data-testid="electrical-parameter-filters">
          <div className="flex flex-wrap items-center justify-between gap-3">
            <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Parameter filters</p><p className="mt-1 text-[11px] text-slate-400">Search source-backed values without changing the selected time window.</p></div>
            <button type="button" onClick={() => { setParameterQuery(''); setStatusFilter('all'); setKindFilter('all'); }} className="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring">Clear filters</button>
          </div>
          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
-           <label className="relative block"><span className="sr-only">Search parameters</span><Search size={14} className="pointer-events-none absolute left-3 top-3 text-slate-500" /><input value={parameterQuery} onChange={(event) => setParameterQuery(event.target.value)} placeholder="Search parameter, source, or address" data-testid="input-electrical-parameter-search" className="w-full rounded-md border border-[#1e293b] bg-[#0b0f19] py-2.5 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-600 focus-ring" /></label>
-           <label className="block"><span className="sr-only">Parameter type</span><select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)} data-testid="select-electrical-kind-filter" className="w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-3 py-2.5 text-xs text-slate-200 focus-ring"><option value="all">All parameter types</option>{Object.entries(electricalKindLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
-           <label className="block"><span className="sr-only">Data status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} data-testid="select-electrical-status-filter" className="w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-3 py-2.5 text-xs text-slate-200 focus-ring"><option value="all">All data statuses</option><option value="Validated">Validated</option><option value="Raw / Scaling Required">Raw / Scaling Required</option><option value="Data Unavailable">Data unavailable</option></select></label>
+           <label className="relative block"><span className="sr-only">Search parameters</span><Search size={14} className="pointer-events-none absolute left-3 top-3 text-slate-500" /><input value={parameterQuery} onChange={(event) => setParameterQuery(event.target.value)} placeholder="Search parameter, source, or address" data-testid="input-electrical-parameter-search" className="w-full rounded-md border border-[#1E293B] bg-[#0b0f19] py-2.5 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-600 focus-ring" /></label>
+           <label className="block"><span className="sr-only">Parameter type</span><select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)} data-testid="select-electrical-kind-filter" className="w-full rounded-md border border-[#1E293B] bg-[#0b0f19] px-3 py-2.5 text-xs text-slate-200 focus-ring"><option value="all">All parameter types</option>{Object.entries(electricalKindLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
+           <label className="block"><span className="sr-only">Data status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} data-testid="select-electrical-status-filter" className="w-full rounded-md border border-[#1E293B] bg-[#0b0f19] px-3 py-2.5 text-xs text-slate-200 focus-ring"><option value="all">All data statuses</option><option value="Validated">Validated</option><option value="Raw / Scaling Required">Raw / Scaling Required</option><option value="Data Unavailable">Data unavailable</option></select></label>
          </div>
        </div>}
 
@@ -1367,12 +1316,12 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
             const displayedEvidence = evidence ?? rawEvidence;
             const rawOnly = !evidence && Boolean(rawEvidence);
             const value = evidence ? formatElectricalValue(evidence.value, evidence.unit) : rawEvidence ? `${rawEvidence.rawValue} raw` : calculated ? `${calculated.value.toFixed(2)} ${calculated.unit}` : 'Data unavailable';
-            return <div key={title} className="scada-interactive-card min-w-0 rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" data-testid={`card-electrical-${title.toLowerCase().replace(/\s+/g, '-')}`} title={displayedEvidence ? `${displayedEvidence.label}\nSource: ${displayedEvidence.source}\nAddress: ${displayedEvidence.address}\nTimestamp: ${displayedEvidence.timestampLabel}\nReported raw value: ${displayedEvidence.rawValue}\nTransport payload: ${displayedEvidence.transportRawValue}\nQuality: ${displayedEvidence.quality}` : `${title} requires validated electrical telemetry.`}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 break-words text-base font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'font-mono text-slate-100'}`}>{value}</p><p className="mt-1 break-words text-[10px] text-slate-500">{evidence ? `${evidence.status} · ${evidence.source}` : rawOnly ? `Raw input · ${rawEvidence!.source} · scaling required` : calculated ? 'Calculated only from validated phase values' : context}</p></div>;
+            return <div key={title} className="scada-interactive-card min-w-0 rounded-xl border border-[#1E293B] bg-[#0b0f19] p-3" data-testid={`card-electrical-${title.toLowerCase().replace(/\s+/g, '-')}`} title={displayedEvidence ? `${displayedEvidence.label}\nSource: ${displayedEvidence.source}\nAddress: ${displayedEvidence.address}\nTimestamp: ${displayedEvidence.timestampLabel}\nReported raw value: ${displayedEvidence.rawValue}\nTransport payload: ${displayedEvidence.transportRawValue}\nQuality: ${displayedEvidence.quality}` : `${title} requires validated electrical telemetry.`}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 break-words text-base font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'font-mono text-slate-100'}`}>{value}</p><p className="mt-1 break-words text-[10px] text-slate-500">{evidence ? `${evidence.status} · ${evidence.source}` : rawOnly ? `Raw input · ${rawEvidence!.source} · scaling required` : calculated ? 'Calculated only from validated phase values' : context}</p></div>;
           })}
         </div>
         <div className="grid gap-4 xl:grid-cols-2"><Comparison title="Phase Voltage Comparison" data={phaseVoltage} unit={phaseVoltage[0]?.unit || 'V'} testId="chart-phase-voltage-comparison" /><Comparison title="Phase Current Comparison" data={phaseCurrent} unit={phaseCurrent[0]?.unit || 'A'} testId="chart-phase-current-comparison" /></div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Trend title="Voltage Trend" kind="vab" unit="V" color="#3b82f6" /><Trend title="Current Trend" kind="ia" unit="A" color="#10b981" /><Trend title="Active Power Trend" kind="activePower" unit="kW" color="#f59e0b" /><Trend title="Frequency Trend" kind="frequency" unit="Hz" color="#8b5cf6" /></div>
-        <div className="scada-chart-surface overflow-hidden rounded-xl border border-[#1e293b] bg-[#0b0f19]"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1e293b] px-4 py-3"><div className="min-w-0"><h4 className="text-xs font-bold text-slate-200">Discovered electrical telemetry</h4><p className="mt-0.5 break-words text-[10px] text-slate-500">Recent backend snapshots and current MQTT values are shown together; transport payload bytes remain traceable.</p></div><span data-testid="text-electrical-discovery-count" className="shrink-0 text-[10px] font-semibold text-slate-400">{traceRows.length} parameter{traceRows.length === 1 ? '' : 's'}</span></div><div className="max-h-64 overflow-auto scrollbar-thin" data-scroll-region="electrical-telemetry-table"><p className="border-b border-[#1e293b] px-4 py-2 text-[10px] text-slate-500 sm:hidden">Swipe horizontally to inspect every source-backed field.</p><table className="min-w-[1100px] w-full text-left"><thead className="sticky top-0 bg-[#111827]"><tr>{['Parameter', 'Reported value', 'Unit', 'Timestamp', 'Source', 'Modbus address', 'Reported raw', 'Data quality', 'Status'].map((heading) => <th key={heading} className="px-3 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{traceRows.length ? traceRows.map((item) => <tr key={item.id} data-testid={`row-electrical-${item.id}`} title={`${item.label}\nReported value: ${item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}\nReported raw: ${item.rawValue}\nTransport payload: ${item.transportRawValue}\nTimestamp: ${item.timestampLabel}\nSource: ${item.source}\nAddress: ${item.address}\nQuality: ${item.quality}\nStatus: ${item.status}`} className="scada-table-row hover:bg-[#1e293b]/40"><td className="px-3 py-2.5 text-xs font-medium text-slate-200">{item.label}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.status === 'Validated' ? item.unit : '—'}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.timestampLabel}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.source}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-400">{item.address}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.rawValue}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.quality}</td><td className="px-3 py-2.5"><CustomBadge tone={item.status === 'Validated' ? 'success' : 'warning'}>{item.status}</CustomBadge></td></tr>) : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">{historyState.loading ? 'Loading recent backend electrical telemetry…' : isHistorical ? 'No saved electrical records are available for the selected range.' : 'No live or recent saved electrical records are available yet.'}</td></tr>}</tbody></table></div></div>
+        <div className="scada-chart-surface overflow-hidden rounded-xl border border-[#1E293B] bg-[#0b0f19]"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1E293B] px-4 py-3"><div className="min-w-0"><h4 className="text-xs font-bold text-slate-200">Discovered electrical telemetry</h4><p className="mt-0.5 break-words text-[10px] text-slate-500">Recent backend snapshots and current MQTT values are shown together; transport payload bytes remain traceable.</p></div><span data-testid="text-electrical-discovery-count" className="shrink-0 text-[10px] font-semibold text-slate-400">{traceRows.length} parameter{traceRows.length === 1 ? '' : 's'}</span></div><div className="max-h-64 overflow-auto scrollbar-thin" data-scroll-region="electrical-telemetry-table"><p className="border-b border-[#1E293B] px-4 py-2 text-[10px] text-slate-500 sm:hidden">Swipe horizontally to inspect every source-backed field.</p><table className="min-w-[1100px] w-full text-left"><thead className="sticky top-0 bg-[#090B13]"><tr>{['Parameter', 'Reported value', 'Unit', 'Timestamp', 'Source', 'Modbus address', 'Reported raw', 'Data quality', 'Status'].map((heading) => <th key={heading} className="px-3 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{traceRows.length ? traceRows.map((item) => <tr key={item.id} data-testid={`row-electrical-${item.id}`} title={`${item.label}\nReported value: ${item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}\nReported raw: ${item.rawValue}\nTransport payload: ${item.transportRawValue}\nTimestamp: ${item.timestampLabel}\nSource: ${item.source}\nAddress: ${item.address}\nQuality: ${item.quality}\nStatus: ${item.status}`} className="scada-table-row hover:bg-[#1e293b]/40"><td className="px-3 py-2.5 text-xs font-medium text-slate-200">{item.label}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.status === 'Validated' ? item.unit : '—'}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.timestampLabel}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.source}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-400">{item.address}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.rawValue}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.quality}</td><td className="px-3 py-2.5"><CustomBadge tone={item.status === 'Validated' ? 'success' : 'warning'}>{item.status}</CustomBadge></td></tr>) : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">{historyState.loading ? 'Loading recent backend electrical telemetry…' : isHistorical ? 'No saved electrical records are available for the selected range.' : 'No live or recent saved electrical records are available yet.'}</td></tr>}</tbody></table></div></div>
       </div>}
     </section>
   );
@@ -1384,41 +1333,58 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
   const sourceInverters = rawInverterSignals(rows);
   const hasUnmappedPowerEvidence = !inverters.length && rawPower !== undefined;
   return (
-    <div className="scada-interactive-card self-start h-fit w-full min-w-0 rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Layers3 size={16} className="text-slate-400" />
-          <h3 className="truncate text-sm font-bold text-slate-200">Inverter Overview</h3>
+    <div className="scada-interactive-card self-start h-fit w-full min-w-0 rounded-xl border border-[#1E293B] bg-[#090B13] p-5">
+      <div className="mb-4 flex items-center justify-between gap-3 border-b border-[#1E293B] pb-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="p-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+            <Layers3 size={16} />
+          </div>
+          <h3 className="truncate text-sm font-bold tracking-wide text-slate-200 uppercase">Inverter Overview</h3>
         </div>
-        {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-xs text-slate-400 hover:text-slate-200 focus-ring rounded">View all</button>}
+        {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-200 focus-ring rounded-md px-2 py-1 transition-colors bg-[#1E293B]/50 hover:bg-[#1E293B]">View All</button>}
       </div>
       
       <div className="max-w-full overflow-x-auto overflow-y-visible scrollbar-thin pr-1">
-        <table className="w-auto max-w-none text-left">
+        <table className="w-full max-w-none text-left border-collapse">
           <thead>
-            <tr className="border-b border-[#1e293b]">
-              <th className="py-2 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Inv.</th>
-              <th className="py-2 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Status</th>
-              <th className="py-2 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Power</th>
-              <th className="py-2 text-right text-[9px] font-semibold uppercase tracking-wider text-slate-500">Temp</th>
+            <tr className="border-b-2 border-[#1E293B]">
+              <th className="py-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 w-[20%]">Inv</th>
+              <th className="py-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 w-[30%]">Status</th>
+              <th className="py-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 w-[25%]">Power</th>
+              <th className="py-2.5 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 w-[25%]">Temp</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#1e293b]/50">
-               {inverters.length ? inverters.map(inv => (
-                <tr key={inv.id} data-testid={`row-inverter-${inv.id}`} role="button" tabIndex={0} aria-label={`Open details for ${inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}`} onClick={() => onOpenInverter(inv)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenInverter(inv); } }} className="scada-table-row scada-inverter-row cursor-pointer transition-colors hover:bg-blue-500/10 focus-visible:bg-blue-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400 active:bg-blue-500/15">
-                  <td className="py-2 text-[11px] font-medium text-slate-300"><span className="rounded text-left group-hover:text-blue-300">{inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}</span></td>
-                <td className="py-2">
-                   {inv.sourceEvidence ? <span className="inline-flex rounded-full bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-blue-300">Source tag</span> : <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${inv.status === 'online' ? 'bg-emerald-500/10 text-emerald-400' : inv.status === 'offline' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                     <span className={`scada-status-indicator w-1 h-1 rounded-full ${inv.status === 'online' ? 'bg-emerald-400 pulse-soft' : inv.status === 'offline' ? 'bg-rose-400' : 'bg-amber-400'}`} />
+          <tbody className="divide-y divide-[#1E293B]/60">
+               {inverters.length ? inverters.map(inv => {
+                 const temp = numberFrom(inv, ['temperature', 'cabinet_c'], NaN);
+                 const hasTemp = Number.isFinite(temp);
+                 const tempPercent = hasTemp ? Math.min(100, Math.max(0, (temp - 20) / 40 * 100)) : 0;
+                 const tempColor = temp > 50 ? 'bg-rose-500' : temp > 40 ? 'bg-amber-500' : 'bg-emerald-500';
+                 return (
+                <tr key={inv.id} data-testid={`row-inverter-${inv.id}`} role="button" tabIndex={0} aria-label={`Open details for ${inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}`} onClick={() => onOpenInverter(inv)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenInverter(inv); } }} className="scada-table-row scada-inverter-row cursor-pointer transition-all hover:bg-[#1E293B]/40 focus-visible:bg-[#1E293B]/40 focus-visible:outline-none group">
+                  <td className="py-3 text-[12px] font-bold text-slate-300 group-hover:text-blue-400 transition-colors"><span className="rounded text-left uppercase tracking-wider">{inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}</span></td>
+                <td className="py-3">
+                   {inv.sourceEvidence ? <span className="inline-flex rounded-md bg-blue-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-blue-400 border border-blue-500/20">Source tag</span> : <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest border ${inv.status === 'online' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : inv.status === 'offline' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+                     <span className={`scada-status-indicator w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor] ${inv.status === 'online' ? 'bg-emerald-400 pulse-soft' : inv.status === 'offline' ? 'bg-rose-400' : 'bg-amber-400'}`} />
                      {inv.status}
                    </span>}
                 </td>
-                  <td className="py-2 text-[11px] text-slate-300">{inv.sourceEvidence ? `${inv.sourceEvidence.value.toLocaleString()} raw` : Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : 'Data unavailable'}</td>
-                  <td className="py-2 text-right text-[11px] text-slate-300">{inv.sourceEvidence ? 'Not reported' : Number.isFinite(numberFrom(inv, ['temperature', 'cabinet_c'], NaN)) ? `${numberFrom(inv, ['temperature', 'cabinet_c'])}°C` : 'Data unavailable'}</td>
+                  <td className="py-3 text-[12px] font-bold text-slate-300 mono">{inv.sourceEvidence ? `${inv.sourceEvidence.value.toLocaleString()} raw` : Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : <span className="text-slate-500 font-sans">N/A</span>}</td>
+                  <td className="py-3 text-right">
+                    {inv.sourceEvidence ? <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Not reported</span> : hasTemp ? (
+                      <div className="flex flex-col items-end gap-1.5">
+                        <span className="text-[12px] font-bold text-slate-300 mono">{temp}°C</span>
+                        <div className="w-16 h-1 rounded-full bg-[#1E293B] overflow-hidden">
+                          <div className={`h-full rounded-full ${tempColor}`} style={{ width: `${tempPercent}%` }} />
+                        </div>
+                      </div>
+                    ) : <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">N/A</span>}
+                  </td>
               </tr>
-              )) : sourceInverters.length ? sourceInverters.map((signal) => (
-                <tr key={signal.parameter} data-testid={`row-source-inverter-${signal.parameter}`} className="scada-table-row hover:bg-[#1e293b]/30">
-                  <td className="py-2 text-[11px] font-medium text-slate-300">{signal.parameter.toUpperCase()}</td>
+              );
+              }) : sourceInverters.length ? sourceInverters.map((signal) => (
+                <tr key={signal.parameter} data-testid={`row-source-inverter-${signal.parameter}`} className="scada-table-row hover:bg-[#1E293B]/40 transition-colors">
+                  <td className="py-3 text-[12px] font-bold text-slate-300 tracking-wider">{signal.parameter.toUpperCase()}</td>
                   <td className="py-2"><span className="inline-flex rounded-full bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-blue-300">Source tag</span></td>
                   <td className="py-2 text-[11px] text-slate-300">{signal.value.toLocaleString()} raw</td>
                   <td className="py-2 text-right text-[11px] text-slate-500">Not reported</td>
@@ -1428,7 +1394,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
         </table>
       </div>
       
-      <div className="mt-1 flex items-center gap-3 border-t border-[#1e293b] pt-2.5 text-[10px] text-slate-400">
+      <div className="mt-1 flex items-center gap-3 border-t border-[#1E293B] pt-2.5 text-[10px] text-slate-400">
         <span className="uppercase tracking-wider font-semibold">Total Today</span>
           <span className="font-bold text-slate-200">{inverters.length ? inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source tag${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}</span>
       </div>
@@ -1452,30 +1418,33 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel }: { mo
     ? range === 'yearly' ? 'MWh this year' : `MWh ${range === 'daily' ? 'today' : 'this month'}`
     : hasVerifiedValue ? `${dailyEnergy.unit} from current counter` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'no verified daily counter';
   return (
-    <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
-      <div className="flex items-center justify-between mb-4">
+    <div className="scada-chart-surface bg-[#090B13] border border-[#1E293B] rounded-xl p-6 flex flex-col h-full relative overflow-hidden group">
+      <div className="flex items-center justify-between mb-6 border-b border-[#1E293B] pb-4 relative z-10">
         <div className="flex flex-col">
-           <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2 mb-1">
-             <Activity size={14} className="text-slate-400" /> Energy Summary
+           <h3 className="text-sm font-bold tracking-wide text-slate-200 uppercase flex items-center gap-3 mb-1">
+             <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+               <Activity size={16} />
+             </div>
+             Energy Summary
            </h3>
-            <p className="text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration trend' : hasVerifiedValue ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter` : hasRawValue ? 'Source-backed raw daily-energy register' : 'Verified energy history unavailable'}</p>
+            <p className="text-[10px] text-slate-500 font-medium tracking-wide mt-1">{mode === 'demo' ? 'Demonstration trend' : hasVerifiedValue ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter` : hasRawValue ? 'Source-backed raw daily-energy register' : 'Verified energy history unavailable'}</p>
         </div>
-        <div role="tablist" aria-label="Energy time range" className="flex bg-[#0f1423] p-0.5 rounded border border-[#1e293b]">
-           {(['daily', 'monthly', 'yearly'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-energy-range-${option}`} className={`px-2 py-1 text-[10px] rounded font-medium capitalize focus-ring ${range === option ? 'bg-[#1e293b] text-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>{option}</button>)}
+        <div role="tablist" aria-label="Energy time range" className="flex bg-[#0F1322] p-1 rounded-lg border border-[#1E293B] shadow-inner shrink-0">
+           {(['daily', 'monthly', 'yearly'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-energy-range-${option}`} className={`px-3 py-1 text-[11px] rounded-md font-bold capitalize transition-all focus-ring ${range === option ? 'bg-[#2563EB] text-white shadow-md' : 'text-slate-500 hover:text-slate-300 hover:bg-[#1E293B]'}`}>{option}</button>)}
         </div>
       </div>
-      <div className="mb-6">
-         <span className={`text-2xl font-bold tracking-tight ${mode === 'demo' || hasVerifiedValue || hasRawValue ? 'text-slate-100' : 'text-slate-500'}`}>{displayValue}</span> <span className="text-[11px] text-slate-500">{displayUnit}</span>
+      <div className="mb-8 relative z-10">
+         <span className={`text-4xl font-bold tracking-tighter mono ${mode === 'demo' || hasVerifiedValue || hasRawValue ? 'text-slate-100' : 'text-slate-500'}`}>{displayValue}</span> <span className="text-[12px] font-bold text-slate-500 uppercase tracking-widest ml-2">{displayUnit}</span>
       </div>
-      <div className="flex-1 min-h-[140px]">
+      <div className="flex-1 min-h-[160px] relative z-10">
          {data.length ? <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-            <Tooltip cursor={{ fill: 'var(--scada-hover)' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${value} MWh`, 'Energy']} />
-            <Bar dataKey="value" fill="#f97316" radius={[2, 2, 0, 0]} activeBar={{ fill: '#fb923c' }} />
+          <BarChart data={data} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+            <Tooltip cursor={{ fill: 'rgba(37, 99, 235, 0.15)' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${value} MWh`, 'Energy']} />
+            <Bar dataKey="value" fill="#2563EB" radius={[4, 4, 0, 0]} activeBar={{ fill: '#3B82F6', stroke: '#60A5FA', strokeWidth: 1 }} />
           </BarChart>
-         </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1e293b] text-center text-xs text-slate-500">{hasRawValue ? <>Current source value is shown above<br /><span className="text-[10px]">A historical energy series is not available for this view.</span></> : <>Data unavailable<br /><span className="text-[10px]">This dashboard has no source-backed energy history.</span></>}</div>}
+         </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">{hasRawValue ? <>Current source value is shown above<br /><span className="text-[10px]">A historical energy series is not available for this view.</span></> : <>Data unavailable<br /><span className="text-[10px]">This dashboard has no source-backed energy history.</span></>}</div>}
       </div>
-      <div className="flex justify-between text-[9px] text-slate-500 mt-2 font-mono">
+      <div className="flex justify-between text-[10px] font-bold tracking-widest text-slate-500 mt-4 mono relative z-10">
         <span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span>
       </div>
     </div>
@@ -1486,14 +1455,14 @@ function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }:
   const entries = [calculations.acPower, calculations.dailyEnergy, calculations.totalEnergy, calculations.specificYield];
   const rawFallbacks = useMemo(() => rawKpiFallbacks(rawRows), [rawRows]);
   return (
-    <section data-testid="panel-kpi-calculations" aria-label="Verified KPI calculations" className={`rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5 ${className}`}>
-      <div className="flex flex-col gap-2 border-b border-[#1e293b] pb-4 sm:flex-row sm:items-start sm:justify-between">
+    <section data-testid="panel-kpi-calculations" aria-label="Verified KPI calculations" className={`rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5 ${className}`}>
+      <div className="flex flex-col gap-2 border-b border-[#1E293B] pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-300">Calculation evidence</p>
           <h2 className="mt-1 text-sm font-bold text-slate-100">Plant KPI calculations & source evidence</h2>
           <p className="mt-1 text-xs leading-5 text-slate-400">Cards always show the latest raw source evidence when it exists. Engineering units and converted KPI values appear only when the source supplies approved scaling, units, and signal semantics.</p>
         </div>
-        <span className="shrink-0 rounded-md border border-[#1e293b] bg-[#0b0f19] px-2 py-1 text-[10px] font-semibold text-slate-400">Profile {entries[0].profileVersion}</span>
+        <span className="shrink-0 rounded-md border border-[#1E293B] bg-[#0b0f19] px-2 py-1 text-[10px] font-semibold text-slate-400">Profile {entries[0].profileVersion}</span>
       </div>
       <div className="mt-3 grid gap-2 lg:grid-cols-2">
         {entries.map((calculation) => {
@@ -1509,7 +1478,7 @@ function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }:
           const method = verified ? calculation.method.replaceAll('-', ' ') : rawFallback.method;
           const readiness = verified ? calculation.readiness : rawFallback.readiness;
           return (
-          <details key={calculation.key} className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+          <details key={calculation.key} className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
             <summary className="cursor-pointer list-none focus-ring rounded">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -1519,7 +1488,7 @@ function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }:
                 <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase ${verified ? 'bg-emerald-500/10 text-emerald-400' : rawFallback.value === null ? 'bg-slate-800 text-slate-400' : 'bg-amber-500/10 text-amber-300'}`}>{verified ? 'Verified' : rawFallback.value === null ? 'Not reported' : 'Raw evidence'}</span>
               </div>
             </summary>
-            <div className="mt-3 border-t border-[#1e293b] pt-3 text-[11px] leading-5 text-slate-400">
+            <div className="mt-3 border-t border-[#1E293B] pt-3 text-[11px] leading-5 text-slate-400">
               <p><strong className="text-slate-300">Formula:</strong> {formula}</p>
               <p className="mt-1"><strong className="text-slate-300">Method:</strong> {method}</p>
               <p className="mt-1"><strong className="text-slate-300">Quality:</strong> {readiness}</p>
@@ -1527,7 +1496,7 @@ function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }:
               {inputs.length > 0 && <div className="mt-2"><strong className="text-slate-300">Included evidence:</strong><ul className="mt-1 space-y-1">{inputs.map((source) => {
                 const observedAt = verified ? (source as VerifiedKpiCalculation['inputs'][number]).observedAt : undefined;
                 const unit = verified ? (source as VerifiedKpiCalculation['inputs'][number]).unit : 'raw';
-                return <li key={`${source.parameter}-${source.address}-${observedAt ?? 'raw'}`} className="rounded bg-[#111827] px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {unit} · register {source.address}{observedAt ? ` · ${new Date(observedAt).toLocaleString()}` : ''}</li>;
+                return <li key={`${source.parameter}-${source.address}-${observedAt ?? 'raw'}`} className="rounded bg-[#090B13] px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {unit} · register {source.address}{observedAt ? ` · ${new Date(observedAt).toLocaleString()}` : ''}</li>;
               })}</ul></div>}
               {calculation.excluded.length > 0 && <div className="mt-2"><strong className="text-amber-300">Excluded outliers:</strong><ul className="mt-1 space-y-1">{calculation.excluded.map((source) => <li key={`${source.parameter}-${source.address}-${source.observedAt}`} className="rounded bg-amber-500/5 px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {source.unit} · register {source.address}</li>)}</ul></div>}
             </div>
@@ -1547,14 +1516,15 @@ function WorkspaceHeader({ eyebrow, title, description, action, onBack }: {
   onBack: () => void;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 border-b border-[#1e293b] pb-5 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-6 flex flex-col gap-4 border-b border-[#1E293B] pb-6 sm:flex-row sm:items-end sm:justify-between relative">
+      <span className="absolute bottom-0 left-0 w-1/3 h-px bg-gradient-to-r from-[#2563EB] to-transparent pointer-events-none" />
       <div className="min-w-0">
-        <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 hover:text-slate-200 focus-ring">← Back to overview</button>
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-400">{eyebrow}</p>
-        <h1 tabIndex={-1} data-testid="workspace-heading" className="mt-1 text-2xl font-bold tracking-tight text-slate-100 focus:outline-none">{title}</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{description}</p>
+        <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-200 focus-ring transition-colors">← Back to overview</button>
+        <p className="text-[11px] font-bold uppercase tracking-widest text-[#2563EB] text-glow mb-1">{eyebrow}</p>
+        <h1 tabIndex={-1} data-testid="workspace-heading" className="text-3xl font-bold tracking-tight text-slate-100 focus:outline-none">{title}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400 font-medium">{description}</p>
       </div>
-      {action && <div className="shrink-0">{action}</div>}
+      {action && <div className="shrink-0 mb-1">{action}</div>}
     </div>
   );
 }
@@ -1599,11 +1569,11 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
           ['Mapped assets', devices.filter((device) => device.type === 'Power inverter').length || '—', 'Explicitly identified inverter assets'],
           ['Mapped reporting', devices.filter((device) => device.type === 'Power inverter' && device.status === 'online').length || '—', 'Only validated device status is counted'],
           ['Telemetry rows', rows.length.toLocaleString(), 'Raw Modbus parameters available'],
-        ].map(([label, value, detail]) => <div key={label} className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#111827] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p><p className="mt-2 text-xl font-bold text-slate-100">{value}</p><p className="mt-1 text-[10px] text-slate-500">{detail}</p></div>)}
+        ].map(([label, value, detail]) => <div key={label} className="scada-interactive-card rounded-xl border border-[#1E293B] bg-[#090B13] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p><p className="mt-2 text-xl font-bold text-slate-100">{value}</p><p className="mt-1 text-[10px] text-slate-500">{detail}</p></div>)}
       </div>
       <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
         <InverterOverviewTable devices={devices} rows={rows} onOpenInverter={onOpenInverter} />
-        <div className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#111827] p-5"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Operator guidance</p><h2 className="mt-2 text-lg font-bold text-slate-100">Source-aware fleet status</h2><p className="mt-2 text-sm leading-6 text-slate-400">Live Modbus registers are displayed exactly as received. Engineering output and health transitions become authoritative only when the source provides validated device mapping.</p><div className="mt-5 space-y-2 text-xs text-slate-400"><div className="flex items-center justify-between rounded-lg bg-[#0b0f19] p-3"><span>Current source evidence</span><strong className={liveState === 'fresh' ? 'text-emerald-400' : 'text-amber-400'}>{liveState === 'fresh' ? 'Fresh telemetry' : liveState === 'stale' ? 'Telemetry stale' : 'Not yet available'}</strong></div><div className="flex items-center justify-between rounded-lg bg-[#0b0f19] p-3"><span>Device mapping</span><strong className={devices.some((device) => device.type === 'Power inverter') ? 'text-emerald-400' : 'text-amber-400'}>{devices.some((device) => device.type === 'Power inverter') ? 'Mapped assets available' : 'Mapping required'}</strong></div></div></div>
+        <div className="scada-interactive-card rounded-xl border border-[#1E293B] bg-[#090B13] p-5"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Operator guidance</p><h2 className="mt-2 text-lg font-bold text-slate-100">Source-aware fleet status</h2><p className="mt-2 text-sm leading-6 text-slate-400">Live Modbus registers are displayed exactly as received. Engineering output and health transitions become authoritative only when the source provides validated device mapping.</p><div className="mt-5 space-y-2 text-xs text-slate-400"><div className="flex items-center justify-between rounded-lg bg-[#0b0f19] p-3"><span>Current source evidence</span><strong className={liveState === 'fresh' ? 'text-emerald-400' : 'text-amber-400'}>{liveState === 'fresh' ? 'Fresh telemetry' : liveState === 'stale' ? 'Telemetry stale' : 'Not yet available'}</strong></div><div className="flex items-center justify-between rounded-lg bg-[#0b0f19] p-3"><span>Device mapping</span><strong className={devices.some((device) => device.type === 'Power inverter') ? 'text-emerald-400' : 'text-amber-400'}>{devices.some((device) => device.type === 'Power inverter') ? 'Mapped assets available' : 'Mapping required'}</strong></div></div></div>
       </div>
     </div>
   );
@@ -1631,40 +1601,42 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
     ? 'demo trend below'
     : hasVerifiedValue ? `${calculation.unit} · ${calculation.provenance === 'snapshot' ? 'saved window' : 'right now'}` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'no source-backed power';
   return (
-    <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Activity size={14} className="text-slate-400" />
-          <h3 className="text-sm font-bold text-slate-200">Power Trend</h3>
+    <div className="scada-chart-surface bg-[#090B13] border border-[#1E293B] rounded-xl p-6 flex flex-col h-full relative overflow-hidden group">
+      <div className="flex items-center justify-between mb-6 border-b border-[#1E293B] pb-4 relative z-10">
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400">
+            <Activity size={16} />
+          </div>
+          <h3 className="text-sm font-bold tracking-wide text-slate-200 uppercase">Power Trend</h3>
         </div>
-        <div role="tablist" aria-label="Power trend time range" className="flex items-center rounded border border-[#1e293b] bg-[#0f1423] p-0.5">
-          {(['today', 'week', 'month'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-power-range-${option}`} className={`rounded px-2 py-1 text-[10px] capitalize focus-ring ${range === option ? 'bg-[#1e293b] text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}>{option}</button>)}
+        <div role="tablist" aria-label="Power trend time range" className="flex items-center rounded-lg border border-[#1E293B] bg-[#0F1322] p-1 shadow-inner">
+          {(['today', 'week', 'month'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-power-range-${option}`} className={`rounded-md px-3 py-1 text-[11px] font-bold capitalize transition-all focus-ring ${range === option ? 'bg-[#FF5C00] text-white shadow-md' : 'text-slate-500 hover:text-slate-300 hover:bg-[#1E293B]'}`}>{option}</button>)}
         </div>
       </div>
-      <div className="mb-6">
-         <span className={`text-2xl font-bold tracking-tight ${mode === 'demo' || hasVerifiedValue || hasRawValue ? 'text-slate-100' : 'text-slate-500'}`}>{displayValue}</span> <span className="text-[11px] text-slate-500">{displayUnit}</span>
+      <div className="mb-8 relative z-10">
+         <span className={`text-4xl font-bold tracking-tighter mono ${mode === 'demo' || hasVerifiedValue || hasRawValue ? 'text-slate-100' : 'text-slate-500'}`}>{displayValue}</span> <span className="text-[12px] font-bold text-slate-500 uppercase tracking-widest ml-2">{displayUnit}</span>
       </div>
-      <div className="flex-1 min-h-[140px]">
+      <div className="flex-1 min-h-[160px] relative z-10">
         {data.length ? <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={powerTrendByRange[range]} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+          <AreaChart data={powerTrendByRange[range]} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="colorPower" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25}/>
-                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                <stop offset="0%" stopColor="#FF5C00" stopOpacity={0.4}/>
+                <stop offset="100%" stopColor="#FF5C00" stopOpacity={0}/>
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--scada-border)" vertical={false} opacity={0.5} />
             <XAxis dataKey="time" hide />
-            <Tooltip cursor={{ stroke: '#64748b', strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`, 'Plant power']} labelFormatter={(label) => `${range === 'today' ? 'Time' : 'Period'}: ${label}`} />
-            <Area type="monotone" dataKey="power" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#colorPower)" activeDot={{ r: 4, stroke: '#f8fafc', strokeWidth: 2 }} isAnimationActive={false} />
+            <Tooltip cursor={{ stroke: '#FF5C00', strokeDasharray: '3 3', strokeWidth: 1.5 }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`, 'Plant power']} labelFormatter={(label) => `${range === 'today' ? 'Time' : 'Period'}: ${label}`} />
+            <Area type="monotone" dataKey="power" stroke="#FF5C00" strokeWidth={3} fillOpacity={1} fill="url(#colorPower)" activeDot={{ r: 6, stroke: '#090B13', strokeWidth: 3, fill: '#FF5C00' }} isAnimationActive={false} />
          </AreaChart>
-         </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1e293b] text-center text-xs text-slate-500">{hasRawValue ? <>Current source value is shown above<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></> : <>Data unavailable<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></>}</div>}
+         </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">{hasRawValue ? <>Current source value is shown above<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></> : <>Data unavailable<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></>}</div>}
       </div>
-      <div className="flex justify-between text-[9px] text-slate-500 mt-2 font-mono">
+      <div className="flex justify-between text-[10px] font-bold text-slate-500 mt-4 mono tracking-widest relative z-10">
         <span>00:00</span>
         <span>06:00</span>
         <span>12:00</span>
-        <span className="text-orange-500 font-bold">Now</span>
+        <span className="text-[#FF5C00]">NOW</span>
         <span>24:00</span>
       </div>
     </div>
@@ -1672,52 +1644,55 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
 }
 
 function PowerDistributionChart({ inverters, rawInverters = [], mode, savedLabel }: { inverters: Device[]; rawInverters?: RawTelemetryMetric[]; mode: 'demo' | 'live'; savedLabel?: string }) {
-  const isRawSource = mode === 'live';
-  const poweredInverters = isRawSource
-    ? rawInverters.map((inverter) => ({ name: inverter.parameter.toUpperCase(), power: inverter.value })).filter((inverter) => inverter.power > 0)
-    : inverters.filter((inverter) => inverter.status === 'online').map((inverter) => ({
+  const poweredInverters = mode === 'demo'
+    ? inverters.filter((inverter) => inverter.status === 'online').map((inverter) => ({
       name: inverter.name.replace('Inverter ', 'INV'),
       power: numberFrom(inverter, ['power', 'active_kw'], 0),
-    })).filter((inverter) => inverter.power > 0);
+    })).filter((inverter) => inverter.power > 0)
+    : [];
   const totalPower = poweredInverters.reduce((sum, inverter) => sum + inverter.power, 0);
   const distributionData = totalPower > 0 ? poweredInverters.map((inverter) => ({ name: inverter.name, value: inverter.power / totalPower * 100, rawPower: inverter.power })) : [];
   return (
-    <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
-      <div className="flex items-center gap-2 mb-6">
-        <Activity size={14} className="text-slate-400" />
-        <h3 className="text-sm font-bold text-slate-200">Power Distribution</h3>
+    <div className="scada-chart-surface bg-[#090B13] border border-[#1E293B] rounded-xl p-6 flex flex-col h-full relative overflow-hidden group">
+      <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+      <div className="flex items-center gap-3 mb-6 border-b border-[#1E293B] pb-4 relative z-10">
+        <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+          <Activity size={16} />
+        </div>
+        <h3 className="text-sm font-bold tracking-wide text-slate-200 uppercase">Power Distribution</h3>
       </div>
       
-      <div className="flex-1 flex flex-col items-center relative">
-        <div className="h-[120px] w-full relative flex justify-center mt-2">
+      <div className="flex-1 flex flex-col md:flex-row items-center gap-8 relative z-10">
+        <div className="h-[200px] w-[200px] relative flex justify-center shrink-0">
           {distributionData.length ? <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={distributionData} innerRadius={42} outerRadius={55} paddingAngle={2} dataKey="value" stroke="none">
+              <Pie data={distributionData} innerRadius={70} outerRadius={95} paddingAngle={4} dataKey="value" stroke="none" cornerRadius={6}>
                 {distributionData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${value}%`, 'Share of plant power']} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toFixed(1)}%`, 'Share of plant power']} />
             </PieChart>
-          </ResponsiveContainer> : <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-[#1e293b] px-3 text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">No online inverter power is reported.</span></div>}
+          </ResponsiveContainer> : <div className="flex h-full w-full items-center justify-center rounded-full border-2 border-dashed border-[#1E293B] px-5 text-center text-xs leading-5 text-slate-500">{mode === 'demo' ? 'No demo inverter output' : 'Validated inverter contribution unavailable'}</div>}
           {distributionData.length > 0 && <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-             <span className="text-sm font-bold text-slate-100">{isRawSource ? totalPower.toLocaleString(undefined, { maximumFractionDigits: 2 }) : (totalPower / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-             <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mt-0.5">{isRawSource ? `Raw total${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'MW Total'}</span>
+              <span className="text-3xl font-bold text-slate-100 mono tracking-tighter">{(totalPower / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+              <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-1">MW Total</span>
           </div>}
         </div>
         
-        <div className="w-full mt-6 space-y-2">
+        <div className="flex-1 space-y-3 min-w-0 w-full max-h-[180px] overflow-y-auto scrollbar-thin pr-2">
           {distributionData.length ? distributionData.map((entry, i) => (
-            <div key={entry.name} className="flex items-center justify-between text-[10px]">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                <span className="text-slate-400 font-medium">{entry.name}</span>
+            <div key={entry.name} className="flex items-center justify-between text-[12px] group/item">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-2 h-2 rounded-full shrink-0 shadow-[0_0_8px_currentColor]" style={{ backgroundColor: COLORS[i], color: COLORS[i] }} />
+                <span className="text-slate-400 font-semibold truncate group-hover/item:text-slate-200 transition-colors tracking-wide">{entry.name}</span>
               </div>
-               <span className="text-slate-300 font-bold">{isRawSource ? `${entry.rawPower === undefined ? '—' : entry.rawPower.toLocaleString(undefined, { maximumFractionDigits: 2 })} raw` : `${entry.value.toFixed(1)}%`}</span>
+               <span className="text-slate-300 font-bold mono shrink-0">{entry.value.toFixed(1)}%</span>
             </div>
-           )) : <p className="text-center text-[10px] text-slate-500">{mode === 'demo' ? 'Demo inverter power will appear here.' : 'No saved inverter registers are available.'}</p>}
+            )) : <p className="text-[11px] leading-5 text-slate-500">{mode === 'demo' ? 'Demo inverter power will appear here.' : `Inverter contribution will appear after validated inverter mapping, active-power semantics, and engineering units are supplied. ${rawInverters.length ? `${rawInverters.length} raw inverter tag${rawInverters.length === 1 ? '' : 's'} remain available in source evidence.` : 'No inverter tags are currently available.'}`}</p>}
         </div>
       </div>
+      {savedLabel && <div className="mt-4 pt-4 border-t border-[#1E293B]/50 text-[10px] text-slate-500 font-bold tracking-widest text-right">LAST SAVED: {savedLabel}</div>}
     </div>
   );
 }
@@ -1736,13 +1711,13 @@ function windDirection(value: number | null | undefined) {
 
 function EnvironmentMetric({ icon: Icon, label, value, tone, detail }: { icon: typeof Thermometer; label: string; value: string; tone: string; detail: string }) {
   return (
-    <div className="scada-interactive-card min-w-0 rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" title={detail}>
-      <div className="mb-2 flex items-center gap-2">
-        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#1e293b]/60 ${tone}`}><Icon size={14} /></span>
-        <span className="break-words text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+    <div className="scada-interactive-card min-w-0 rounded-xl border border-[#1E293B] bg-[#090B13] p-4 flex flex-col justify-between" title={detail}>
+      <div className="mb-4 flex items-center gap-3">
+        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border bg-opacity-10 ${tone.includes('rose') ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' : tone.includes('amber') ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : tone.includes('blue') ? 'bg-blue-500/10 border-blue-500/20 text-blue-500' : tone.includes('emerald') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-[#1E293B]/60 text-slate-400'}`}><Icon size={16} /></span>
+        <span className="break-words text-[11px] font-bold uppercase tracking-widest text-slate-400">{label}</span>
       </div>
-      <p className={`break-words text-sm font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'text-slate-100'}`} title={value}>{value}</p>
-      <p className="mt-1 break-words text-[9px] text-slate-600">{detail}</p>
+      <p className={`break-words text-2xl font-bold mono tracking-tighter ${value === 'Data unavailable' ? 'text-slate-500 text-sm' : 'text-slate-100'}`} title={value}>{value}</p>
+      <p className="mt-2 pt-2 border-t border-[#1E293B]/50 break-words text-[10px] text-slate-500 font-bold uppercase tracking-widest">{detail}</p>
     </div>
   );
 }
@@ -1782,8 +1757,8 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
     : 'Not available';
 
   return (
-    <section id="environment" data-section="environment" className="scada-interactive-card scroll-mt-6 overflow-hidden rounded-xl border border-[#1e293b] bg-[#111827]">
-      <div className="border-b border-[#1e293b] bg-gradient-to-r from-orange-500/[0.08] via-transparent to-blue-500/[0.06] p-4 sm:p-5">
+    <section id="environment" data-section="environment" className="scada-interactive-card scroll-mt-6 overflow-hidden rounded-xl border border-[#1E293B] bg-[#090B13]">
+      <div className="border-b border-[#1E293B] bg-gradient-to-r from-orange-500/[0.08] via-transparent to-blue-500/[0.06] p-4 sm:p-5">
         <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -1792,17 +1767,17 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
               <span data-testid="status-weather" className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${weather.status === 'ready' ? 'bg-emerald-500/10 text-emerald-400' : weather.status === 'stale' ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-500/10 text-amber-400'}`}><span className={`h-1.5 w-1.5 rounded-full ${weather.status === 'ready' ? 'bg-emerald-400 pulse-soft' : 'bg-amber-400'}`} />{weather.status === 'ready' ? 'Live weather' : weather.status === 'stale' ? 'Stale data' : isLoading ? 'Refreshing' : 'Data unavailable'}</span>
             </div>
               <div className="mt-3 flex flex-col items-start gap-2 text-xs text-slate-400 sm:flex-row sm:items-center">
-               <label className="flex w-full min-w-0 items-center gap-2 sm:w-auto"><MapPin size={13} className="shrink-0 text-orange-400" /><span className="shrink-0 font-semibold text-slate-500">Plant/site</span><select value={siteName} onChange={(event) => onSiteChange(event.target.value)} data-testid="select-environment-site" className="min-w-0 flex-1 rounded-md border border-[#1e293b] bg-[#0b0f19] px-2 py-1.5 text-xs font-semibold text-slate-200 focus-ring sm:w-[210px] sm:flex-none">{siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
+               <label className="flex w-full min-w-0 items-center gap-2 sm:w-auto"><MapPin size={13} className="shrink-0 text-orange-400" /><span className="shrink-0 font-semibold text-slate-500">Plant/site</span><select value={siteName} onChange={(event) => onSiteChange(event.target.value)} data-testid="select-environment-site" className="min-w-0 flex-1 rounded-md border border-[#1E293B] bg-[#0b0f19] px-2 py-1.5 text-xs font-semibold text-slate-200 focus-ring sm:w-[210px] sm:flex-none">{siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
                <span className="hidden h-4 w-px bg-[#1e293b] sm:block" />
                   <span className="max-w-full break-words" title={locationLabel}><LocateFixed size={13} className="mr-1 inline text-slate-500" />{locationLabel}</span>
             </div>
           </div>
            <div className="grid w-full min-w-0 grid-cols-1 gap-2 text-[10px] min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:w-auto">
-              <span data-testid="weather-location-source" className="min-w-0 break-words rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Configured site/device weather provenance: ${sourceLabel}`}>Location source: {sourceLabel}</span>
-             <span className="min-w-0 break-words rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Weather provider observation timestamp: ${observationAt}`}>Observed: {observationAt}</span>
-              <span data-testid="weather-location-updated" className="min-w-0 break-words rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title="Last time the configured plant coordinates were saved">Location updated: {locationUpdatedAt}</span>
-             <span className={`min-w-0 break-words rounded-lg border border-[#1e293b] px-2.5 py-1.5 ${weather.data?.freshness.cacheStatus === 'cached' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`} title="Data freshness state">{freshnessLabel}</span>
-            <button type="button" onClick={onRefresh} data-testid="button-refresh-weather" title="Refresh weather for the selected configured site" className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#1e293b] px-2.5 py-1.5 font-semibold text-slate-300 hover:bg-[#1e293b] focus-ring"><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} /> Refresh</button>
+              <span data-testid="weather-location-source" className="min-w-0 break-words rounded-lg border border-[#1E293B] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Configured site/device weather provenance: ${sourceLabel}`}>Location source: {sourceLabel}</span>
+             <span className="min-w-0 break-words rounded-lg border border-[#1E293B] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Weather provider observation timestamp: ${observationAt}`}>Observed: {observationAt}</span>
+              <span data-testid="weather-location-updated" className="min-w-0 break-words rounded-lg border border-[#1E293B] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title="Last time the configured plant coordinates were saved">Location updated: {locationUpdatedAt}</span>
+             <span className={`min-w-0 break-words rounded-lg border border-[#1E293B] px-2.5 py-1.5 ${weather.data?.freshness.cacheStatus === 'cached' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`} title="Data freshness state">{freshnessLabel}</span>
+            <button type="button" onClick={onRefresh} data-testid="button-refresh-weather" title="Refresh weather for the selected configured site" className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] px-2.5 py-1.5 font-semibold text-slate-300 hover:bg-[#1e293b] focus-ring"><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} /> Refresh</button>
           </div>
         </div>
       </div>
@@ -1810,30 +1785,30 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
 
       <div className="grid gap-4 p-4 sm:p-5 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="grid gap-3 sm:grid-cols-2">
-             <div className="rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4 sm:col-span-2">
+             <div className="rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4 sm:col-span-2">
                <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Configured coordinate identity</p><p className="mt-1 text-base font-bold text-slate-100">{locationLabel}</p><p className="mt-1 text-xs text-slate-400">Plant/site: {siteName} · Coordinate source: {configuredCoordinates?.source ?? 'Location data unavailable'}</p><p className="mt-1 text-[10px] text-slate-500">Last updated: {locationUpdatedAt}</p></div><MapPin size={18} className="text-orange-400" /></div>
             <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
-              <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Latitude</span><span data-testid="weather-location-latitude" className="mt-1 block font-mono font-semibold text-slate-200">{coordinateLatitude === undefined ? 'Location data unavailable' : coordinateLatitude.toFixed(6)}</span></div>
-              <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Longitude</span><span data-testid="weather-location-longitude" className="mt-1 block font-mono font-semibold text-slate-200">{coordinateLongitude === undefined ? 'Location data unavailable' : coordinateLongitude.toFixed(6)}</span></div>
-              <div className="rounded-lg bg-[#111827] p-2.5 sm:col-span-2"><span className="block text-[9px] uppercase tracking-wider text-slate-500">City / District / State / Country</span><span data-testid="weather-location-address" className="mt-1 block font-semibold text-slate-200">{addressSummary}</span></div>
-              <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Weather timezone</span><span data-testid="weather-location-timezone" className="mt-1 block font-mono font-semibold text-slate-200">{timezoneLabel}</span></div>
-              <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Timezone UTC offset</span><span data-testid="weather-location-offset" className="mt-1 block font-mono font-semibold text-slate-200">{utcOffsetLabel}</span></div>
-              <div className="rounded-lg bg-[#111827] p-2.5 sm:col-span-2"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Current local date &amp; time</span><span data-testid="weather-location-local-time" className="mt-1 block font-mono font-semibold text-slate-200">{localDateTime}</span></div>
+              <div className="rounded-lg bg-[#090B13] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Latitude</span><span data-testid="weather-location-latitude" className="mt-1 block font-mono font-semibold text-slate-200">{coordinateLatitude === undefined ? 'Location data unavailable' : coordinateLatitude.toFixed(6)}</span></div>
+              <div className="rounded-lg bg-[#090B13] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Longitude</span><span data-testid="weather-location-longitude" className="mt-1 block font-mono font-semibold text-slate-200">{coordinateLongitude === undefined ? 'Location data unavailable' : coordinateLongitude.toFixed(6)}</span></div>
+              <div className="rounded-lg bg-[#090B13] p-2.5 sm:col-span-2"><span className="block text-[9px] uppercase tracking-wider text-slate-500">City / District / State / Country</span><span data-testid="weather-location-address" className="mt-1 block font-semibold text-slate-200">{addressSummary}</span></div>
+              <div className="rounded-lg bg-[#090B13] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Weather timezone</span><span data-testid="weather-location-timezone" className="mt-1 block font-mono font-semibold text-slate-200">{timezoneLabel}</span></div>
+              <div className="rounded-lg bg-[#090B13] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Timezone UTC offset</span><span data-testid="weather-location-offset" className="mt-1 block font-mono font-semibold text-slate-200">{utcOffsetLabel}</span></div>
+              <div className="rounded-lg bg-[#090B13] p-2.5 sm:col-span-2"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Current local date &amp; time</span><span data-testid="weather-location-local-time" className="mt-1 block font-mono font-semibold text-slate-200">{localDateTime}</span></div>
             </div>
               <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-500/15 bg-blue-500/5 px-3 py-2 text-[10px] text-blue-200/80"><LocateFixed size={13} className="text-blue-400" /> Weather, address, timezone, and environmental analytics use only these configured coordinates.</div>
           </div>
-          <div className="rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live condition</p><p className="mt-2 text-lg font-bold text-slate-100">{current?.weatherCondition ?? 'Data unavailable'}</p></div><span className="grid h-11 w-11 place-items-center rounded-full border border-orange-500/20 bg-orange-500/10 text-orange-300"><WeatherIcon size={24} /></span></div><p className="mt-3 text-[10px] text-slate-500">{metricDetail('Weather condition')}</p></div>
-          <div className="rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Wind compass</p><p className="mt-2 text-lg font-bold text-slate-100">{weatherMetricValue(current?.windSpeedMs, 'm/s')}</p></div><div className="relative grid h-12 w-12 place-items-center rounded-full border border-[#334155] bg-[#111827] text-[8px] text-slate-500"><span className="absolute top-1">N</span><span className="absolute bottom-1">S</span><span className="absolute left-1">W</span><span className="absolute right-1">E</span><span className="h-0.5 w-7 origin-center bg-blue-400" style={{ transform: `rotate(${windDegrees ?? 0}deg)` }} /><span className="absolute h-2 w-2 rounded-full bg-blue-400" /></div></div><p className="mt-3 text-[10px] text-slate-500">{windDirection(windDegrees) ?? 'Direction unavailable'} · {metricDetail('Wind')}</p></div>
+          <div className="rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live condition</p><p className="mt-2 text-lg font-bold text-slate-100">{current?.weatherCondition ?? 'Data unavailable'}</p></div><span className="grid h-11 w-11 place-items-center rounded-full border border-orange-500/20 bg-orange-500/10 text-orange-300"><WeatherIcon size={24} /></span></div><p className="mt-3 text-[10px] text-slate-500">{metricDetail('Weather condition')}</p></div>
+          <div className="rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Wind compass</p><p className="mt-2 text-lg font-bold text-slate-100">{weatherMetricValue(current?.windSpeedMs, 'm/s')}</p></div><div className="relative grid h-12 w-12 place-items-center rounded-full border border-[#334155] bg-[#090B13] text-[8px] text-slate-500"><span className="absolute top-1">N</span><span className="absolute bottom-1">S</span><span className="absolute left-1">W</span><span className="absolute right-1">E</span><span className="h-0.5 w-7 origin-center bg-blue-400" style={{ transform: `rotate(${windDegrees ?? 0}deg)` }} /><span className="absolute h-2 w-2 rounded-full bg-blue-400" /></div></div><p className="mt-3 text-[10px] text-slate-500">{windDirection(windDegrees) ?? 'Direction unavailable'} · {metricDetail('Wind')}</p></div>
         </div>
 
-        <div className="rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4">
+        <div className="rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4">
           <div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Temperature trend</p><p className="mt-1 text-xs text-slate-400">Provider observations in {weather.data?.location.timezone ?? 'site timezone'}</p></div><Thermometer size={17} className="text-rose-400" /></div>
-          {temperatureTrend.length > 1 ? <div className="mt-3 h-40"><ResponsiveContainer width="100%" height="100%"><AreaChart data={temperatureTrend} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}><defs><linearGradient id="environmentTemperature" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#fb7185" stopOpacity={0.28} /><stop offset="95%" stopColor="#fb7185" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => String(value).slice(11, 16)} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => `${value}°`} width={32} /><Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toFixed(1)} °C`, 'Temperature']} /><Area type="monotone" dataKey="temperatureC" stroke="#fb7185" strokeWidth={2} fill="url(#environmentTemperature)" isAnimationActive={false} /></AreaChart></ResponsiveContainer></div> : <div className="mt-3 flex h-40 items-center justify-center rounded-lg border border-dashed border-[#1e293b] text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">No provider temperature trend returned.</span></div>}
+          {temperatureTrend.length > 1 ? <div className="mt-3 h-40"><ResponsiveContainer width="100%" height="100%"><AreaChart data={temperatureTrend} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}><defs><linearGradient id="environmentTemperature" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#fb7185" stopOpacity={0.28} /><stop offset="95%" stopColor="#fb7185" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => String(value).slice(11, 16)} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => `${value}°`} width={32} /><Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toFixed(1)} °C`, 'Temperature']} /><Area type="monotone" dataKey="temperatureC" stroke="#fb7185" strokeWidth={2} fill="url(#environmentTemperature)" isAnimationActive={false} /></AreaChart></ResponsiveContainer></div> : <div className="mt-3 flex h-40 items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">No provider temperature trend returned.</span></div>}
           <p className="mt-2 text-[10px] text-slate-500">{metricDetail('Temperature trend')} · Last updated {receivedAt}</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 border-t border-[#1e293b] p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 border-t border-[#1E293B] p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
         <EnvironmentMetric icon={Thermometer} label="Temperature" value={weatherMetricValue(current?.temperatureC, '°C')} tone="text-rose-400" detail={metricDetail('Temperature')} />
         <EnvironmentMetric icon={Wind} label="Wind speed" value={weatherMetricValue(current?.windSpeedMs, 'm/s')} tone="text-blue-400" detail={metricDetail('Wind speed')} />
         <EnvironmentMetric icon={LocateFixed} label="Wind direction" value={windDirection(current?.windDirectionDeg) ?? 'Data unavailable'} tone="text-indigo-400" detail={metricDetail('Wind direction')} />
@@ -1843,8 +1818,8 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
         <EnvironmentMetric icon={CloudRain} label="Precipitation" value={weatherMetricValue(current?.precipitationMm, 'mm')} tone="text-sky-400" detail={metricDetail('Precipitation')} />
         <EnvironmentMetric icon={MapPin} label="Weather timezone" value={timezoneLabel} tone="text-emerald-400" detail={metricDetail('Weather timezone')} />
       </div>
-      {current && <div className="grid gap-3 border-t border-[#1e293b] bg-[#0f1423] p-4 sm:grid-cols-3 sm:p-5"><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Humidity indicator</span><span className="font-mono text-slate-300">{weatherMetricValue(current.humidityPct, '%', 0)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-cyan-400" style={{ width: `${percentWidth(current.humidityPct)}%` }} /></div></div><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Cloud cover</span><span className="font-mono text-slate-300">{weatherMetricValue(current.cloudCoverPct, '%', 0)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-slate-400" style={{ width: `${percentWidth(current.cloudCoverPct)}%` }} /></div></div><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Precipitation</span><span className="font-mono text-slate-300">{weatherMetricValue(current.precipitationMm, 'mm')}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-sky-400" style={{ width: `${percentWidth(current.precipitationMm === null ? null : Math.min(100, current.precipitationMm * 10))}%` }} /></div></div></div>}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#1e293b] px-4 py-3 text-[10px] text-slate-500 sm:px-5"><span>Weather data source: <strong className="font-semibold text-slate-300">{weather.data?.source ?? 'Data unavailable'}</strong></span><span>Last updated: <strong className="font-semibold text-slate-300">{receivedAt}</strong></span><span>Site: <strong className="font-semibold text-slate-300">{siteName}</strong></span></div>
+      {current && <div className="grid gap-3 border-t border-[#1E293B] bg-[#0f1423] p-4 sm:grid-cols-3 sm:p-5"><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Humidity indicator</span><span className="font-mono text-slate-300">{weatherMetricValue(current.humidityPct, '%', 0)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-cyan-400" style={{ width: `${percentWidth(current.humidityPct)}%` }} /></div></div><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Cloud cover</span><span className="font-mono text-slate-300">{weatherMetricValue(current.cloudCoverPct, '%', 0)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-slate-400" style={{ width: `${percentWidth(current.cloudCoverPct)}%` }} /></div></div><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Precipitation</span><span className="font-mono text-slate-300">{weatherMetricValue(current.precipitationMm, 'mm')}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-sky-400" style={{ width: `${percentWidth(current.precipitationMm === null ? null : Math.min(100, current.precipitationMm * 10))}%` }} /></div></div></div>}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#1E293B] px-4 py-3 text-[10px] text-slate-500 sm:px-5"><span>Weather data source: <strong className="font-semibold text-slate-300">{weather.data?.source ?? 'Data unavailable'}</strong></span><span>Last updated: <strong className="font-semibold text-slate-300">{receivedAt}</strong></span><span>Site: <strong className="font-semibold text-slate-300">{siteName}</strong></span></div>
     </section>
   );
 }
@@ -1871,7 +1846,7 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel }: { 
   const qualityPercent = hasUsableEvidence && qualityObserved ? Math.round((qualityCounts.good / qualityObserved) * 100) : null;
   return (
     <div className="flex flex-col gap-4 h-full">
-      <div className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex-1">
+      <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-4 flex-1">
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle size={14} className="text-slate-400" />
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Alarms & Faults</h3>
@@ -1897,7 +1872,7 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel }: { 
         </div>
       </div>
       
-      <div className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex-1">
+      <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-4 flex-1">
         <div className="flex items-center gap-2 mb-3">
           <Check size={14} className="text-slate-400" />
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Data Quality</h3>
@@ -2029,8 +2004,8 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   const sortButton = (key: TelemetrySortKey, label: string) => <button type="button" onClick={() => handleSort(key)} aria-label={`Sort by ${label}; currently ${key === sortKey ? sortLabel : 'not sorted'}`} aria-sort={key === sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} data-testid={`button-sort-${key}`} className="inline-flex items-center gap-1 rounded px-1 py-1 text-left hover:bg-[#1e293b]/60 hover:text-slate-300 focus-ring">{label}<span aria-hidden="true" className={key === sortKey ? 'text-blue-400' : 'text-slate-600'}>{key === sortKey ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span></button>;
   
   return (
-    <section id="live-data" data-section="live-data" className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden flex flex-col mt-6">
-      <div className="flex flex-col justify-between gap-4 border-b border-[#1e293b] p-5 sm:flex-row sm:items-start">
+    <section id="live-data" data-section="live-data" className="bg-[#090B13] border border-[#1E293B] rounded-xl overflow-hidden flex flex-col mt-6">
+      <div className="flex flex-col justify-between gap-4 border-b border-[#1E293B] p-5 sm:flex-row sm:items-start">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Database size={16} className="text-slate-400" />
@@ -2047,36 +2022,36 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
           <button type="button" onClick={exportPdf} data-testid="button-export-pdf" title="Open a detailed filtered telemetry report ready to save as PDF" className="inline-flex items-center gap-1.5 rounded border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 focus-ring"><FileText size={13} /> PDF</button>
         </div>
       </div>
-      <div data-testid="status-historical-persistence" className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[#1e293b] bg-[#0b0f19] px-5 py-2 text-[10px] text-slate-500">
+      <div data-testid="status-historical-persistence" className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[#1E293B] bg-[#0b0f19] px-5 py-2 text-[10px] text-slate-500">
         <span><strong className="font-semibold text-slate-300">Saved historical data:</strong> {scheduleLabel}</span>
         <span><strong className="font-semibold text-slate-300">Next window:</strong> {formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}</span>
         <span><strong className="font-semibold text-slate-300">Last record:</strong> {lastSnapshotLabel}</span>
       </div>
-       <div className="flex flex-col items-stretch gap-2 border-b border-[#1e293b] bg-[#0f1423] p-4 sm:flex-row sm:flex-wrap sm:items-center">
+       <div className="flex flex-col items-stretch gap-2 border-b border-[#1E293B] bg-[#0f1423] p-4 sm:flex-row sm:flex-wrap sm:items-center">
          <label className="relative w-full min-w-0 flex-1 sm:min-w-[220px] sm:flex-none">
           <span className="sr-only">Search live Modbus data</span>
           <Search size={14} aria-hidden="true" className="absolute left-3 top-2.5 text-slate-500" />
-          <input value={filter} onChange={(event) => setFilter(event.target.value)} data-testid="input-filter-live-data" placeholder="Search parameter, address, source, date..." className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] py-2 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-500 focus-ring" />
+          <input value={filter} onChange={(event) => setFilter(event.target.value)} data-testid="input-filter-live-data" placeholder="Search parameter, address, source, date..." className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] py-2 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-500 focus-ring" />
         </label>
         <label>
           <span className="sr-only">Filter by telemetry category</span>
-           <select value={filterCategory} onChange={(event) => setFilterCategory(event.target.value)} data-testid="select-filter-category" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-2 text-xs text-slate-300 focus-ring sm:w-auto">
+           <select value={filterCategory} onChange={(event) => setFilterCategory(event.target.value)} data-testid="select-filter-category" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-2 text-xs text-slate-300 focus-ring sm:w-auto">
             {categories.map((category) => <option key={category}>{category}</option>)}
           </select>
         </label>
         <label>
           <span className="sr-only">Filter by telemetry source</span>
-           <select value={filterSource} onChange={(event) => setFilterSource(event.target.value)} data-testid="select-filter-source" className="w-full max-w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-2 text-xs text-slate-300 focus-ring sm:w-auto sm:max-w-[180px]">
+           <select value={filterSource} onChange={(event) => setFilterSource(event.target.value)} data-testid="select-filter-source" className="w-full max-w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-2 text-xs text-slate-300 focus-ring sm:w-auto sm:max-w-[180px]">
             {sources.map((source) => <option key={source}>{source}</option>)}
           </select>
         </label>
         {(filter || filterCategory !== 'All categories' || filterSource !== 'All sources') && <button type="button" onClick={resetFilters} data-testid="button-clear-live-filters" className="rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring">Clear filters</button>}
          <span role="status" data-testid="text-live-data-count" className="text-xs text-slate-400 sm:ml-auto">{sortedRows.length} of {rows.length} parameters</span>
       </div>
-      {exportMessage && <div role="status" data-testid="status-export-message" className="border-b border-[#1e293b] bg-blue-500/5 px-5 py-2.5 text-xs text-blue-300">{exportMessage}</div>}
+      {exportMessage && <div role="status" data-testid="status-export-message" className="border-b border-[#1E293B] bg-blue-500/5 px-5 py-2.5 text-xs text-blue-300">{exportMessage}</div>}
       
        <div className="max-w-full overflow-x-auto scrollbar-thin" data-scroll-region="live-telemetry-table">
-         <div className="border-b border-[#1e293b] bg-[#0f1423] px-4 py-2 text-[10px] text-slate-500 sm:hidden">Swipe horizontally to inspect every telemetry field. No source columns are removed.</div>
+         <div className="border-b border-[#1E293B] bg-[#0f1423] px-4 py-2 text-[10px] text-slate-500 sm:hidden">Swipe horizontally to inspect every telemetry field. No source columns are removed.</div>
          <table className="w-full min-w-[1260px] text-left whitespace-nowrap">
           <thead className="bg-[#0b0f19]">
             <tr>
@@ -2128,8 +2103,8 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }
   const sourceLabel = source === 'replay' ? 'Initial replay evidence' : source === 'recovered' ? 'Recovered delivery evidence' : source === 'demo' ? 'Demo payload' : source === 'live' ? 'Live payload' : 'Awaiting payload';
   const sourceTone = source === 'live' || source === 'recovered' ? 'success' : source === 'demo' || source === 'replay' ? 'warning' : 'neutral';
   return (
-    <section id="raw-data" data-section="raw-data" className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden mt-6">
-      <div className="flex flex-col justify-between gap-3 border-b border-[#1e293b] p-5 sm:flex-row sm:items-center">
+    <section id="raw-data" data-section="raw-data" className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl overflow-hidden mt-6">
+      <div className="flex flex-col justify-between gap-3 border-b border-[#1E293B] p-5 sm:flex-row sm:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-3 mb-1">
              <Code2 size={16} className="text-slate-400" />
@@ -2145,7 +2120,7 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }
       <div className="grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-[#1e293b]">
         <div className="p-5 flex flex-col max-h-[400px]">
           <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-3">Exact JSON Message</p>
-          <div className="flex-1 overflow-auto bg-[#0b0f19] rounded-lg border border-[#1e293b] p-3 scrollbar-thin">
+          <div className="flex-1 overflow-auto bg-[#0b0f19] rounded-lg border border-[#1E293B] p-3 scrollbar-thin">
              <pre className="text-[11px] text-slate-300 font-mono whitespace-pre-wrap break-all leading-relaxed">{rawPayload}</pre>
           </div>
         </div>
@@ -2154,9 +2129,9 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }
              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Discovered Fields</p>
              <span className="text-[9px] font-medium text-slate-400 bg-[#1e293b] px-2 py-0.5 rounded">{rows.length} fields</span>
           </div>
-          <div className="flex-1 overflow-auto border border-[#1e293b] rounded-lg scrollbar-thin">
+          <div className="flex-1 overflow-auto border border-[#1E293B] rounded-lg scrollbar-thin">
              <table className="w-full text-left">
-               <thead className="bg-[#0b0f19] sticky top-0 border-b border-[#1e293b]">
+               <thead className="bg-[#0b0f19] sticky top-0 border-b border-[#1E293B]">
                  <tr>
                    <th className="px-3 py-2 text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Path</th>
                    <th className="px-3 py-2 text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Value</th>
@@ -2267,8 +2242,8 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   return (
     <>
       <button type="button" aria-label="Close broker settings" onClick={onClose} className="fixed inset-0 z-40 bg-[#0b0f19]/80 backdrop-blur-sm cursor-default" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="scada-safe-drawer fixed right-0 top-0 z-50 flex h-[100dvh] min-h-0 w-full max-w-[min(400px,100vw)] flex-col border-l border-[#1e293b] bg-[#111827] shadow-2xl">
-        <div className="scada-safe-drawer-header flex items-center justify-between border-b border-[#1e293b] px-4 py-5 sm:px-6">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="scada-safe-drawer fixed right-0 top-0 z-50 flex h-[100dvh] min-h-0 w-full max-w-[min(400px,100vw)] flex-col border-l border-[#1E293B] bg-[#090B13] shadow-2xl">
+        <div className="scada-safe-drawer-header flex items-center justify-between border-b border-[#1E293B] px-4 py-5 sm:px-6">
           <div>
             <h2 id="telemetry-settings-title" className="text-lg font-bold text-slate-100 tracking-tight">Settings</h2>
             <p className="text-xs text-slate-400 mt-1">Configure telemetry connection</p>
@@ -2279,7 +2254,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
         </div>
         
         <div className="scada-safe-drawer-content min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-6 scrollbar-thin sm:px-6">
-          <div className="bg-[#0b0f19] border border-[#1e293b] p-1.5 rounded-lg flex gap-1">
+          <div className="bg-[#0b0f19] border border-[#1E293B] p-1.5 rounded-lg flex gap-1">
              <button type="button" onClick={() => setMode('demo')} data-testid="button-mode-demo" className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors focus-ring ${mode === 'demo' ? 'bg-[#1e293b] text-blue-400' : 'text-slate-400 hover:text-slate-200'}`}><Play size={14} /> Demo Stream</button>
              <button type="button" onClick={() => setMode('live')} data-testid="button-mode-live" className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors focus-ring ${mode === 'live' ? 'bg-[#1e293b] text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}><Wifi size={14} /> Live Broker</button>
           </div>
@@ -2289,19 +2264,19 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                <span className="block text-xs font-bold text-slate-300 mb-2">Broker Endpoint</span>
                <div className="relative">
                  <Link2 size={15} className="absolute left-3 top-3.5 text-slate-500" />
-                  <input aria-label="Broker endpoint" data-testid="input-broker-endpoint" value={url} onChange={e => setUrl(e.target.value)} className="w-full bg-[#0b0f19] border border-[#1e293b] text-slate-200 text-xs py-3 pl-9 pr-3 rounded-lg focus:outline-none focus:border-blue-500 font-mono" />
+                  <input aria-label="Broker endpoint" data-testid="input-broker-endpoint" value={url} onChange={e => setUrl(e.target.value)} className="w-full bg-[#0b0f19] border border-[#1E293B] text-slate-200 text-xs py-3 pl-9 pr-3 rounded-lg focus:outline-none focus:border-blue-500 font-mono" />
                </div>
             </label>
             <label className="block">
                <span className="block text-xs font-bold text-slate-300 mb-2">Subscription Topic</span>
                <div className="relative">
                  <Radio size={15} className="absolute left-3 top-3.5 text-slate-500" />
-                  <input aria-label="Subscription topic" data-testid="input-broker-topic" value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-[#0b0f19] border border-[#1e293b] text-slate-200 text-xs py-3 pl-9 pr-3 rounded-lg focus:outline-none focus:border-blue-500 font-mono" />
+                  <input aria-label="Subscription topic" data-testid="input-broker-topic" value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-[#0b0f19] border border-[#1E293B] text-slate-200 text-xs py-3 pl-9 pr-3 rounded-lg focus:outline-none focus:border-blue-500 font-mono" />
                </div>
             </label>
           </div>
 
-           <div className="space-y-4 border-t border-[#1e293b] pt-5">
+           <div className="space-y-4 border-t border-[#1E293B] pt-5">
              <div>
                <div className="flex items-center justify-between gap-3">
                  <div>
@@ -2319,18 +2294,18 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                   </div>
                  <label className="block">
                    <span className="mb-2 block text-xs font-bold text-slate-300">Plant/site</span>
-                     <select value={locationSite} onChange={(event) => setLocationSite(event.target.value)} disabled={!locationAdmin} data-testid="select-plant-location-site" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60">
+                     <select value={locationSite} onChange={(event) => setLocationSite(event.target.value)} disabled={!locationAdmin} data-testid="select-plant-location-site" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60">
                       {locationSiteOptions.map((site) => <option key={site} value={site}>{site}</option>)}
                    </select>
                  </label>
                   <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                    <label className="block">
                      <span className="mb-2 block text-xs font-bold text-slate-300">Latitude</span>
-                      <input inputMode="decimal" aria-label="Plant latitude" data-testid="input-plant-latitude" value={locationLatitude} onChange={(event) => setLocationLatitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 19.0760" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+                      <input inputMode="decimal" aria-label="Plant latitude" data-testid="input-plant-latitude" value={locationLatitude} onChange={(event) => setLocationLatitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 19.0760" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
                    </label>
                    <label className="block">
                      <span className="mb-2 block text-xs font-bold text-slate-300">Longitude</span>
-                      <input inputMode="decimal" aria-label="Plant longitude" data-testid="input-plant-longitude" value={locationLongitude} onChange={(event) => setLocationLongitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 72.8777" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+                      <input inputMode="decimal" aria-label="Plant longitude" data-testid="input-plant-longitude" value={locationLongitude} onChange={(event) => setLocationLongitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 72.8777" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
                    </label>
                  </div>
                    <p className="text-[10px] leading-5 text-slate-500">Coordinates are range-validated before saving, then used to refresh the resolved place name, timezone, and weather data.</p>
@@ -2340,7 +2315,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                  {locationSaved && <p role="status" data-testid="status-plant-location-saved" className="text-xs text-emerald-400">{locationSaved}</p>}
                   {locationAdmin && <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>}
                </>
-              ) : <p className="rounded-lg border border-dashed border-[#1e293b] px-3 py-4 text-xs text-slate-500">A plant/site name is required before coordinates can be configured.</p>}
+              ) : <p className="rounded-lg border border-dashed border-[#1E293B] px-3 py-4 text-xs text-slate-500">A plant/site name is required before coordinates can be configured.</p>}
            </div>
           
           {error && (
@@ -2351,7 +2326,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
           )}
         </div>
         
-        <div className="scada-safe-drawer-footer border-t border-[#1e293b] bg-[#111827] p-4 sm:p-6">
+        <div className="scada-safe-drawer-footer border-t border-[#1E293B] bg-[#090B13] p-4 sm:p-6">
           {connected ? (
              <button type="button" onClick={onDisconnect} data-testid="button-disconnect-broker" className="w-full flex items-center justify-center gap-2 py-3 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 text-sm font-bold rounded-lg transition-colors focus-ring"><WifiOff size={16} /> Disconnect</button>
           ) : (
@@ -3025,7 +3000,7 @@ function AppShell() {
               <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] opacity-75">Dashboard data source</p><p className="mt-1 text-sm font-bold">{dashboardDataStatus.title}</p><p className="mt-1 text-[11px] leading-5 opacity-85">{dashboardDataStatus.detail}</p></div>
               {hasValidSavedSnapshot && <span className="shrink-0 rounded-md border border-current/20 bg-black/10 px-2.5 py-1.5 text-[10px] font-semibold">Last Saved: {lastSavedLabel}</span>}
             </section>}
-            <section data-testid="panel-live-communication" aria-label="Live communication health" className="mb-4 rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
+            <section data-testid="panel-live-communication" aria-label="Live communication health" className="mb-4 rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Live communication</p>
@@ -3034,39 +3009,39 @@ function AppShell() {
                 <CustomBadge tone={communicationTone(deviceCommunication)}>{communicationLabel(deviceCommunication)}</CustomBadge>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
-                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Broker transport</p>
                   <p className={`mt-1 text-xs font-bold ${communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}`}>{brokerTransportLabel}</p>
                 </div>
-                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Device communication</p>
                   <p className={`mt-1 text-xs font-bold ${deviceCommunication === 'live' ? 'text-emerald-400' : deviceCommunication === 'interrupted' ? 'text-rose-400' : 'text-amber-400'}`}>{communicationLabel(deviceCommunication)}</p>
                 </div>
-                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last received</p>
                   <p className="mt-1 text-xs font-bold text-slate-200">{formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}</p>
                 </div>
-                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Data frequency</p>
                   <p className="mt-1 text-xs font-bold text-slate-200">{communication?.dataFrequencySeconds === undefined ? 'Learning cadence' : communication.dataFrequencySeconds < 0.01 ? '<0.01s median' : `${communication.dataFrequencySeconds}s median`}</p>
                 </div>
-                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Data freshness</p>
                   <p className="mt-1 text-xs font-bold text-slate-200">{formatElapsed(communication?.freshnessAgeMs ?? telemetryAge ?? undefined)}</p>
                 </div>
-                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Source age</p>
                   <p className="mt-1 text-xs font-bold text-slate-200">{formatElapsed(communication?.sourceAgeMs)}</p>
                   <p className="mt-0.5 truncate text-[10px] text-slate-500" title={communication?.lastSourceTimestamp}>source clock</p>
                 </div>
-                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Received messages</p>
                   <p className="mt-1 text-xs font-bold text-slate-200">{communication?.receivedMessageCount?.toLocaleString() ?? '0'}</p>
                   {communication?.lastReceivedSequence !== undefined && <p className="mt-0.5 text-[10px] text-slate-500">seq {communication.lastReceivedSequence}</p>}
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <span className="rounded-md border border-[#1e293b] bg-[#0b0f19]/60 px-2 py-1 text-slate-400">SSE: <strong className="text-slate-200">{streamPhase}</strong></span>
+                <span className="rounded-md border border-[#1E293B] bg-[#0b0f19]/60 px-2 py-1 text-slate-400">SSE: <strong className="text-slate-200">{streamPhase}</strong></span>
                 {recoveredEventCount > 0 && <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-blue-300">Recovered {recoveredEventCount} delivery event{recoveredEventCount === 1 ? '' : 's'}</span>}
                 {duplicateEventCount > 0 && <span className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">Suppressed {duplicateEventCount} duplicate{duplicateEventCount === 1 ? '' : 's'}</span>}
                 {communication?.confirmedDeliveryGap && <span role="status" className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">Confirmed {communication.confirmedDeliveryGap.source} gap · {communication.confirmedDeliveryGap.reason}</span>}
@@ -3122,7 +3097,7 @@ function AppShell() {
       </div>
        <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} />
         {selectedInverter && (
-          <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1e293b] bg-[#111827] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
+          <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1E293B] bg-[#090B13] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
             <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} siteName={selectedInverter.site} plantTimezone={persistence.timezone} mode={mode} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />
           </Suspense>
         )}

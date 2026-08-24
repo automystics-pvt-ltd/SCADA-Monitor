@@ -259,51 +259,51 @@ function FlowLabel({ label, metric, className }: { label: string; metric: Metric
 function PowerFlow({ power, status }: { power: Metric; status: DeviceStatus }) {
   const isFlowing = power.value !== null && power.value > 0 && status === 'online' && power.quality !== 'raw';
   return (
-      <section className="scada-power-flow relative overflow-hidden rounded-2xl border border-[#1e293b] bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,.14),transparent_55%),#0f1423] px-3 py-5 sm:px-6" data-testid="inverter-power-flow">
-      <div className="pointer-events-none absolute inset-0 opacity-50 [background-image:linear-gradient(rgba(148,163,184,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,.06)_1px,transparent_1px)] [background-size:24px_24px]" />
+      <section className="scada-power-flow relative overflow-hidden rounded-2xl border border-[#1E293B] bg-[radial-gradient(ellipse_at_top,rgba(255,92,0,.1),transparent_60%),#090B13] px-3 py-5 sm:px-6" data-testid="inverter-power-flow">
+      <div className="pointer-events-none absolute inset-0 opacity-[0.15] [background-image:linear-gradient(rgba(255,255,255,.1)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.1)_1px,transparent_1px)] [background-size:24px_24px]" />
       <div className="relative mx-auto h-[330px] max-w-2xl sm:h-[350px]">
         <svg viewBox="0 0 720 380" role="img" aria-label="Solar power flow from array through selected inverter to grid export" className="h-full w-full">
           <defs>
             <linearGradient id="inverterFlowLine" x1="0%" x2="100%">
-              <stop offset="0%" stopColor="#f59e0b" />
-              <stop offset="100%" stopColor="#60a5fa" />
+              <stop offset="0%" stopColor="#FF5C00" />
+              <stop offset="100%" stopColor="#00E5FF" />
             </linearGradient>
-            <filter id="inverterFlowGlow"><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+            <filter id="inverterFlowGlow"><feGaussianBlur stdDeviation="4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
           </defs>
-          <path d="M170 118 H304 Q328 118 328 144 V165" fill="none" className={isFlowing ? 'inverter-flow-path' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : '#334155'} strokeDasharray={isFlowing ? '9 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
-          <path d="M392 165 V144 Q392 118 416 118 H554" fill="none" className={isFlowing ? 'inverter-flow-path inverter-flow-path-delayed' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : '#334155'} strokeDasharray={isFlowing ? '9 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
-          <path d="M360 216 V257 H205" fill="none" stroke="#334155" strokeWidth="3" strokeLinecap="round" />
+          <path d="M170 118 H304 Q328 118 328 144 V165" fill="none" className={isFlowing ? 'inverter-flow-path' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : '#1E293B'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
+          <path d="M392 165 V144 Q392 118 416 118 H554" fill="none" className={isFlowing ? 'inverter-flow-path inverter-flow-path-delayed' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : '#1E293B'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
+          <path d="M360 216 V257 H205" fill="none" stroke="#1E293B" strokeWidth="3" strokeLinecap="round" />
           <g transform="translate(66 65)">
-            <polygon points="0,38 88,0 144,26 55,66" fill="#1e293b" stroke="#94a3b8" strokeWidth="2" />
-            <path d="M17 38 103 5M33 46 119 13M48 55 135 21M29 26 62 53M55 15 89 43M81 5 115 33" stroke="#cbd5e1" strokeWidth="1.5" opacity=".9" />
-            <path d="M55 66 v35 M99 48 v53 M48 101 h58" stroke="#94a3b8" strokeWidth="3" strokeLinecap="round" />
+            <polygon points="0,38 88,0 144,26 55,66" fill="#0F1322" stroke="#334155" strokeWidth="2" />
+            <path d="M17 38 103 5M33 46 119 13M48 55 135 21M29 26 62 53M55 15 89 43M81 5 115 33" stroke="#475569" strokeWidth="1.5" opacity=".9" />
+            <path d="M55 66 v35 M99 48 v53 M48 101 h58" stroke="#334155" strokeWidth="3" strokeLinecap="round" />
           </g>
           <g transform="translate(323 140)">
-            <rect width="74" height="80" rx="11" fill="#111827" stroke="#60a5fa" strokeWidth="2.5" />
-            <rect x="14" y="14" width="46" height="25" rx="4" fill="#172033" stroke="#334155" />
-            <circle cx="37" cy="57" r="7" fill={isFlowing ? '#f59e0b' : '#64748b'} />
-            <path d="M33 67 h8" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
+            <rect width="74" height="80" rx="11" fill="#090B13" stroke="#00E5FF" strokeWidth="2.5" filter="drop-shadow(0 0 8px rgba(0,229,255,0.3))" />
+            <rect x="14" y="14" width="46" height="25" rx="4" fill="#0F1322" stroke="#1E293B" />
+            <circle cx="37" cy="57" r="7" fill={isFlowing ? '#00F2A6' : '#334155'} filter={isFlowing ? 'drop-shadow(0 0 6px rgba(0,242,166,0.5))' : undefined} />
+            <path d="M33 67 h8" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
           </g>
           <g transform="translate(555 49)">
-            <path d="M48 0 0 182h96L48 0Zm0 25 25 137H23L48 25Z" fill="#1e293b" stroke="#94a3b8" strokeWidth="2" />
-            <path d="M14 120h68M24 84h48M32 52h32M48 25v137M23 162l50-78M73 162 23 84" stroke="#64748b" strokeWidth="2" />
-            <path d="M-12 47h120M-1 47l-17 25M97 47l17 25" stroke="#94a3b8" strokeWidth="3" strokeLinecap="round" />
-            <rect x="17" y="186" width="62" height="12" rx="4" fill="#334155" />
+            <path d="M48 0 0 182h96L48 0Zm0 25 25 137H23L48 25Z" fill="#0F1322" stroke="#334155" strokeWidth="2" />
+            <path d="M14 120h68M24 84h48M32 52h32M48 25v137M23 162l50-78M73 162 23 84" stroke="#475569" strokeWidth="2" />
+            <path d="M-12 47h120M-1 47l-17 25M97 47l17 25" stroke="#334155" strokeWidth="3" strokeLinecap="round" />
+            <rect x="17" y="186" width="62" height="12" rx="4" fill="#1E293B" />
           </g>
           <g transform="translate(132 237)">
-            <path d="M0 42 54 0l54 42v62H0V42Z" fill="#182332" stroke="#94a3b8" strokeWidth="2" />
-            <path d="M-8 42 54 -5l62 47" fill="none" stroke="#cbd5e1" strokeWidth="3" strokeLinecap="round" />
-            <rect x="20" y="59" width="22" height="45" fill="#0f172a" stroke="#64748b" />
-            <rect x="65" y="59" width="20" height="18" fill="#60a5fa" opacity=".5" />
+            <path d="M0 42 54 0l54 42v62H0V42Z" fill="#090B13" stroke="#334155" strokeWidth="2" />
+            <path d="M-8 42 54 -5l62 47" fill="none" stroke="#475569" strokeWidth="3" strokeLinecap="round" />
+            <rect x="20" y="59" width="22" height="45" fill="#0F1322" stroke="#1E293B" />
+            <rect x="65" y="59" width="20" height="18" fill="#FF5C00" opacity=".4" filter="drop-shadow(0 0 5px rgba(255,92,0,0.5))" />
           </g>
-          <text x="112" y="160" fill="#94a3b8" fontSize="13" fontWeight="700" textAnchor="middle">SOLAR ARRAY</text>
-          <text x="360" y="247" fill="#94a3b8" fontSize="13" fontWeight="700" textAnchor="middle">INVERTER</text>
-          <text x="603" y="262" fill="#94a3b8" fontSize="13" fontWeight="700" textAnchor="middle">GRID</text>
-          <text x="186" y="365" fill="#64748b" fontSize="12" fontWeight="700" textAnchor="middle">PLANT LOAD</text>
+          <text x="112" y="160" fill="#94A3B8" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">SOLAR ARRAY</text>
+          <text x="360" y="247" fill="#00E5FF" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">INVERTER</text>
+          <text x="603" y="262" fill="#94A3B8" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">GRID</text>
+          <text x="186" y="365" fill="#64748B" fontSize="12" fontWeight="700" letterSpacing="2" textAnchor="middle">PLANT LOAD</text>
         </svg>
         <FlowLabel label="Source power" metric={power} className="left-[3%] top-[2%] sm:left-[6%]" />
         <FlowLabel label="Reported export" metric={power} className="right-[0%] top-[63%] sm:right-[4%]" />
-         <div className="absolute bottom-0 left-1/2 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-full border border-[#1e293b] bg-[#111827]/90 px-3 py-1.5 text-center text-[10px] leading-4 text-slate-400">
+         <div className="absolute bottom-0 left-1/2 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-full border border-[#1E293B] bg-[#090B13]/90 px-4 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur">
           {power.quality === 'raw' ? 'Raw source tag · scaling required' : power.value === null ? 'No reported power value' : isFlowing ? 'Reported power flow' : 'Flow paused until fresh inverter telemetry'}
         </div>
       </div>
@@ -313,10 +313,19 @@ function PowerFlow({ power, status }: { power: Metric; status: DeviceStatus }) {
 
 function MetricCard({ icon: Icon, label, metric, detail }: { icon: typeof Zap; label: string; metric: Metric; detail: string }) {
   const unavailable = metric.value === null;
-  return <div className="rounded-xl border border-[#1e293b] bg-[#0f1423] p-4">
-    <div className="flex items-start justify-between gap-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p><Icon size={16} className={unavailable ? 'text-slate-600' : metric.quality === 'raw' ? 'text-amber-400' : 'text-orange-400'} /></div>
-    <p className={`mt-3 font-mono text-xl font-bold tracking-tight ${unavailable ? 'text-slate-500' : metric.quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}`}>{formatMetric(metric, 2)}</p>
-    <p className="mt-2 min-h-4 text-[10px] leading-4 text-slate-500">{unavailable ? 'Not reported by this inverter' : metric.quality === 'raw' ? `${metric.source} · scaling required` : `${detail} · ${metric.source}`}</p>
+  const isRaw = metric.quality === 'raw';
+  return <div className="scada-interactive-card group relative overflow-hidden rounded-xl border border-[#1E293B] bg-[#090B13] p-5 flex flex-col justify-between">
+    <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+    <div className="flex items-start justify-between gap-3 relative z-10">
+      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+      <div className={`p-1.5 rounded-lg border bg-opacity-10 ${unavailable ? 'bg-[#1E293B] border-[#1E293B] text-slate-600' : isRaw ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-blue-500/10 border-blue-500/20 text-blue-400'}`}>
+        <Icon size={16} />
+      </div>
+    </div>
+    <div className="mt-6 relative z-10">
+      <p className={`font-mono text-3xl font-bold tracking-tighter ${unavailable ? 'text-slate-500' : isRaw ? 'text-amber-300' : 'text-slate-100'}`}>{formatMetric(metric, 2)}</p>
+      <p className="mt-3 border-t border-[#1E293B]/70 pt-3 min-h-4 text-[10px] leading-relaxed text-slate-500 font-bold uppercase tracking-widest">{unavailable ? 'Not reported' : isRaw ? `${metric.source} · scaling required` : `${detail} · ${metric.source}`}</p>
+    </div>
   </div>;
 }
 
