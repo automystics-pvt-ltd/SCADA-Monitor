@@ -149,6 +149,7 @@
 .pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
 .inverter-flow-path { animation: inverter-flow 1s linear infinite; }
 .inverter-flow-path-delayed { animation-delay: -.5s; }
+.scada-flow-live-beacon { animation: pulse-soft 1.5s ease-in-out infinite; transform-origin: center; }
 .mono { font-family: var(--app-font-mono); letter-spacing: -0.02em; }
 
 .scada-sidebar-accent-image,
@@ -206,6 +207,48 @@
   max-width: 100%;
   overscroll-behavior-x: contain;
   scrollbar-gutter: stable;
+}
+
+/* The inverter flow diagram reflects the freshness and quality of the selected
+   inverter's actual source value. It uses tokens rather than dark-only SVG fills
+   so the same operational state is legible in both themes. */
+.scada-power-flow {
+  --flow-node: #0F1322;
+  --flow-inverter: #090B13;
+  --flow-stroke: #334155;
+  --flow-grid-stroke: #475569;
+  --flow-idle: #1E293B;
+  --flow-label: #94A3B8;
+  --flow-muted: #64748B;
+  background: radial-gradient(ellipse at top, rgba(255, 92, 0, .10), transparent 60%), var(--scada-surface);
+  border-color: var(--scada-border);
+}
+.scada-power-flow-grid {
+  opacity: .15;
+  background-image: linear-gradient(color-mix(in srgb, var(--flow-label) 35%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--flow-label) 35%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.scada-flow-label,
+.scada-flow-status {
+  border-color: var(--scada-border);
+  background: color-mix(in srgb, var(--scada-surface-raised) 94%, transparent);
+}
+.scada-flow-label {
+  color: var(--scada-text);
+}
+.scada-flow-status {
+  color: var(--scada-muted);
+}
+.light .scada-power-flow {
+  --flow-node: #FFFFFF;
+  --flow-inverter: #F8FAFC;
+  --flow-stroke: #64748B;
+  --flow-grid-stroke: #94A3B8;
+  --flow-idle: #CBD5E1;
+  --flow-label: #475569;
+  --flow-muted: #64748B;
+  background: radial-gradient(ellipse at top, rgba(249, 115, 22, .10), transparent 62%), var(--scada-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .85);
 }
 
 /* Report Center uses the shared SCADA tokens in both operator themes. */

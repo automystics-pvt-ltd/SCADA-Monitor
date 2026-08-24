@@ -6,6 +6,7 @@ import {
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { getFaultGuidance, normalizeFaults, telemetryText, type FaultEvidence } from '../fault-guidance';
 import { buildPowerTrendSeries, countRawPowerSamples, getPowerTrendState, selectValidatedPowerSamples } from '../inverter-power-trend';
+import { inverterFlowState } from '../inverter-flow-state';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type DeviceStatus = 'online' | 'stale' | 'offline';
@@ -275,17 +276,20 @@ function useModalAccessibility(onClose: () => void) {
 }
 
 function FlowLabel({ label, metric, className }: { label: string; metric: Metric; className: string }) {
-  return <div className={`absolute min-w-28 max-w-[45%] rounded-lg border border-[#1e293b] bg-[#111827]/95 px-2.5 py-2 text-center shadow-lg ${className}`}>
+  return <div className={`scada-flow-label absolute min-w-28 max-w-[45%] rounded-lg border px-2.5 py-2 text-center shadow-lg ${className}`}>
     <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
     <p className={`mt-0.5 font-mono text-xs font-bold ${metric.value === null ? 'text-slate-500' : metric.quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}`}>{formatMetric(metric)}</p>
   </div>;
 }
 
-function PowerFlow({ power, status }: { power: Metric; status: DeviceStatus }) {
-  const isFlowing = power.value !== null && power.value > 0 && status === 'online' && power.quality !== 'raw';
+function PowerFlow({ power, status, mode, provenance }: { power: Metric; status: DeviceStatus; mode: 'demo' | 'live'; provenance?: 'live' | 'retained' | 'recovered' | 'replay' }) {
+  const flow = inverterFlowState({ value: power.value, quality: power.quality, status, mode, provenance });
+  const isFlowing = flow.streaming;
+  const rawLiveTelemetry = flow.rawLiveTelemetry;
+  const indicatorColor = rawLiveTelemetry ? '#F59E0B' : '#00F2A6';
   return (
-      <section className="scada-power-flow relative overflow-hidden rounded-2xl border border-[#1E293B] bg-[radial-gradient(ellipse_at_top,rgba(255,92,0,.1),transparent_60%),#090B13] px-3 py-5 sm:px-6" data-testid="inverter-power-flow">
-      <div className="pointer-events-none absolute inset-0 opacity-[0.15] [background-image:linear-gradient(rgba(255,255,255,.1)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.1)_1px,transparent_1px)] [background-size:24px_24px]" />
+      <section className="scada-power-flow relative overflow-hidden rounded-2xl border px-3 py-5 sm:px-6" data-testid="inverter-power-flow" data-flow-state={isFlowing ? 'streaming' : 'paused'} data-stream-mode={mode}>
+       <div className="scada-power-flow-grid pointer-events-none absolute inset-0" />
       <div className="relative mx-auto h-[330px] max-w-2xl sm:h-[350px]">
         <svg viewBox="0 0 720 380" role="img" aria-label="Solar power flow from array through selected inverter to grid export" className="h-full w-full">
           <defs>
@@ -295,41 +299,41 @@ function PowerFlow({ power, status }: { power: Metric; status: DeviceStatus }) {
             </linearGradient>
             <filter id="inverterFlowGlow"><feGaussianBlur stdDeviation="4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
           </defs>
-          <path d="M170 118 H304 Q328 118 328 144 V165" fill="none" className={isFlowing ? 'inverter-flow-path' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : '#1E293B'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
-          <path d="M392 165 V144 Q392 118 416 118 H554" fill="none" className={isFlowing ? 'inverter-flow-path inverter-flow-path-delayed' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : '#1E293B'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
-          <path d="M360 216 V257 H205" fill="none" stroke="#1E293B" strokeWidth="3" strokeLinecap="round" />
+          <path d="M170 118 H304 Q328 118 328 144 V165" fill="none" className={isFlowing ? 'inverter-flow-path' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : 'var(--flow-idle)'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
+          <path d="M392 165 V144 Q392 118 416 118 H554" fill="none" className={isFlowing ? 'inverter-flow-path inverter-flow-path-delayed' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : 'var(--flow-idle)'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
+          <path d="M360 216 V257 H205" fill="none" stroke="var(--flow-idle)" strokeWidth="3" strokeLinecap="round" />
           <g transform="translate(66 65)">
-            <polygon points="0,38 88,0 144,26 55,66" fill="#0F1322" stroke="#334155" strokeWidth="2" />
-            <path d="M17 38 103 5M33 46 119 13M48 55 135 21M29 26 62 53M55 15 89 43M81 5 115 33" stroke="#475569" strokeWidth="1.5" opacity=".9" />
-            <path d="M55 66 v35 M99 48 v53 M48 101 h58" stroke="#334155" strokeWidth="3" strokeLinecap="round" />
+            <polygon points="0,38 88,0 144,26 55,66" fill="var(--flow-node)" stroke="var(--flow-stroke)" strokeWidth="2" />
+            <path d="M17 38 103 5M33 46 119 13M48 55 135 21M29 26 62 53M55 15 89 43M81 5 115 33" stroke="var(--flow-grid-stroke)" strokeWidth="1.5" opacity=".9" />
+            <path d="M55 66 v35 M99 48 v53 M48 101 h58" stroke="var(--flow-stroke)" strokeWidth="3" strokeLinecap="round" />
           </g>
           <g transform="translate(323 140)">
-            <rect width="74" height="80" rx="11" fill="#090B13" stroke="#00E5FF" strokeWidth="2.5" filter="drop-shadow(0 0 8px rgba(0,229,255,0.3))" />
-            <rect x="14" y="14" width="46" height="25" rx="4" fill="#0F1322" stroke="#1E293B" />
-            <circle cx="37" cy="57" r="7" fill={isFlowing ? '#00F2A6' : '#334155'} filter={isFlowing ? 'drop-shadow(0 0 6px rgba(0,242,166,0.5))' : undefined} />
-            <path d="M33 67 h8" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
+            <rect width="74" height="80" rx="11" fill="var(--flow-inverter)" stroke="#00E5FF" strokeWidth="2.5" filter="drop-shadow(0 0 8px rgba(0,229,255,0.3))" />
+            <rect x="14" y="14" width="46" height="25" rx="4" fill="var(--flow-node)" stroke="var(--flow-idle)" />
+            <circle cx="37" cy="57" r="7" className={isFlowing ? 'scada-flow-live-beacon' : undefined} fill={isFlowing ? indicatorColor : 'var(--flow-stroke)'} filter={isFlowing ? `drop-shadow(0 0 6px ${rawLiveTelemetry ? 'rgba(245,158,11,0.5)' : 'rgba(0,242,166,0.5)'})` : undefined} />
+            <path d="M33 67 h8" stroke="var(--flow-stroke)" strokeWidth="2" strokeLinecap="round" />
           </g>
           <g transform="translate(555 49)">
-            <path d="M48 0 0 182h96L48 0Zm0 25 25 137H23L48 25Z" fill="#0F1322" stroke="#334155" strokeWidth="2" />
-            <path d="M14 120h68M24 84h48M32 52h32M48 25v137M23 162l50-78M73 162 23 84" stroke="#475569" strokeWidth="2" />
-            <path d="M-12 47h120M-1 47l-17 25M97 47l17 25" stroke="#334155" strokeWidth="3" strokeLinecap="round" />
-            <rect x="17" y="186" width="62" height="12" rx="4" fill="#1E293B" />
+            <path d="M48 0 0 182h96L48 0Zm0 25 25 137H23L48 25Z" fill="var(--flow-node)" stroke="var(--flow-stroke)" strokeWidth="2" />
+            <path d="M14 120h68M24 84h48M32 52h32M48 25v137M23 162l50-78M73 162 23 84" stroke="var(--flow-grid-stroke)" strokeWidth="2" />
+            <path d="M-12 47h120M-1 47l-17 25M97 47l17 25" stroke="var(--flow-stroke)" strokeWidth="3" strokeLinecap="round" />
+            <rect x="17" y="186" width="62" height="12" rx="4" fill="var(--flow-idle)" />
           </g>
           <g transform="translate(132 237)">
-            <path d="M0 42 54 0l54 42v62H0V42Z" fill="#090B13" stroke="#334155" strokeWidth="2" />
-            <path d="M-8 42 54 -5l62 47" fill="none" stroke="#475569" strokeWidth="3" strokeLinecap="round" />
-            <rect x="20" y="59" width="22" height="45" fill="#0F1322" stroke="#1E293B" />
+            <path d="M0 42 54 0l54 42v62H0V42Z" fill="var(--flow-inverter)" stroke="var(--flow-stroke)" strokeWidth="2" />
+            <path d="M-8 42 54 -5l62 47" fill="none" stroke="var(--flow-grid-stroke)" strokeWidth="3" strokeLinecap="round" />
+            <rect x="20" y="59" width="22" height="45" fill="var(--flow-node)" stroke="var(--flow-idle)" />
             <rect x="65" y="59" width="20" height="18" fill="#FF5C00" opacity=".4" filter="drop-shadow(0 0 5px rgba(255,92,0,0.5))" />
           </g>
-          <text x="112" y="160" fill="#94A3B8" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">SOLAR ARRAY</text>
+          <text x="112" y="160" fill="var(--flow-label)" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">SOLAR ARRAY</text>
           <text x="360" y="247" fill="#00E5FF" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">INVERTER</text>
-          <text x="603" y="262" fill="#94A3B8" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">GRID</text>
-          <text x="186" y="365" fill="#64748B" fontSize="12" fontWeight="700" letterSpacing="2" textAnchor="middle">PLANT LOAD</text>
+          <text x="603" y="262" fill="var(--flow-label)" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">GRID</text>
+          <text x="186" y="365" fill="var(--flow-muted)" fontSize="12" fontWeight="700" letterSpacing="2" textAnchor="middle">PLANT LOAD</text>
         </svg>
         <FlowLabel label="Source power" metric={power} className="left-[3%] top-[2%] sm:left-[6%]" />
         <FlowLabel label="Reported export" metric={power} className="right-[0%] top-[63%] sm:right-[4%]" />
-         <div className="absolute bottom-0 left-1/2 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-full border border-[#1E293B] bg-[#090B13]/90 px-4 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur">
-          {power.quality === 'raw' ? 'Raw source tag · scaling required' : power.value === null ? 'No reported power value' : isFlowing ? 'Reported power flow' : 'Flow paused until fresh inverter telemetry'}
+          <div className="scada-flow-status absolute bottom-0 left-1/2 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-full border px-4 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur">
+           {flow.statusLabel}
         </div>
       </div>
     </section>
@@ -702,7 +706,7 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
                 <div className="flex min-w-0 items-start gap-2 text-xs text-slate-400" title={weather?.locationLabel ?? undefined}><CloudSun size={15} className="mt-0.5 shrink-0 text-blue-300" /><span className="break-words text-right">{weather?.condition ?? 'Weather not reported'}{weather?.temperatureC !== null && weather?.temperatureC !== undefined ? ` · ${weather.temperatureC.toFixed(1)}°C` : ''}</span></div>
             </div>
 
-            <PowerFlow power={metrics.power} status={device.status} />
+            <PowerFlow power={metrics.power} status={device.status} mode={mode} provenance={device.sourceEvidence?.provenance} />
 
             <div className="grid grid-cols-1 divide-y divide-[#1e293b] overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
                <div className="p-4 sm:p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Power size={15} className="text-orange-400" />Real-time power</div><p data-testid="inverter-real-time-power" className={`mt-3 font-mono text-3xl font-bold ${metrics.power.value === null ? 'text-slate-500' : metrics.power.quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}`}>{formatMetric(metrics.power, 2)}</p><p className="mt-2 text-[10px] leading-4 text-slate-500">{metrics.power.quality === 'raw' ? 'Source tag only · engineering scaling required' : metrics.power.value === null ? 'This inverter has not reported active power.' : validatedSource ? `Validated active power · ${device.sourceEvidence?.semantic ?? 'approved semantic'} · ${device.sourceEvidence?.observedAt ?? 'source time unavailable'}` : `Reported by ${metrics.power.source}`}</p></div>
