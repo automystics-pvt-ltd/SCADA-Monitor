@@ -1,0 +1,360 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, BarChart3, CheckCircle2, ChevronDown, Download, FileJson, FileSpreadsheet, FileText, Filter, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { buildReportQuery } from '../report-center-utils';
+
+type ReportType = 'operations' | 'electrical' | 'energy' | 'inverter' | 'environmental' | 'alarms' | 'communication' | 'live' | 'historical' | 'comparison' | 'availability' | 'data-quality';
+type DatePreset = 'today' | 'yesterday' | 'last-7-days' | 'last-30-days' | 'current-month' | 'previous-month' | 'custom';
+type Provenance = 'live' | 'latest-saved' | 'historical-saved';
+type Quality = 'validated' | 'source-reported' | 'raw';
+
+type ReportRecord = {
+  id: string;
+  recordType: 'measurement' | 'energy' | 'snapshot' | 'alarm' | 'communication';
+  category: string;
+  siteName: string;
+  deviceId: string | null;
+  deviceName: string | null;
+  parameter: string;
+  displayLabel: string;
+  value: number | null;
+  unit: string;
+  address: string;
+  sourceName: string;
+  observedAt: string;
+  receivedAt: string;
+  provenance: Provenance;
+  quality: Quality;
+  status: string | null;
+  reason: string | null;
+};
+
+type ReportResult = {
+  title: string;
+  category: ReportType;
+  siteName: string;
+  period: { from: string; to: string; label: string };
+  generatedAt: string;
+  sourceStatus: string;
+  filters: Record<string, unknown>;
+  summary: Array<{ label: string; value: number | string; unit: string; detail: string; quality: Quality }>;
+  charts: Array<{ kind: 'line' | 'area' | 'bar'; title: string; unit: string; data: Array<{ time: string; value: number; label: string }> }>;
+  records: ReportRecord[];
+  excludedEvidence: { count: number; byReason: Array<{ reason: string; count: number }> };
+  alarmSummary: { reported: number; sourceReported: number; active: number };
+  communicationSummary: { events: number; warnings: number };
+  qualityNotes: string[];
+  attribution: string;
+};
+
+type Filters = {
+  reportType: ReportType;
+  siteName: string;
+  devices: string[];
+  parameters: string[];
+  status: 'all' | 'active' | 'warning' | 'normal';
+  quality: 'all' | 'validated' | 'source-reported';
+  provenance: Provenance[];
+  preset: DatePreset;
+  customFrom: string;
+  customTo: string;
+};
+
+const REPORT_TYPES: Array<{ value: ReportType; label: string; description: string }> = [
+  { value: 'operations', label: 'Operations overview', description: 'Validated operating evidence, alarms, and communication context.' },
+  { value: 'electrical', label: 'Electrical performance', description: 'Validated electrical measurements and source trends.' },
+  { value: 'energy', label: 'Energy & yield', description: 'Saved energy counters and source-backed yield evidence.' },
+  { value: 'inverter', label: 'Inverter detail', description: 'Device-specific validated measurements and energy history.' },
+  { value: 'environmental', label: 'Environmental', description: 'Source-reported environmental operating context.' },
+  { value: 'alarms', label: 'Alarms & faults', description: 'Source-reported alarm evidence with no invented diagnosis.' },
+  { value: 'communication', label: 'Communication', description: 'Durable MQTT delivery and interruption evidence.' },
+  { value: 'live', label: 'Live snapshot', description: 'Currently available, explicitly validated live evidence only.' },
+  { value: 'historical', label: 'Historical review', description: 'Saved source evidence across the selected reporting period.' },
+  { value: 'comparison', label: 'Site comparison', description: 'Comparable validated inverter and energy records.' },
+  { value: 'availability', label: 'Availability', description: 'Communication and operational evidence; no inferred uptime.' },
+  { value: 'data-quality', label: 'Data quality', description: 'Included validated records and excluded raw evidence.' },
+];
+
+const defaultFilters = (siteName: string): Filters => ({
+  reportType: 'operations',
+  siteName,
+  devices: [],
+  parameters: [],
+  status: 'all',
+  quality: 'all',
+  provenance: [],
+  preset: 'last-7-days',
+  customFrom: '',
+  customTo: '',
+});
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not reported' : new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', hourCycle: 'h23' }).format(date);
+}
+
+function csvValue(value: unknown) {
+  const text = String(value ?? '');
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function xml(value: unknown) {
+  return String(value ?? '').replace(/[<>&'"]/g, (character) => ({ '<': '&lt;', '>': '&gt;', '&': '&apos;', '"': '&quot;' }[character] ?? character));
+}
+
+function download(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function localStart(date: Date) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function rangeFor(filters: Filters) {
+  const now = new Date();
+  const today = localStart(now);
+  const endOfToday = new Date(today);
+  endOfToday.setDate(endOfToday.getDate() + 1);
+  if (filters.preset === 'custom' && filters.customFrom && filters.customTo) {
+    return { from: new Date(`${filters.customFrom}T00:00:00`).toISOString(), to: new Date(`${filters.customTo}T23:59:59.999`).toISOString() };
+  }
+  if (filters.preset === 'yesterday') {
+    const from = new Date(today); from.setDate(from.getDate() - 1);
+    return { from: from.toISOString(), to: today.toISOString() };
+  }
+  if (filters.preset === 'last-7-days') {
+    const from = new Date(endOfToday); from.setDate(from.getDate() - 7);
+    return { from: from.toISOString(), to: endOfToday.toISOString() };
+  }
+  if (filters.preset === 'last-30-days') {
+    const from = new Date(endOfToday); from.setDate(from.getDate() - 30);
+    return { from: from.toISOString(), to: endOfToday.toISOString() };
+  }
+  if (filters.preset === 'current-month') {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: from.toISOString(), to: endOfToday.toISOString() };
+  }
+  if (filters.preset === 'previous-month') {
+    const from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const to = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: from.toISOString(), to: to.toISOString() };
+  }
+  return { from: today.toISOString(), to: endOfToday.toISOString() };
+}
+
+function toggleSelection(current: string[], value: string) {
+  return current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+}
+
+function filterCount(filters: Filters, initialSite: string) {
+  return [
+    filters.reportType !== 'operations',
+    filters.siteName !== initialSite,
+    filters.devices.length > 0,
+    filters.parameters.length > 0,
+    filters.status !== 'all',
+    filters.quality !== 'all',
+    filters.provenance.length > 0,
+    filters.preset !== 'last-7-days',
+  ].filter(Boolean).length;
+}
+
+function crc32(data: Uint8Array) {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function u16(value: number) {
+  return new Uint8Array([value & 255, (value >>> 8) & 255]);
+}
+
+function u32(value: number) {
+  return new Uint8Array([value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255]);
+}
+
+function concat(bytes: Uint8Array[]) {
+  const length = bytes.reduce((total, value) => total + value.length, 0);
+  const joined = new Uint8Array(length);
+  let offset = 0;
+  for (const value of bytes) { joined.set(value, offset); offset += value.length; }
+  return joined;
+}
+
+function zipStore(entries: Array<{ name: string; content: string }>) {
+  const encoder = new TextEncoder();
+  const locals: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const name = encoder.encode(entry.name);
+    const content = encoder.encode(entry.content);
+    const checksum = crc32(content);
+    const local = concat([u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0), u32(checksum), u32(content.length), u32(content.length), u16(name.length), u16(0), name, content]);
+    locals.push(local);
+    central.push(concat([u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0), u32(checksum), u32(content.length), u32(content.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name]));
+    offset += local.length;
+  }
+  const centralDirectory = concat(central);
+  return concat([...locals, centralDirectory, u32(0x06054b50), u16(0), u16(0), u16(entries.length), u16(entries.length), u32(centralDirectory.length), u32(offset), u16(0)]);
+}
+
+function column(index: number) {
+  let result = '';
+  let value = index + 1;
+  while (value > 0) { const remainder = (value - 1) % 26; result = String.fromCharCode(65 + remainder) + result; value = Math.floor((value - 1) / 26); }
+  return result;
+}
+
+function workbook(result: ReportResult) {
+  const rows: Array<Array<string | number>> = [
+    [result.title],
+    ['Site', result.siteName],
+    ['Period', result.period.label],
+    ['Generated', formatDateTime(result.generatedAt)],
+    ['Source status', result.sourceStatus],
+    ['Attribution', result.attribution],
+    [],
+    ['Record type', 'Category', 'Site', 'Device', 'Parameter', 'Value', 'Unit', 'Register address', 'Source', 'Observed', 'Received', 'Provenance', 'Quality', 'Status', 'Reason'],
+    ...result.records.map((record) => [record.recordType, record.category, record.siteName, record.deviceName ?? record.deviceId ?? '—', record.displayLabel, record.value ?? '', record.unit, record.address, record.sourceName, record.observedAt, record.receivedAt, record.provenance, record.quality, record.status ?? '', record.reason ?? '']),
+  ];
+  const sheetRows = rows.map((row, rowIndex) => `<row r="${rowIndex + 1}">${row.map((value, cellIndex) => {
+    const ref = `${column(cellIndex)}${rowIndex + 1}`;
+    return typeof value === 'number' ? `<c r="${ref}"><v>${value}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t>${xml(value)}</t></is></c>`;
+  }).join('')}</row>`).join('');
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`;
+  return zipStore([
+    { name: '[Content_Types].xml', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>' },
+    { name: '_rels/.rels', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name: 'xl/workbook.xml', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>' },
+    { name: 'xl/worksheets/sheet1.xml', content: sheet },
+  ]);
+}
+
+function tone(quality: Quality) {
+  return quality === 'validated' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : quality === 'source-reported' ? 'border-blue-500/25 bg-blue-500/10 text-blue-400' : 'border-amber-500/25 bg-amber-500/10 text-amber-400';
+}
+
+function provenanceTone(provenance: Provenance) {
+  return provenance === 'live' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : provenance === 'latest-saved' ? 'border-blue-500/25 bg-blue-500/10 text-blue-400' : 'border-slate-500/25 bg-slate-500/10 text-slate-400';
+}
+
+export default function ReportCenter({ siteName, sites, devices, parameters }: { siteName: string; sites: string[]; devices: Array<{ id: string; name: string; site: string; type: string }>; parameters: string[] }) {
+  const [pending, setPending] = useState<Filters>(() => defaultFilters(siteName));
+  const [applied, setApplied] = useState<Filters>(() => defaultFilters(siteName));
+  const [result, setResult] = useState<ReportResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const reportRequestRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    setPending((current) => current.siteName ? current : { ...current, siteName });
+    setApplied((current) => current.siteName ? current : { ...current, siteName });
+  }, [siteName]);
+
+  const selectedType = REPORT_TYPES.find((type) => type.value === pending.reportType) ?? REPORT_TYPES[0]!;
+  const visibleDevices = useMemo(() => devices.filter((device) => !pending.siteName || device.site === pending.siteName), [devices, pending.siteName]);
+  const activeFilters = filterCount(applied, siteName);
+
+  const requestReport = async (filters: Filters) => {
+    reportRequestRef.current?.abort();
+    const controller = new AbortController();
+    reportRequestRef.current = controller;
+    setLoading(true);
+    setError('');
+    const query = buildReportQuery(filters);
+    try {
+      const response = await fetch(`/api/mqtt/reports?${query.toString()}`, { headers: { Accept: 'application/json' }, signal: controller.signal });
+      const payload = await response.json().catch(() => null) as ReportResult | { message?: string } | null;
+      if (!response.ok || !payload || !('records' in payload)) throw new Error(payload && 'message' in payload ? payload.message ?? 'Unable to load report evidence.' : 'Unable to load report evidence.');
+      setResult(payload);
+      setApplied(filters);
+    } catch (requestError) {
+      if (requestError instanceof DOMException && requestError.name === 'AbortError') return;
+      setResult(null);
+      setError(requestError instanceof Error ? requestError.message : 'Unable to load report evidence.');
+    } finally {
+      if (reportRequestRef.current === controller) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void requestReport(applied);
+    return () => reportRequestRef.current?.abort();
+  }, []);
+
+  const exportCsv = () => {
+    if (!result) return;
+    const metadata = [['Report', result.title], ['Site', result.siteName], ['Period', result.period.label], ['Generated', result.generatedAt], ['Source status', result.sourceStatus], ['Attribution', result.attribution]];
+    const headers = ['Record type', 'Category', 'Site', 'Device', 'Parameter', 'Value', 'Unit', 'Register address', 'Source', 'Observed', 'Received', 'Provenance', 'Quality', 'Status', 'Reason'];
+    const lines = [...metadata.map((row) => row.map(csvValue).join(',')), '', headers.join(','), ...result.records.map((record) => [record.recordType, record.category, record.siteName, record.deviceName ?? record.deviceId ?? '', record.displayLabel, record.value ?? '', record.unit, record.address, record.sourceName, record.observedAt, record.receivedAt, record.provenance, record.quality, record.status ?? '', record.reason ?? ''].map(csvValue).join(','))];
+    download(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' }), `scada-${result.category}-report.csv`);
+  };
+
+  const exportJson = () => result && download(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }), `scada-${result.category}-report.json`);
+  const exportXlsx = () => result && download(new Blob([workbook(result)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `scada-${result.category}-report.xlsx`);
+  const exportPdf = () => {
+    if (!result) return;
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+    if (!printWindow) { setError('Your browser blocked the print window. Allow pop-ups to create the PDF.'); return; }
+    const rows = result.records.map((record) => `<tr><td>${xml(record.category)}</td><td>${xml(record.deviceName ?? record.deviceId ?? '—')}</td><td>${xml(record.displayLabel)}</td><td>${record.value === null ? '—' : xml(record.value)}</td><td>${xml(record.unit)}</td><td>${xml(record.sourceName)}</td><td>${xml(record.observedAt)}</td><td>${xml(record.provenance)}</td><td>${xml(record.quality)}</td></tr>`).join('');
+    printWindow.document.write(`<!doctype html><html><head><title>${xml(result.title)}</title><style>body{font:12px Arial;color:#172033;padding:24px}h1{margin:0 0 6px}p{color:#475569}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #cbd5e1;padding:7px;text-align:left;vertical-align:top}th{background:#eff6ff;font-size:10px;text-transform:uppercase}footer{margin-top:20px;color:#64748b}@media print{body{padding:0}}</style></head><body><h1>${xml(result.title)}</h1><p><strong>Site:</strong> ${xml(result.siteName)} &nbsp; <strong>Period:</strong> ${xml(result.period.label)}<br/><strong>Generated:</strong> ${xml(formatDateTime(result.generatedAt))}<br/>${xml(result.sourceStatus)}</p><table><thead><tr><th>Category</th><th>Device</th><th>Parameter</th><th>Value</th><th>Unit</th><th>Source</th><th>Observed</th><th>Provenance</th><th>Quality</th></tr></thead><tbody>${rows || '<tr><td colspan="9">No validated report records for the selected filters.</td></tr>'}</tbody></table><footer>${xml(result.attribution)}</footer><script>window.onload=()=>window.print()</script></body></html>`);
+    printWindow.document.close();
+  };
+
+  return (
+    <div data-testid="screen-reports" className="animate-rise-in space-y-5">
+      <header className="rounded-2xl border border-[#1E293B] bg-[linear-gradient(110deg,rgba(37,99,235,.13),transparent_45%),#090B13] p-4 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-blue-400">Insights / Report Center</p><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-100 sm:text-3xl">Source-backed operational reporting</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Build a review-ready preview from verified live and persisted evidence. Live MQTT monitoring continues independently while reports load.</p></div>
+          <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-right"><p className="text-[9px] font-bold uppercase tracking-wider text-blue-300">Active filters</p><p data-testid="report-active-filter-count" className="mt-1 text-xl font-bold text-blue-100">{activeFilters}</p></div>
+        </div>
+      </header>
+
+      <div className="grid gap-5 xl:grid-cols-[310px_minmax(0,1fr)]">
+        <aside className="h-fit rounded-2xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
+          <div className="flex items-center justify-between"><div className="flex items-center gap-2"><Filter size={16} className="text-blue-400" /><h2 className="text-sm font-bold text-slate-100">Report filters</h2></div><span className="text-[10px] text-slate-500">Does not pause MQTT</span></div>
+          <div className="mt-4 space-y-4">
+            <label className="block"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Report category</span><select data-testid="report-type-select" value={pending.reportType} onChange={(event) => setPending({ ...pending, reportType: event.target.value as ReportType })} className="mt-1.5 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-3 py-2 text-sm font-semibold text-slate-200 focus-ring">{REPORT_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select><p className="mt-1 text-[10px] leading-4 text-slate-500">{selectedType.description}</p></label>
+            <label className="block"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Plant / site</span><select value={pending.siteName} onChange={(event) => setPending({ ...pending, siteName: event.target.value, devices: [] })} className="mt-1.5 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-3 py-2 text-sm text-slate-200 focus-ring"><option value="">All configured sites</option>{Array.from(new Set([siteName, ...sites])).filter(Boolean).map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
+            <fieldset><legend className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Devices</legend><div className="mt-1.5 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-[#334155] bg-[#0F1322] p-2 scrollbar-thin">{visibleDevices.filter((device) => device.type === 'Power inverter').length ? visibleDevices.filter((device) => device.type === 'Power inverter').map((device) => <label key={device.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs text-slate-300 hover:bg-[#1E293B]"><input type="checkbox" checked={pending.devices.includes(device.id)} onChange={() => setPending({ ...pending, devices: toggleSelection(pending.devices, device.id) })} />{device.name}</label>) : <p className="px-1 py-1 text-xs text-slate-500">No inverters available for this site.</p>}</div></fieldset>
+            <fieldset><legend className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Parameters</legend><div className="mt-1.5 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-[#334155] bg-[#0F1322] p-2 scrollbar-thin">{parameters.slice(0, 40).length ? parameters.slice(0, 40).map((parameter) => <label key={parameter} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs text-slate-300 hover:bg-[#1E293B]"><input type="checkbox" checked={pending.parameters.includes(parameter)} onChange={() => setPending({ ...pending, parameters: toggleSelection(pending.parameters, parameter) })} /><span className="truncate">{parameter}</span></label>) : <p className="px-1 py-1 text-xs text-slate-500">Parameter choices appear after source evidence arrives.</p>}</div></fieldset>
+            <div className="grid grid-cols-2 gap-3"><label><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Status</span><select value={pending.status} onChange={(event) => setPending({ ...pending, status: event.target.value as Filters['status'] })} className="mt-1.5 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-2 py-2 text-xs text-slate-200 focus-ring"><option value="all">All</option><option value="active">Source active</option><option value="warning">Warning</option><option value="normal">Normal</option></select></label><label><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Quality</span><select value={pending.quality} onChange={(event) => setPending({ ...pending, quality: event.target.value as Filters['quality'] })} className="mt-1.5 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-2 py-2 text-xs text-slate-200 focus-ring"><option value="all">Included values</option><option value="validated">Validated only</option><option value="source-reported">Events only</option></select></label></div>
+            <fieldset><legend className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Evidence provenance</legend><div className="mt-1.5 grid grid-cols-1 gap-1">{(['live', 'latest-saved', 'historical-saved'] as Provenance[]).map((provenance) => <label key={provenance} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs text-slate-300 hover:bg-[#1E293B]"><input type="checkbox" checked={pending.provenance.includes(provenance)} onChange={() => setPending({ ...pending, provenance: toggleSelection(pending.provenance, provenance) as Provenance[] })} />{provenance.replace('-', ' ')}</label>)}</div></fieldset>
+            <label className="block"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Reporting period</span><select data-testid="report-range-select" value={pending.preset} onChange={(event) => setPending({ ...pending, preset: event.target.value as DatePreset })} className="mt-1.5 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-3 py-2 text-sm text-slate-200 focus-ring"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last-7-days">Last 7 days</option><option value="last-30-days">Last 30 days</option><option value="current-month">Current month</option><option value="previous-month">Previous month</option><option value="custom">Custom range</option></select></label>
+            {pending.preset === 'custom' && <div className="grid grid-cols-2 gap-2"><label><span className="text-[10px] text-slate-500">From</span><input type="date" value={pending.customFrom} onChange={(event) => setPending({ ...pending, customFrom: event.target.value })} className="mt-1 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-2 py-2 text-xs text-slate-200 focus-ring" /></label><label><span className="text-[10px] text-slate-500">To</span><input type="date" value={pending.customTo} onChange={(event) => setPending({ ...pending, customTo: event.target.value })} className="mt-1 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-2 py-2 text-xs text-slate-200 focus-ring" /></label></div>}
+            <div className="grid grid-cols-2 gap-2 border-t border-[#1E293B] pt-4"><button type="button" data-testid="button-apply-report" onClick={() => void requestReport(pending)} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-60 focus-ring">{loading ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}{loading ? 'Loading' : 'Apply'}</button><button type="button" onClick={() => { const reset = defaultFilters(siteName); setPending(reset); void requestReport(reset); }} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#334155] bg-[#0F1322] px-3 py-2.5 text-xs font-semibold text-slate-300 hover:bg-[#1E293B] disabled:opacity-60 focus-ring"><RotateCcw size={14} />Reset</button></div>
+          </div>
+        </aside>
+
+        <section className="min-w-0 space-y-5">
+          {loading && <div role="status" className="flex min-h-64 items-center justify-center rounded-2xl border border-dashed border-[#334155] bg-[#090B13] text-sm text-slate-400"><RefreshCw size={16} className="mr-2 animate-spin text-blue-400" />Loading source-backed report evidence…</div>}
+          {!loading && error && <div role="alert" className="rounded-2xl border border-rose-500/25 bg-rose-500/[.06] p-5 text-sm text-rose-200"><AlertTriangle size={17} className="mr-2 inline text-rose-400" />{error}<button type="button" onClick={() => void requestReport(applied)} className="ml-3 font-semibold text-rose-300 underline focus-ring">Try again</button></div>}
+          {!loading && !error && result && <>
+            <div className="rounded-2xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-blue-400">Preview ready</p><span className="rounded-full border border-[#334155] bg-[#0F1322] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">{result.category.replace('-', ' ')}</span></div><h2 className="mt-2 text-xl font-bold text-slate-100">{result.title}</h2><p className="mt-1 text-sm text-slate-400">{result.siteName} <span className="px-1 text-slate-600">•</span> {result.period.label}</p><p className="mt-2 text-[11px] text-slate-500">{result.sourceStatus}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={exportCsv} data-testid="button-report-export-csv" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-400 hover:bg-emerald-500/20 focus-ring"><Download size={14} />CSV</button><button type="button" onClick={exportXlsx} data-testid="button-report-export-xlsx" className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-400 hover:bg-blue-500/20 focus-ring"><FileSpreadsheet size={14} />Excel</button><button type="button" onClick={exportJson} data-testid="button-report-export-json" className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/25 bg-violet-500/10 px-3 py-2 text-xs font-bold text-violet-400 hover:bg-violet-500/20 focus-ring"><FileJson size={14} />JSON</button><button type="button" onClick={exportPdf} data-testid="button-report-export-pdf" className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-400 hover:bg-rose-500/20 focus-ring"><FileText size={14} />PDF</button><button type="button" onClick={() => void requestReport(applied)} aria-label="Refresh report preview" className="inline-flex items-center justify-center rounded-lg border border-[#334155] bg-[#0F1322] px-3 py-2 text-slate-300 hover:bg-[#1E293B] focus-ring"><RefreshCw size={14} /></button></div></div>
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-[#1E293B] pt-3 text-[10px] text-slate-500"><span><strong className="text-slate-300">Generated:</strong> {formatDateTime(result.generatedAt)}</span><span><strong className="text-slate-300">Filters:</strong> {activeFilters ? `${activeFilters} active` : 'Default scope'}</span><span><strong className="text-slate-300">Attribution:</strong> {result.attribution}</span></div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">{result.summary.map((item) => <article key={item.label} className="rounded-xl border border-[#1E293B] bg-[#090B13] p-4"><div className="flex items-start justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{item.label}</p><span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${tone(item.quality)}`}>{item.quality.replace('-', ' ')}</span></div><p className="mt-3 text-2xl font-bold text-slate-100">{Number(item.value).toLocaleString()} <span className="text-sm text-slate-500">{item.unit}</span></p><p className="mt-2 text-[11px] leading-4 text-slate-500">{item.detail}</p></article>)}</div>
+            {result.charts.map((chart) => <section key={chart.title} className="rounded-2xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Trend</p><h3 className="mt-1 text-sm font-bold text-slate-100">{chart.title}</h3></div><BarChart3 size={18} className="text-blue-400" /></div><div className="mt-4 h-56"><ResponsiveContainer width="100%" height="100%">{chart.kind === 'bar' ? <BarChart data={chart.data}><CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} /><XAxis dataKey="time" tickFormatter={(value) => new Date(value).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--scada-tooltip)', borderColor: 'var(--scada-border)', borderRadius: 10 }} formatter={(value) => [`${Number(value).toLocaleString()} ${chart.unit}`, 'Validated value']} /><Bar dataKey="value" fill="#2563EB" radius={[4, 4, 0, 0]} /></BarChart> : chart.kind === 'area' ? <AreaChart data={chart.data}><CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} /><XAxis dataKey="time" hide /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--scada-tooltip)', borderColor: 'var(--scada-border)', borderRadius: 10 }} /><Area type="monotone" dataKey="value" stroke="#0EA5E9" fill="#0EA5E933" /></AreaChart> : <LineChart data={chart.data}><CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} /><XAxis dataKey="time" tickFormatter={(value) => new Date(value).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} minTickGap={20} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--scada-tooltip)', borderColor: 'var(--scada-border)', borderRadius: 10 }} formatter={(value) => [`${Number(value).toLocaleString()} ${chart.unit}`, 'Validated value']} /><Line type="monotone" dataKey="value" stroke="#2563EB" strokeWidth={2} dot={false} /></LineChart>}</ResponsiveContainer></div></section>)}
+            <div className="grid gap-4 lg:grid-cols-3"><section className="rounded-2xl border border-[#1E293B] bg-[#090B13] p-4"><div className="flex items-center gap-2"><AlertTriangle size={16} className={result.alarmSummary.reported ? 'text-rose-400' : 'text-emerald-400'} /><h3 className="text-sm font-bold text-slate-100">Alarm & fault summary</h3></div><p className="mt-3 text-2xl font-bold text-slate-100">{result.alarmSummary.reported}</p><p className="mt-1 text-[11px] text-slate-500">Source-reported alarm/fault records. Active state is shown only when the source declares it.</p></section><section className="rounded-2xl border border-[#1E293B] bg-[#090B13] p-4"><div className="flex items-center gap-2"><ShieldCheck size={16} className="text-blue-400" /><h3 className="text-sm font-bold text-slate-100">Communication context</h3></div><p className="mt-3 text-2xl font-bold text-slate-100">{result.communicationSummary.events}</p><p className="mt-1 text-[11px] text-slate-500">{result.communicationSummary.warnings} source-reported warning event{result.communicationSummary.warnings === 1 ? '' : 's'} in period.</p></section><section className="rounded-2xl border border-amber-500/20 bg-amber-500/[.04] p-4"><div className="flex items-center gap-2"><AlertTriangle size={16} className="text-amber-400" /><h3 className="text-sm font-bold text-slate-100">Excluded evidence</h3></div><p className="mt-3 text-2xl font-bold text-slate-100">{result.excludedEvidence.count}</p><p className="mt-1 text-[11px] text-slate-500">Raw/unvalidated values were retained as an audit count, not converted into customer-facing values.</p></section></div>
+            <section className="rounded-2xl border border-[#1E293B] bg-[#090B13]"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1E293B] p-4 sm:p-5"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Detailed evidence</p><h3 className="mt-1 text-sm font-bold text-slate-100">Validated report records</h3></div><span className="rounded-full border border-[#334155] bg-[#0F1322] px-2.5 py-1 text-[10px] font-bold text-slate-400">{result.records.length.toLocaleString()} rows</span></div><div className="max-w-full overflow-x-auto scrollbar-thin" data-scroll-region="report-records"><table className="w-full min-w-[1160px] text-left"><thead className="bg-[#0F1322]"><tr>{['Parameter', 'Value', 'Device', 'Source', 'Observed', 'Provenance', 'Quality', 'Status'].map((heading) => <th key={heading} className="px-4 py-3 text-[9px] font-bold uppercase tracking-wider text-slate-500">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1E293B]">{result.records.length ? result.records.map((record) => <tr key={record.id} className="hover:bg-[#1E293B]/35"><td className="px-4 py-3"><p className="text-xs font-semibold text-slate-200">{record.displayLabel}</p><p className="mt-0.5 font-mono text-[10px] text-slate-500">{record.address}</p></td><td className="px-4 py-3 text-xs font-mono font-bold text-slate-100">{record.value === null ? '—' : `${record.value.toLocaleString()} ${record.unit}`}</td><td className="px-4 py-3 text-xs text-slate-300">{record.deviceName ?? record.deviceId ?? 'Plant context'}</td><td className="px-4 py-3 text-xs text-slate-300">{record.sourceName}</td><td className="px-4 py-3 text-[11px] text-slate-400">{formatDateTime(record.observedAt)}</td><td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${provenanceTone(record.provenance)}`}>{record.provenance.replace('-', ' ')}</span></td><td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${tone(record.quality)}`}>{record.quality.replace('-', ' ')}</span></td><td className="px-4 py-3 text-xs text-slate-400">{record.status ?? record.reason ?? '—'}</td></tr>) : <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-slate-500">No validated source records match the selected filters. Review excluded evidence before widening the report scope.</td></tr>}</tbody></table></div></section>
+            {result.excludedEvidence.count > 0 && <details className="rounded-2xl border border-amber-500/20 bg-amber-500/[.035] p-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-amber-200 focus-ring"><span>Why some evidence is excluded</span><ChevronDown size={16} /></summary><p className="mt-3 text-xs leading-5 text-amber-100/70">The Report Center never estimates engineering values from raw registers. The following evidence was retained only as an audit explanation:</p><ul className="mt-3 space-y-2">{result.excludedEvidence.byReason.map((item) => <li key={item.reason} className="flex justify-between gap-3 rounded-lg border border-amber-500/15 bg-[#090B13]/40 px-3 py-2 text-xs"><span className="text-slate-300">{item.reason}</span><span className="shrink-0 font-mono text-amber-300">{item.count}</span></li>)}</ul></details>}
+            <footer className="rounded-xl border border-[#1E293B] bg-[#090B13] px-4 py-3 text-center text-[10px] font-semibold tracking-wide text-slate-500">{result.qualityNotes.map((note) => <p key={note} className="mb-1 last:mb-0">{note}</p>)}<p className="mt-2 text-slate-400">{result.attribution}</p></footer>
+          </>}
+        </section>
+      </div>
+    </div>
+  );
+}

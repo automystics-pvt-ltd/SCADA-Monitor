@@ -678,7 +678,7 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
   return (
     <>
       <button type="button" aria-label="Close inverter details" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-[#0b0f19]/75 backdrop-blur-sm" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="scada-inverter-detail-dialog fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#111827] shadow-2xl sm:inset-y-3 sm:rounded-2xl lg:inset-y-4 lg:left-auto lg:right-0 lg:w-[min(1040px,calc(100vw-2rem))]">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="scada-inverter-detail-dialog fixed inset-0 z-50 flex min-h-0 w-full flex-col overflow-hidden bg-[#111827] shadow-2xl">
         <header className="shrink-0 border-b border-[#1e293b] bg-[#111827]/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">

@@ -15,6 +15,17 @@ import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
 import { deviceCommunicationState, heartbeatWindows, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
+import {
+  keepReportRecord,
+  reportCategoryForParameter,
+  SCADA_REPORT_TYPES,
+  sourceExplicitlyValidatesEngineeringValue,
+  stableReportRecordId,
+  type ReportFilterSet,
+  type ReportProvenance,
+  type ScadaReportRecord,
+  type ScadaReportType,
+} from "../lib/scada-reporting";
 
 const router: IRouter = Router();
 const brokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
@@ -1565,6 +1576,330 @@ router.get("/mqtt/inverter-measurements", async (req, res): Promise<void> => {
   } catch (error) {
     logger.error({ err: error, siteName, inverterId }, "Inverter measurement history query failed");
     res.status(500).json({ message: "Unable to load archived inverter measurements." });
+  }
+});
+
+function reportList(value: unknown, maximumItems = 50) {
+  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  return values
+    .flatMap((item) => typeof item === "string" ? [item.trim()] : [])
+    .filter(Boolean)
+    .slice(0, maximumItems);
+}
+
+function reportProvenance(value: string): value is ReportProvenance {
+  return value === "live" || value === "latest-saved" || value === "historical-saved";
+}
+
+function sourceText(parameter: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = parameter[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function reportCategoryForMeasurement(kind: unknown, parameter: string) {
+  if (kind === "energy") return "energy" as const;
+  if (kind === "electrical" || kind === "active-power" || kind === "dc-power") return "electrical" as const;
+  return reportCategoryForParameter(parameter);
+}
+
+function reportTitle(type: ScadaReportType) {
+  return {
+    operations: "Operations overview",
+    electrical: "Electrical performance",
+    energy: "Energy & yield",
+    inverter: "Inverter detail",
+    environmental: "Environmental",
+    alarms: "Alarms & faults",
+    communication: "Communication",
+    live: "Live snapshot",
+    historical: "Historical review",
+    comparison: "Site comparison",
+    availability: "Availability",
+    "data-quality": "Data quality",
+  }[type];
+}
+
+router.get("/mqtt/reports", async (req, res): Promise<void> => {
+  const requestedType = typeof req.query.reportType === "string" ? req.query.reportType : "operations";
+  if (!SCADA_REPORT_TYPES.includes(requestedType as ScadaReportType)) {
+    res.status(400).json({ message: "Use a supported report category." });
+    return;
+  }
+  const from = parseRangeBoundary(req.query.from, "start");
+  const to = parseRangeBoundary(req.query.to, "end");
+  if (from === undefined || to === undefined) {
+    res.status(400).json({ message: "Use valid ISO date/time values for the report range." });
+    return;
+  }
+  const rangeEnd = to ?? new Date();
+  const rangeStart = from ?? new Date(rangeEnd.getTime() - 30 * 24 * 60 * 60 * 1_000);
+  if (rangeStart > rangeEnd || rangeEnd.getTime() - rangeStart.getTime() > 366 * 24 * 60 * 60 * 1_000) {
+    res.status(400).json({ message: "Use a report range up to 366 days with an end after the start." });
+    return;
+  }
+
+  const requestedSite = parseSiteName(req.query.siteName);
+  const siteName = requestedSite && requestedSite !== "all" ? requestedSite : "";
+  const filters: ReportFilterSet = {
+    devices: reportList(req.query.devices),
+    parameters: reportList(req.query.parameters),
+    provenance: reportList(req.query.provenance).filter(reportProvenance),
+    quality: req.query.quality === "validated" || req.query.quality === "source-reported" ? req.query.quality : "all",
+    status: req.query.status === "active" || req.query.status === "warning" || req.query.status === "normal" ? req.query.status : "all",
+  };
+  const reportType = requestedType as ScadaReportType;
+  if (!filters.provenance.length && reportType === "live") filters.provenance = ["live"];
+  if (!filters.provenance.length && reportType === "historical") filters.provenance = ["latest-saved", "historical-saved"];
+  const records: ScadaReportRecord[] = [];
+  const excludedEvidence: Array<{ reason: string; source: string; parameter: string }> = [];
+  const addRecord = (record: ScadaReportRecord) => {
+    if (keepReportRecord(record, reportType, filters)) records.push(record);
+  };
+  const exclude = (reason: string, source: string, parameter: string) => {
+    excludedEvidence.push({ reason, source, parameter });
+  };
+
+  try {
+    const snapshotWhere = and(
+      eq(mqttSnapshotsTable.topic, subscriptionTopic),
+      gte(mqttSnapshotsTable.windowEndedAt, rangeStart),
+      lte(mqttSnapshotsTable.windowStartedAt, rangeEnd),
+    );
+    const [snapshots, measurements, energyRecords, communicationEvents] = await Promise.all([
+      db.select().from(mqttSnapshotsTable).where(snapshotWhere).orderBy(asc(mqttSnapshotsTable.capturedAt)),
+      db.select().from(mqttInverterMeasurementHistoryTable).where(and(
+        eq(mqttInverterMeasurementHistoryTable.topic, subscriptionTopic),
+        ...(siteName ? [eq(mqttInverterMeasurementHistoryTable.siteName, siteName)] : []),
+        gte(mqttInverterMeasurementHistoryTable.observedAt, rangeStart),
+        lte(mqttInverterMeasurementHistoryTable.observedAt, rangeEnd),
+      )).orderBy(asc(mqttInverterMeasurementHistoryTable.observedAt), asc(mqttInverterMeasurementHistoryTable.receivedAt)),
+      db.select().from(mqttInverterEnergyHistoryTable).where(and(
+        eq(mqttInverterEnergyHistoryTable.topic, subscriptionTopic),
+        ...(siteName ? [eq(mqttInverterEnergyHistoryTable.siteName, siteName)] : []),
+        gte(mqttInverterEnergyHistoryTable.observedAt, rangeStart),
+        lte(mqttInverterEnergyHistoryTable.observedAt, rangeEnd),
+      )).orderBy(asc(mqttInverterEnergyHistoryTable.observedAt), asc(mqttInverterEnergyHistoryTable.receivedAt)),
+      db.select().from(mqttCommunicationEventsTable).where(and(
+        eq(mqttCommunicationEventsTable.topic, subscriptionTopic),
+        gte(mqttCommunicationEventsTable.receivedAt, rangeStart),
+        lte(mqttCommunicationEventsTable.receivedAt, rangeEnd),
+      )).orderBy(asc(mqttCommunicationEventsTable.receivedAt)),
+    ]);
+
+    const scopedSnapshots = snapshots.map((snapshot) => ({ snapshot, evidence: snapshotEvidence(snapshot) })).filter(({ evidence }) => {
+      if (!siteName) return true;
+      return evidence.parameters.some((parameter) => (sourceText(parameter, ["site_name", "siteName", "plant_name", "plantName"]) ?? configuredMqttPlantSite) === siteName);
+    });
+    const latestSnapshotId = scopedSnapshots.reduce<number | null>((latest, entry) => {
+      if (latest === null) return entry.snapshot.id;
+      const latestEntry = scopedSnapshots.find((candidate) => candidate.snapshot.id === latest);
+      return latestEntry && latestEntry.snapshot.capturedAt >= entry.snapshot.capturedAt ? latest : entry.snapshot.id;
+    }, null);
+    for (const { snapshot, evidence } of scopedSnapshots) {
+      if (evidence.saveStatus !== "saved") {
+        exclude("Saved snapshot was incomplete or missing.", "Snapshot scheduler", "snapshot");
+        continue;
+      }
+      const provenance: ReportProvenance = snapshot.id === latestSnapshotId ? "latest-saved" : "historical-saved";
+      for (const parameter of evidence.parameters) {
+        const parameterSiteName = sourceText(parameter, ["site_name", "siteName", "plant_name", "plantName"]) ?? configuredMqttPlantSite;
+        if (siteName && parameterSiteName !== siteName) continue;
+        const parameterName = String(parameter.name ?? parameter.parameter ?? "register");
+        const category = reportCategoryForParameter(parameterName);
+        const sourceName = String(parameter.server_name ?? parameter.source ?? "Saved MQTT snapshot");
+        const address = String(parameter.full_addr ?? parameter.address ?? parameter.addr ?? "—");
+        const observedAt = parameterObservationTime(parameter) ?? evidence.scheduledFor;
+        const numeric = numericParameterValue(parameter);
+        const sourceStatus = sourceText(parameter, ["alarmStatus", "alarm_status", "status", "state", "severity"]);
+        const alarm = category === "alarms";
+        const quality = alarm ? "source-reported" as const : sourceExplicitlyValidatesEngineeringValue(parameter) ? "validated" as const : "raw" as const;
+        if (quality === "raw") {
+          exclude("Raw or unvalidated engineering value excluded from report values.", sourceName, parameterName);
+          continue;
+        }
+        addRecord({
+          id: stableReportRecordId({ source: `${snapshot.id}-${sourceName}`, siteName: parameterSiteName, deviceId: sourceText(parameter, ["inverter_id", "inverterId", "device_id", "deviceId"]) ?? null, parameter: parameterName, address, observedAt, receivedAt: evidence.capturedAt, value: numeric }),
+          recordType: alarm ? "alarm" : "snapshot",
+          category,
+          siteName: parameterSiteName,
+          deviceId: sourceText(parameter, ["inverter_id", "inverterId", "device_id", "deviceId"]) ?? null,
+          deviceName: sourceText(parameter, ["inverter_name", "inverterName", "device_name", "deviceName"]) ?? null,
+          parameter: parameterName,
+          displayLabel: sourceText(parameter, ["display_name", "displayName", "label"]) ?? parameterName,
+          value: alarm ? null : numeric,
+          unit: alarm ? "" : String(parameter.engineering_unit ?? parameter.unit ?? "source units"),
+          address,
+          sourceName,
+          observedAt,
+          receivedAt: evidence.capturedAt,
+          provenance,
+          quality,
+          status: sourceStatus ?? null,
+          reason: alarm ? sourceText(parameter, ["reason", "description", "message", "cause"]) ?? "Source-reported alarm/fault evidence." : null,
+        });
+      }
+    }
+
+    for (const sample of measurements) {
+      const category = reportCategoryForMeasurement(sample.measurementKind, sample.parameter);
+      if (sample.scalingStatus !== "validated") {
+        exclude("Raw or unvalidated archived measurement excluded from report values.", sample.sourceName, sample.parameter);
+        continue;
+      }
+      addRecord({
+        id: stableReportRecordId({ source: sample.sourceName, siteName: sample.siteName, deviceId: sample.inverterId, parameter: sample.parameter, address: sample.address, observedAt: sample.observedAt.toISOString(), receivedAt: sample.receivedAt.toISOString(), value: sample.value }),
+        recordType: "measurement",
+        category,
+        siteName: sample.siteName,
+        deviceId: sample.inverterId,
+        deviceName: sample.inverterName,
+        parameter: sample.parameter,
+        displayLabel: sample.displayLabel,
+        value: sample.value,
+        unit: sample.unit,
+        address: sample.address,
+        sourceName: sample.sourceName,
+        observedAt: sample.observedAt.toISOString(),
+        receivedAt: sample.receivedAt.toISOString(),
+        provenance: "historical-saved",
+        quality: "validated",
+        status: null,
+        reason: null,
+      });
+    }
+
+    for (const sample of energyRecords) {
+      if (sample.scalingStatus !== "validated") {
+        exclude("Raw or unvalidated energy record excluded from report values.", sample.sourceName, sample.parameter);
+        continue;
+      }
+      addRecord({
+        id: stableReportRecordId({ source: sample.sourceName, siteName: sample.siteName, deviceId: sample.inverterId, parameter: sample.parameter, address: sample.address, observedAt: sample.observedAt.toISOString(), receivedAt: sample.receivedAt.toISOString(), value: sample.value }),
+        recordType: "energy",
+        category: "energy",
+        siteName: sample.siteName,
+        deviceId: sample.inverterId,
+        deviceName: sample.inverterName,
+        parameter: sample.parameter,
+        displayLabel: sample.parameter,
+        value: sample.value,
+        unit: sample.unit,
+        address: sample.address,
+        sourceName: sample.sourceName,
+        observedAt: sample.observedAt.toISOString(),
+        receivedAt: sample.receivedAt.toISOString(),
+        provenance: "historical-saved",
+        quality: "validated",
+        status: null,
+        reason: null,
+      });
+    }
+
+    for (const event of communicationEvents) {
+      addRecord({
+        id: `communication|${event.id}`,
+        recordType: "communication",
+        category: "communication",
+        siteName: siteName || configuredMqttPlantSite,
+        deviceId: null,
+        deviceName: null,
+        parameter: event.eventType,
+        displayLabel: "Communication event",
+        value: event.durationMs,
+        unit: event.durationMs === null ? "" : "ms",
+        address: "—",
+        sourceName: "MQTT delivery evidence",
+        observedAt: event.receivedAt.toISOString(),
+        receivedAt: event.receivedAt.toISOString(),
+        provenance: "historical-saved",
+        quality: "source-reported",
+        status: event.eventType.includes("gap") || event.eventType.includes("interrupt") ? "warning" : null,
+        reason: event.reason,
+      });
+    }
+
+    if (latestMessage && (filters.provenance.length === 0 || filters.provenance.includes("live"))) {
+      const receivedAt = new Date(latestMessage.receivedAt);
+      const parameter = parameterFromPayload(latestMessage.payload);
+      if (parameter && receivedAt >= rangeStart && receivedAt <= rangeEnd) {
+        const measurement = inverterMeasurementObservationFromParameter(parameter, configuredMqttPlantSite);
+        if (measurement?.scalingStatus === "validated" && (!siteName || measurement.siteName === siteName)) {
+          addRecord({
+            id: stableReportRecordId({ source: measurement.sourceName, siteName: measurement.siteName, deviceId: measurement.inverterId, parameter: measurement.parameter, address: measurement.address, observedAt: measurement.observedAt, receivedAt: latestMessage.receivedAt, value: measurement.value }),
+            recordType: "measurement",
+            category: reportCategoryForMeasurement(measurement.measurementKind, measurement.parameter),
+            siteName: measurement.siteName,
+            deviceId: measurement.inverterId,
+            deviceName: measurement.inverterName,
+            parameter: measurement.parameter,
+            displayLabel: measurement.displayLabel,
+            value: measurement.value,
+            unit: measurement.unit,
+            address: measurement.address,
+            sourceName: measurement.sourceName,
+            observedAt: measurement.observedAt,
+            receivedAt: latestMessage.receivedAt,
+            provenance: "live",
+            quality: "validated",
+            status: null,
+            reason: null,
+          });
+        } else if (parameter) {
+          exclude("Live source value excluded until unit, semantic, and scaling are explicitly validated.", String(parameter.server_name ?? parameter.source ?? "Live MQTT"), String(parameter.name ?? "register"));
+        }
+      }
+    }
+
+    records.sort((left, right) => Date.parse(right.observedAt) - Date.parse(left.observedAt));
+    const numericRecords = records.filter((record) => record.value !== null && record.quality === "validated");
+    const chartSignal = numericRecords[0];
+    const chartPoints = chartSignal
+      ? numericRecords.filter((record) => record.unit === chartSignal.unit && record.parameter === chartSignal.parameter && record.deviceId === chartSignal.deviceId).slice(0, 80).reverse().map((record) => ({
+        time: record.observedAt,
+        value: record.value,
+        label: record.deviceName ?? record.parameter,
+      }))
+      : [];
+    const excludedByReason = [...new Map(excludedEvidence.map((item) => [item.reason, 0])).entries()].map(([reason]) => ({
+      reason,
+      count: excludedEvidence.filter((item) => item.reason === reason).length,
+    }));
+    const alarmRecords = records.filter((record) => record.recordType === "alarm");
+    const communicationRecords = records.filter((record) => record.recordType === "communication");
+    const uniqueDevices = new Set(records.map((record) => record.deviceId).filter(Boolean));
+
+    res.set("Cache-Control", "no-store").json({
+      title: reportTitle(reportType),
+      category: reportType,
+      siteName: siteName || configuredMqttPlantSite,
+      period: { from: rangeStart.toISOString(), to: rangeEnd.toISOString(), label: `${rangeStart.toLocaleDateString("en-GB")} — ${rangeEnd.toLocaleDateString("en-GB")}` },
+      generatedAt: new Date().toISOString(),
+      sourceStatus: latestMessage ? "Live delivery remains active; report preview uses a separate read-only query." : "No current live payload; preview uses saved evidence only.",
+      filters: { ...filters, reportType },
+      summary: [
+        { label: "Validated records", value: records.filter((record) => record.quality === "validated").length, unit: "", detail: "Engineering values with explicit source validation.", quality: "validated" },
+        { label: "Source-reported events", value: records.filter((record) => record.quality === "source-reported").length, unit: "", detail: "Alarms and communication evidence are not engineering conversions.", quality: "source-reported" },
+        { label: "Inverter/device context", value: uniqueDevices.size, unit: "", detail: "Explicitly identified devices in this report.", quality: "validated" },
+        { label: "Excluded evidence", value: excludedEvidence.length, unit: "", detail: "Raw or unvalidated values are retained as exclusion context only.", quality: excludedEvidence.length ? "raw" : "validated" },
+      ],
+      charts: chartPoints.length > 1 ? [{ kind: "line", title: `Validated ${chartSignal.displayLabel} trend`, unit: chartSignal.unit, data: chartPoints }] : [],
+      records,
+      excludedEvidence: { count: excludedEvidence.length, byReason: excludedByReason },
+      alarmSummary: { reported: alarmRecords.length, sourceReported: alarmRecords.length, active: alarmRecords.filter((record) => record.status === "active").length },
+      communicationSummary: { events: communicationRecords.length, warnings: communicationRecords.filter((record) => record.status === "warning").length },
+      qualityNotes: [
+        "Customer-facing report values are shown only when source identity, unit, semantic meaning, and scaling validation are explicit.",
+        "Raw or unvalidated records are not converted, estimated, or shown as report values; they are counted as excluded evidence.",
+        "Live, latest saved, and historical saved provenance are kept distinct for every included record.",
+      ],
+      attribution: "Powered by Automystics Technologies Pvt Ltd.",
+    });
+  } catch (error) {
+    req.log.error({ err: error, reportType, siteName }, "SCADA report query failed");
+    res.status(500).json({ message: "Unable to load the requested report evidence." });
   }
 });
 
