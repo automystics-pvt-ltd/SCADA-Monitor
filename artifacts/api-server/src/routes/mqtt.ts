@@ -533,7 +533,7 @@ router.get("/mqtt/stream", (req, res) => {
   res.flushHeaders();
   listeners.add(res);
   send(res, "status", status());
-  for (const message of messageHistory) send(res, "message", message);
+  for (const message of messageHistory) send(res, "message", { ...message, replay: true });
 
   const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), 20_000);
   req.on("close", () => {
