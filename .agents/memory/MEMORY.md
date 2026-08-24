@@ -8,3 +8,4 @@
 - [Plant location administration](plant-location-administration.md) — Coordinate writes are a global administrator action; site data remains centrally stored and generic.
 - [Versioned SCADA snapshot identity](versioned-scada-snapshot-identity.md) — Keep new 15-minute snapshots idempotent without deleting legacy records.
 - [Live MQTT delivery ordering](live-mqtt-delivery-ordering.md) — Keep SSE identities contiguous and replay both durable and in-memory evidence during asynchronous archival.
+- [Fault guidance provenance](fault-guidance-provenance.md) — Scope code mappings to evidence, preserve raw faults, and never invent unknown-code reasons.

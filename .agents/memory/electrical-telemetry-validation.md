@@ -7,4 +7,4 @@ Do not infer AC electrical values from DC readings, plant totals, nominal freque
 
 **Why:** The live Modbus feed can provide named readings and raw register payloads without declaring that their engineering scaling is approved. Presenting those as confirmed values could mislead operators.
 
-**How to apply:** Keep each discovered reading traceable with its source, register address, raw value, timestamp, and data-quality state. Show raw/unscaled readings as `Raw / Scaling Required`, and use explicit `Data unavailable` or `Validation Required` states rather than filling missing phase, power factor, or frequency values.
+**How to apply:** Keep each discovered reading traceable with its source, register address, raw value, timestamp, and data-quality state. Show raw/unscaled readings as `Raw / Scaling Required`, and use explicit `Data unavailable` or `Validation Required` states rather than filling missing phase, power factor, or frequency values. For analytical views, raw values may appear as current-source snapshots or raw-tag bars, but never as a synthetic historical trend, engineering total, or validated contribution percentage.

@@ -7,11 +7,12 @@ import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
+import { getFaultGuidance, normalizeFaults, telemetryText } from './fault-guidance';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
-  Download, Droplets, Link2, LocateFixed, MapPin, Menu, Play, PlugZap, Radio, RefreshCw, Search, Settings2,
+  Download, Droplets, Grid2X2, LayoutGrid, Link2, LocateFixed, MapPin, Menu, Play, PlugZap, Radio, RefreshCw, Search, Settings2,
   Thermometer, Wind, Wifi, WifiOff, X, Zap, Sun, Moon, Bell, FileText, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 
@@ -245,7 +246,7 @@ const initialDevices: Device[] = [
   },
   {
     id: 'inv-04', name: 'Inverter 04', site: 'South Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 4620,
-    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 0, efficiency: 97.2 }, dc_bus: { voltage_v: 760.8, current_a: 200.0 }, temperature: { cabinet_c: 25.0, heatsink_c: 36.4 }, alarms: [], firmware: 'v3.13.9' },
+    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 0, efficiency: 97.2 }, dc_bus: { voltage_v: 760.8, current_a: 200.0 }, temperature: { cabinet_c: 25.0, heatsink_c: 36.4 }, alarms: [], faults: [{ faultCode: 4, source: 'System information', timestamp: 'Demo stream' }], model: 'SG250HX-IN', firmware: 'v3.13.9' },
   },
   {
     id: 'inv-05', name: 'Inverter 05', site: 'East Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 3880,
@@ -698,7 +699,7 @@ function useModalAccessibility(onClose: () => void, enabled = true) {
   return dialogRef;
 }
 
-function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, theme, onToggleTheme, onRefresh, onExport, onNotifications, now, weather, siteName }: {
+function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, theme, onToggleTheme, onRefresh, onExport, onNotifications, onSettings, now, weather, siteName }: {
   toggleMobileNav: () => void;
   mobileNav: boolean;
   connected: boolean;
@@ -709,6 +710,7 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
   onRefresh: () => void;
   onExport: () => void;
   onNotifications: () => void;
+  onSettings: () => void;
   now: number;
   weather: WeatherState;
   siteName: string;
@@ -745,6 +747,7 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 2xl:hidden">
+        <button type="button" aria-label="Open settings" data-testid="button-open-settings-header" title="Open settings" onClick={onSettings} className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all"><Settings2 size={16} /></button>
         <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
         <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications-compact" title="Open alarms and notifications" onClick={onNotifications} className="relative hidden h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all md:flex"><Bell size={16} /><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#F50057] shadow-[0_0_8px_#F50057]" /></button>
         <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry-mobile" title="Refresh telemetry" onClick={onRefresh} className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all"><RefreshCw size={16} /></button>
@@ -779,6 +782,7 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
         </div>
         
         <div className="flex items-center gap-2 border-l border-[#1E293B] pl-5 ml-2">
+          <button type="button" aria-label="Open settings" data-testid="button-open-settings-header-wide" title="Open settings" onClick={onSettings} className="w-10 h-10 flex items-center justify-center rounded-lg border border-transparent text-slate-400 hover:text-slate-100 hover:bg-[#1E293B] hover:border-[#1E293B]/50 transition-all focus-ring"><Settings2 size={16} /></button>
           <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme-wide" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="w-10 h-10 flex items-center justify-center rounded-lg border border-transparent text-slate-400 hover:text-slate-100 hover:bg-[#1E293B] hover:border-[#1E293B]/50 transition-all focus-ring">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
           <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications" title="Open alarms and notifications" onClick={onNotifications} className="w-10 h-10 flex items-center justify-center rounded-lg border border-transparent text-slate-400 hover:text-slate-100 hover:bg-[#1E293B] hover:border-[#1E293B]/50 transition-all relative focus-ring">
             <Bell size={16} />
@@ -1397,72 +1401,95 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
 }
 
 function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { devices: Device[]; rows: ModbusRow[]; onOpenInverter: (device: Device) => void; onViewAll?: () => void }) {
+  const [view, setView] = useState<'tiles' | 'grid'>('tiles');
   const inverters = devices.filter(d => d.type === 'Power inverter');
   const rawPower = rows.map((row) => electricalKind(row) === 'activePower' ? Number(row.data) : NaN).find(Number.isFinite);
   const sourceInverters = rawInverterSignals(rows);
   const hasUnmappedPowerEvidence = !inverters.length && rawPower !== undefined;
+  const statusLabel = (inverter: Device) => {
+    if (inverter.sourceEvidence?.scalingStatus === 'validated') return 'Validated live';
+    if (inverter.sourceEvidence) return 'Source tag';
+    return inverter.status;
+  };
+  const statusClass = (inverter: Device) => inverter.sourceEvidence?.scalingStatus === 'validated'
+    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+    : inverter.sourceEvidence
+      ? 'border-blue-500/20 bg-blue-500/10 text-blue-300'
+      : inverter.status === 'online'
+        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+        : inverter.status === 'offline'
+          ? 'border-rose-500/20 bg-rose-500/10 text-rose-400'
+          : 'border-amber-500/20 bg-amber-500/10 text-amber-400';
+  const metricValue = (inverter: Device, paths: string[][], unit: string) => {
+    const value = paths.map((path) => numberFrom(inverter, path, NaN)).find(Number.isFinite);
+    return value === undefined ? 'Not reported' : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`;
+  };
+  const powerValue = (inverter: Device) => inverter.sourceEvidence
+    ? `${inverter.sourceEvidence.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${inverter.sourceEvidence.scalingStatus === 'validated' ? inverter.sourceEvidence.unit ?? 'kW' : 'raw'}`
+    : metricValue(inverter, [['power', 'active_kw'], ['power', 'activePower']], 'kW');
+  const dailyEnergyValue = (inverter: Device) => metricValue(inverter, [['energy', 'daily_mwh']], 'MWh');
+  const deviceFaults = (inverter: Device) => normalizeFaults(inverter.telemetry.faults);
+  const deviceAlarms = (inverter: Device) => normalizeFaults(inverter.telemetry.alarms, 'alarm');
+  const deviceIdentity = (inverter: Device) => inverter.sourceEvidence
+    ? `${inverter.sourceEvidence.parameter} · ${inverter.sourceEvidence.address}`
+    : inverter.id;
   return (
     <div className="scada-interactive-card self-start h-fit w-full min-w-0 rounded-xl border border-[#1E293B] bg-[#090B13] p-5">
-      <div className="mb-4 flex items-center justify-between gap-3 border-b border-[#1E293B] pb-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[#1E293B] pb-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="p-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
             <Layers3 size={16} />
           </div>
-          <h3 className="truncate text-sm font-bold tracking-wide text-slate-200 uppercase">Inverter Overview</h3>
+          <div className="min-w-0"><h3 className="truncate text-sm font-bold tracking-wide text-slate-200 uppercase">Inverter fleet</h3><p className="mt-0.5 text-[10px] text-slate-500">Open any device for source evidence and fault guidance.</p></div>
         </div>
-        {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-200 focus-ring rounded-md px-2 py-1 transition-colors bg-[#1E293B]/50 hover:bg-[#1E293B]">View All</button>}
+        <div className="flex items-center gap-2">
+          <div role="group" aria-label="Inverter fleet display mode" className="flex rounded-lg border border-[#1E293B] bg-[#0b0f19] p-1">
+            <button type="button" onClick={() => setView('tiles')} aria-pressed={view === 'tiles'} data-testid="button-inverter-view-tiles" title="Show informative inverter tiles" className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide focus-ring ${view === 'tiles' ? 'bg-blue-500/15 text-blue-300' : 'text-slate-500 hover:text-slate-200'}`}><Grid2X2 size={13} />Tiles</button>
+            <button type="button" onClick={() => setView('grid')} aria-pressed={view === 'grid'} data-testid="button-inverter-view-grid" title="Show informative inverter grid" className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide focus-ring ${view === 'grid' ? 'bg-blue-500/15 text-blue-300' : 'text-slate-500 hover:text-slate-200'}`}><LayoutGrid size={13} />Grid</button>
+          </div>
+          {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-200 focus-ring rounded-md px-2 py-1 transition-colors bg-[#1E293B]/50 hover:bg-[#1E293B]">View All</button>}
+        </div>
       </div>
-      
-      <div className="max-w-full overflow-x-auto overflow-y-visible scrollbar-thin pr-1">
-        <table className="w-full max-w-none text-left border-collapse">
-          <thead>
-            <tr className="border-b-2 border-[#1E293B]">
-              <th className="py-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 w-[20%]">Inv</th>
-              <th className="py-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 w-[30%]">Status</th>
-              <th className="py-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 w-[25%]">Power</th>
-              <th className="py-2.5 text-right text-[10px] font-bold uppercase tracking-widest text-slate-500 w-[25%]">Temp</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#1E293B]/60">
-               {inverters.length ? inverters.map(inv => {
-                 const temp = numberFrom(inv, ['temperature', 'cabinet_c'], NaN);
-                 const hasTemp = Number.isFinite(temp);
-                 const tempPercent = hasTemp ? Math.min(100, Math.max(0, (temp - 20) / 40 * 100)) : 0;
-                 const tempColor = temp > 50 ? 'bg-rose-500' : temp > 40 ? 'bg-amber-500' : 'bg-emerald-500';
-                  const validatedSource = inv.sourceEvidence?.scalingStatus === 'validated';
-                 return (
-                <tr key={inv.id} data-testid={`row-inverter-${inv.id}`} role="button" tabIndex={0} aria-label={`Open details for ${inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}`} onClick={() => onOpenInverter(inv)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenInverter(inv); } }} className="scada-table-row scada-inverter-row cursor-pointer transition-all hover:bg-[#1E293B]/40 focus-visible:bg-[#1E293B]/40 focus-visible:outline-none group">
-                  <td className="py-3 text-[12px] font-bold text-slate-300 group-hover:text-blue-400 transition-colors"><span className="rounded text-left uppercase tracking-wider">{inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}</span></td>
-                <td className="py-3">
-                   {inv.sourceEvidence ? <span className={`inline-flex rounded-md px-2 py-1 text-[9px] font-bold uppercase tracking-widest border ${validatedSource ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>{validatedSource ? 'Validated live' : 'Source tag'}</span> : <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest border ${inv.status === 'online' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : inv.status === 'offline' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
-                     <span className={`scada-status-indicator w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor] ${inv.status === 'online' ? 'bg-emerald-400 pulse-soft' : inv.status === 'offline' ? 'bg-rose-400' : 'bg-amber-400'}`} />
-                     {inv.status}
-                   </span>}
-                </td>
-                   <td className="py-3 text-[12px] font-bold text-slate-300 mono">{inv.sourceEvidence ? `${inv.sourceEvidence.value.toLocaleString()} ${validatedSource ? inv.sourceEvidence.unit ?? 'kW' : 'raw'}` : Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : <span className="text-slate-500 font-sans">N/A</span>}</td>
-                  <td className="py-3 text-right">
-                    {inv.sourceEvidence ? <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Not reported</span> : hasTemp ? (
-                      <div className="flex flex-col items-end gap-1.5">
-                        <span className="text-[12px] font-bold text-slate-300 mono">{temp}°C</span>
-                        <div className="w-16 h-1 rounded-full bg-[#1E293B] overflow-hidden">
-                          <div className={`h-full rounded-full ${tempColor}`} style={{ width: `${tempPercent}%` }} />
-                        </div>
-                      </div>
-                    ) : <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">N/A</span>}
-                  </td>
-              </tr>
-              );
-              }) : sourceInverters.length ? sourceInverters.map((signal) => (
-                <tr key={signal.parameter} data-testid={`row-source-inverter-${signal.parameter}`} className="scada-table-row hover:bg-[#1E293B]/40 transition-colors">
-                  <td className="py-3 text-[12px] font-bold text-slate-300 tracking-wider">{signal.parameter.toUpperCase()}</td>
-                  <td className="py-2"><span className="inline-flex rounded-full bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-blue-300">Source tag</span></td>
-                  <td className="py-2 text-[11px] text-slate-300">{signal.value.toLocaleString()} raw</td>
-                  <td className="py-2 text-right text-[11px] text-slate-500">Not reported</td>
-                </tr>
-              )) : hasUnmappedPowerEvidence ? <tr data-testid="row-unmapped-inverter-evidence"><td className="py-2.5 text-[11px] font-medium text-slate-300">Unmapped active-power register</td><td className="py-2.5"><span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-400">Unmapped</span></td><td className="py-2.5 text-[11px] text-slate-300">{rawPower.toLocaleString()} raw</td><td className="py-2.5 text-right text-[11px] text-slate-500">Not reported</td></tr> : <tr><td colSpan={4} className="py-8 text-center text-xs text-slate-500">No inverter source tags have been discovered yet.</td></tr>}
-          </tbody>
+      {inverters.length && view === 'tiles' && <div data-testid="inverter-fleet-tiles" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {inverters.map((inverter) => {
+          const faults = deviceFaults(inverter);
+          const alarms = deviceAlarms(inverter);
+          const hasIssue = faults.length > 0 || alarms.length > 0;
+          return <button key={inverter.id} type="button" data-testid={`card-inverter-${inverter.id}`} onClick={() => onOpenInverter(inverter)} className="group min-w-0 rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-500/35 hover:bg-[#111827] focus-ring">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><h4 className="truncate text-sm font-bold text-slate-100 group-hover:text-blue-300">{inverter.name}</h4><p className="mt-1 truncate font-mono text-[10px] text-slate-500" title={deviceIdentity(inverter)}>{deviceIdentity(inverter)}</p></div>
+              <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}>{statusLabel(inverter)}</span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 overflow-hidden rounded-lg border border-[#1E293B] bg-[#090B13]">
+              <div className="min-w-0 border-r border-[#1E293B] px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Daily generation</p><p className="mt-1 truncate font-mono text-sm font-bold text-slate-200">{dailyEnergyValue(inverter)}</p></div>
+              <div className="min-w-0 px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Active power</p><p className={`mt-1 truncate font-mono text-sm font-bold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-300' : 'text-slate-200'}`}>{powerValue(inverter)}</p></div>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3 text-[10px]">
+              <span className={`rounded-full px-2 py-1 font-bold ${hasIssue ? 'bg-rose-500/10 text-rose-300' : 'bg-emerald-500/10 text-emerald-400'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span>
+              <span className="font-semibold text-slate-500 group-hover:text-blue-300">View details →</span>
+            </div>
+          </button>;
+        })}
+      </div>}
+      {inverters.length && view === 'grid' && <div data-testid="inverter-fleet-grid" className="max-w-full overflow-x-auto scrollbar-thin">
+        <table className="min-w-[880px] w-full text-left">
+          <thead className="border-b border-[#1E293B] text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-3">Inverter</th><th className="px-3 py-3">Reporting state</th><th className="px-3 py-3">Daily generation</th><th className="px-3 py-3">Active power</th><th className="px-3 py-3">Alarm / fault</th><th className="px-3 py-3 text-right">Details</th></tr></thead>
+          <tbody className="divide-y divide-[#1E293B]/70">{inverters.map((inverter) => {
+            const faults = deviceFaults(inverter);
+            const alarms = deviceAlarms(inverter);
+            const hasIssue = faults.length > 0 || alarms.length > 0;
+            return <tr key={inverter.id} data-testid={`row-inverter-${inverter.id}`} role="button" tabIndex={0} aria-label={`Open details for ${inverter.name}`} onClick={() => onOpenInverter(inverter)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenInverter(inverter); } }} className="scada-table-row scada-inverter-row cursor-pointer hover:bg-[#1E293B]/40 focus-visible:bg-[#1E293B]/40 focus-visible:outline-none">
+              <td className="px-3 py-3"><p className="font-semibold text-slate-200">{inverter.name}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{deviceIdentity(inverter)}</p></td>
+              <td className="px-3 py-3"><span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}>{statusLabel(inverter)}</span></td>
+              <td className="px-3 py-3 font-mono text-xs font-semibold text-slate-300">{dailyEnergyValue(inverter)}</td>
+              <td className={`px-3 py-3 font-mono text-xs font-semibold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-300' : 'text-slate-300'}`}>{powerValue(inverter)}</td>
+              <td className="px-3 py-3"><span className={`text-xs font-semibold ${hasIssue ? 'text-rose-300' : 'text-emerald-400'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span></td>
+              <td className="px-3 py-3 text-right text-xs font-semibold text-blue-300">Open →</td>
+            </tr>;
+          })}</tbody>
         </table>
-      </div>
+      </div>}
+      {!inverters.length && <div className="rounded-lg border border-dashed border-[#1E293B] px-4 py-8 text-center text-xs text-slate-500">{sourceInverters.length ? 'Source inverter tags are available but have not been mapped into device cards yet.' : hasUnmappedPowerEvidence ? `Unmapped active-power evidence: ${rawPower.toLocaleString()} raw` : 'No inverter source tags have been discovered yet.'}</div>}
       
       <div className="mt-1 flex items-center gap-3 border-t border-[#1E293B] pt-2.5 text-[10px] text-slate-400">
         <span className="uppercase tracking-wider font-semibold">Total Today</span>
@@ -1507,12 +1534,29 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel }: { mo
          <span className={`text-4xl font-bold tracking-tighter mono ${mode === 'demo' || hasVerifiedValue || hasRawValue ? 'text-slate-100' : 'text-slate-500'}`}>{displayValue}</span> <span className="text-[12px] font-bold text-slate-500 uppercase tracking-widest ml-2">{displayUnit}</span>
       </div>
       <div className="flex-1 min-h-[160px] relative z-10">
-         {data.length ? <ResponsiveContainer width="100%" height="100%">
+          {data.length ? <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
             <Tooltip cursor={{ fill: 'rgba(37, 99, 235, 0.15)' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${value} MWh`, 'Energy']} />
             <Bar dataKey="value" fill="#2563EB" radius={[4, 4, 0, 0]} activeBar={{ fill: '#3B82F6', stroke: '#60A5FA', strokeWidth: 1 }} />
           </BarChart>
-         </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">{hasRawValue ? <>Current source value is shown above<br /><span className="text-[10px]">A historical energy series is not available for this view.</span></> : <>Data unavailable<br /><span className="text-[10px]">This dashboard has no source-backed energy history.</span></>}</div>}
+          </ResponsiveContainer> : hasRawValue ? (
+            <div data-testid="panel-energy-raw-snapshot" className="flex h-full min-h-[140px] flex-col justify-center gap-4 rounded-lg border border-dashed border-blue-500/30 bg-blue-500/[0.03] px-5">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-blue-400">Raw source snapshot</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Historical energy series is not available for this view.</p>
+                </div>
+                <span className="font-mono text-sm font-bold text-blue-300">{displayValue} <span className="text-[10px] uppercase tracking-widest text-slate-500">{displayUnit}</span></span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-blue-500/10">
+                <div className="h-full w-full rounded-full bg-blue-500/50" />
+              </div>
+              <div className="flex flex-wrap justify-between gap-2 text-[10px] text-slate-500">
+                <span>Register {rawFallback?.inputs[0]?.address ?? '—'}</span>
+                <span>Scaling required · current value only</span>
+              </div>
+            </div>
+          ) : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">This dashboard has no source-backed energy history.</span></div>}
       </div>
       <div className="flex justify-between text-[10px] font-bold tracking-widest text-slate-500 mt-4 mono relative z-10">
         <span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span>
@@ -1652,7 +1696,7 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
   if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Search, sort, filter, and export the latest Modbus telemetry while preserving raw values, timestamps, and source provenance." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
   if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={workspaceRawFallbacks.dailyEnergy} savedLabel={workspaceSavedLabel} /><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><div className="xl:col-span-2"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} rawInverters={workspaceRawInverters} validatedFleet={validatedFleet} mode={mode} savedLabel={workspaceSavedLabel} onOpenInverter={(record) => onOpenInverter(sourceBackedInverterDevice(record, siteName))} /></div></div></div>;
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
-  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
+  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><InverterFaultBoard devices={devices} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
   if (section === 'raw-data') return <div data-testid="screen-reports"><WorkspaceHeader eyebrow="Reporting" title="Reports & raw evidence" description="Create a client-ready view of verified KPI calculations alongside the original payload, filters, timestamps, and export controls." action={<span className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300">Traceable evidence</span>} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
   return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} /></div></div>;
 }
@@ -1689,7 +1733,7 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
          <span className={`text-4xl font-bold tracking-tighter mono ${mode === 'demo' || hasVerifiedValue || hasRawValue ? 'text-slate-100' : 'text-slate-500'}`}>{displayValue}</span> <span className="text-[12px] font-bold text-slate-500 uppercase tracking-widest ml-2">{displayUnit}</span>
       </div>
       <div className="flex-1 min-h-[160px] relative z-10">
-        {data.length ? <ResponsiveContainer width="100%" height="100%">
+         {data.length ? <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={powerTrendByRange[range]} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="colorPower" x1="0" y1="0" x2="0" y2="1">
@@ -1702,7 +1746,24 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
             <Tooltip cursor={{ stroke: '#FF5C00', strokeDasharray: '3 3', strokeWidth: 1.5 }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`, 'Plant power']} labelFormatter={(label) => `${range === 'today' ? 'Time' : 'Period'}: ${label}`} />
             <Area type="monotone" dataKey="power" stroke="#FF5C00" strokeWidth={3} fillOpacity={1} fill="url(#colorPower)" activeDot={{ r: 6, stroke: '#090B13', strokeWidth: 3, fill: '#FF5C00' }} isAnimationActive={false} />
          </AreaChart>
-         </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">{hasRawValue ? <>Current source value is shown above<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></> : <>Data unavailable<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></>}</div>}
+          </ResponsiveContainer> : hasRawValue ? (
+            <div data-testid="panel-power-raw-snapshot" className="flex h-full min-h-[140px] flex-col justify-center gap-4 rounded-lg border border-dashed border-orange-500/30 bg-orange-500/[0.03] px-5">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-orange-400">Raw source snapshot</p>
+                  <p className="mt-1 text-[11px] text-slate-500">A persisted power series is not available for this view.</p>
+                </div>
+                <span className="font-mono text-sm font-bold text-orange-300">{displayValue} <span className="text-[10px] uppercase tracking-widest text-slate-500">{displayUnit}</span></span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-orange-500/10">
+                <div className="h-full w-full rounded-full bg-orange-500/50" />
+              </div>
+              <div className="flex flex-wrap justify-between gap-2 text-[10px] text-slate-500">
+                <span>Register {rawFallback?.inputs[0]?.address ?? '—'}</span>
+                <span>Scaling required · current value only</span>
+              </div>
+            </div>
+          ) : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></div>}
       </div>
       <div className="flex justify-between text-[10px] font-bold text-slate-500 mt-4 mono tracking-widest relative z-10">
         <span>00:00</span>
@@ -1772,6 +1833,13 @@ function PowerDistributionChart({ inverters, rawInverters = [], validatedFleet, 
     sourceName: inverter.record?.sourceName,
     address: inverter.record?.address,
   })) : [];
+  const rawDistributionData = distributionData.length || mode === 'demo'
+    ? []
+    : rawInverters
+      .filter((metric) => Number.isFinite(metric.value) && metric.value > 0)
+      .map((metric) => ({ ...metric, value: metric.value }))
+      .sort((left, right) => right.value - left.value);
+  const rawTotalPower = rawDistributionData.reduce((sum, metric) => sum + metric.value, 0);
   return (
     <div className="scada-chart-surface bg-[#090B13] border border-[#1E293B] rounded-xl p-6 flex flex-col h-full relative overflow-hidden group">
       <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
@@ -1779,7 +1847,7 @@ function PowerDistributionChart({ inverters, rawInverters = [], validatedFleet, 
         <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
           <Activity size={16} />
         </div>
-        <div><h3 className="text-sm font-bold tracking-wide text-slate-200 uppercase">Power Distribution</h3><p className="mt-1 text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration allocation' : 'Fresh validated active-power contribution only'}</p></div>
+        <div><h3 className="text-sm font-bold tracking-wide text-slate-200 uppercase">Power Distribution</h3><p className="mt-1 text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration allocation' : distributionData.length ? 'Fresh validated active-power contribution' : rawDistributionData.length ? 'Latest raw inverter tags · scaling required' : 'Fresh validated active-power contribution only'}</p></div>
       </div>
       
       <div className="flex-1 flex flex-col md:flex-row items-center gap-8 relative z-10">
@@ -1797,7 +1865,13 @@ function PowerDistributionChart({ inverters, rawInverters = [], validatedFleet, 
                 return <div className="rounded-lg border border-[#334155] bg-[#0f1423] px-3 py-2 text-[11px] shadow-xl"><p className="font-bold text-slate-100">{entry.name}</p><p className="mt-1 font-mono text-emerald-300">{entry.rawPower.toLocaleString(undefined, { maximumFractionDigits: 2 })} kW · {entry.value.toFixed(1)}%</p>{entry.record && <><p className="mt-1 text-slate-400">Source: {entry.sourceName} · {entry.address}</p><p className="text-slate-400">Timestamp: {entry.sourceTimestamp}</p><p className="text-emerald-300">Live · scaling validated · active power</p></>}</div>;
               }} />
             </PieChart>
-          </ResponsiveContainer> : <div className="flex h-full w-full items-center justify-center rounded-full border-2 border-dashed border-[#1E293B] px-5 text-center text-xs leading-5 text-slate-500">{mode === 'demo' ? 'No demo inverter output' : 'Validated inverter contribution unavailable'}</div>}
+          </ResponsiveContainer> : rawDistributionData.length ? (
+            <div data-testid="panel-inverter-raw-distribution" className="flex h-full w-full flex-col items-center justify-center rounded-full border-2 border-dashed border-amber-500/30 bg-amber-500/[0.03] px-5 text-center">
+              <span className="font-mono text-2xl font-bold text-amber-300">{rawTotalPower.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+              <span className="mt-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">raw total</span>
+              <span className="mt-3 max-w-[130px] text-[10px] leading-4 text-slate-500">Source tags are visible below; contribution percentages require scaling validation.</span>
+            </div>
+          ) : <div className="flex h-full w-full items-center justify-center rounded-full border-2 border-dashed border-[#1E293B] px-5 text-center text-xs leading-5 text-slate-500">{mode === 'demo' ? 'No demo inverter output' : 'Validated inverter contribution unavailable'}</div>}
           {distributionData.length > 0 && <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <span className="text-3xl font-bold text-slate-100 mono tracking-tighter">{(totalPower / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mt-1">MW Total</span>
@@ -1813,10 +1887,23 @@ function PowerDistributionChart({ inverters, rawInverters = [], validatedFleet, 
               </div>
                <span className="text-slate-300 font-bold mono shrink-0">{entry.value.toFixed(1)}%</span>
             </button>
-            )) : <p className="text-[11px] leading-5 text-slate-500">{mode === 'demo' ? 'Demo inverter power will appear here.' : `Contribution is withheld until fresh inverter records declare identity, active-power semantics, engineering units, and scaling validation. ${validatedFleet?.excluded.length ? `${validatedFleet.excluded.length} raw, stale, saved, replayed, or incompletely mapped record${validatedFleet.excluded.length === 1 ? '' : 's'} remain excluded.` : rawInverters.length ? `${rawInverters.length} raw inverter tag${rawInverters.length === 1 ? '' : 's'} remain available in source evidence.` : 'No inverter tags are currently available.'}`}</p>}
+             )) : rawDistributionData.length ? rawDistributionData.map((entry, i) => (
+               <div key={`${entry.parameter}-${entry.address}`} data-testid={`row-raw-inverter-contribution-${entry.parameter}`} className="space-y-1.5 rounded-md px-1.5 py-1.5">
+                 <div className="flex items-center justify-between gap-3 text-[11px]">
+                   <div className="flex min-w-0 items-center gap-3">
+                     <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                     <span className="truncate font-semibold text-slate-400">{entry.parameter}</span>
+                   </div>
+                   <span className="shrink-0 font-mono font-bold text-amber-300">{entry.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} raw</span>
+                 </div>
+                 <div className="h-1.5 overflow-hidden rounded-full bg-amber-500/10">
+                   <div className="h-full rounded-full bg-amber-500/60" style={{ width: `${rawTotalPower > 0 ? entry.value / rawTotalPower * 100 : 0}%` }} />
+                 </div>
+               </div>
+             )) : <p className="text-[11px] leading-5 text-slate-500">{mode === 'demo' ? 'Demo inverter power will appear here.' : `Contribution is withheld until fresh inverter records declare identity, active-power semantics, engineering units, and scaling validation. ${validatedFleet?.excluded.length ? `${validatedFleet.excluded.length} raw, stale, saved, replayed, or incompletely mapped record${validatedFleet.excluded.length === 1 ? '' : 's'} remain excluded.` : rawInverters.length ? `${rawInverters.length} raw inverter tag${rawInverters.length === 1 ? '' : 's'} remain available in source evidence.` : 'No inverter tags are currently available.'}`}</p>}
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[#1E293B]/50 pt-3 text-[10px] text-slate-500"><span>{mode === 'live' ? 'Legend: live source · kW · active power · scaling validated' : 'Legend: demonstration values'}</span>{savedLabel && <span className="font-bold tracking-widest">LAST SAVED EXCLUDED: {savedLabel}</span>}</div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[#1E293B]/50 pt-3 text-[10px] text-slate-500"><span>{mode === 'live' ? distributionData.length ? 'Legend: live source · kW · active power · scaling validated' : 'Legend: raw source tags · scaling required' : 'Legend: demonstration values'}</span>{savedLabel && <span className="font-bold tracking-widest">LAST SAVED EXCLUDED: {savedLabel}</span>}</div>
     </div>
   );
 }
@@ -2032,6 +2119,36 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel }: { 
       </div>
     </div>
   );
+}
+
+function InverterFaultBoard({ devices, onOpenInverter }: { devices: Device[]; onOpenInverter: (device: Device) => void }) {
+  const reports = devices.filter((device) => device.type === 'Power inverter').flatMap((device) => [
+    ...normalizeFaults(device.telemetry.faults).map((fault) => ({ device, kind: 'Fault' as const, fault })),
+    ...normalizeFaults(device.telemetry.alarms, 'alarm').map((fault) => ({ device, kind: 'Alarm' as const, fault })),
+  ]);
+  return <section data-testid="panel-inverter-faults" className="scada-interactive-card rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1E293B] pb-4">
+      <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-300">Inverter fault monitor</p><h2 className="mt-1 text-sm font-bold text-slate-100">Reported alarms by inverter</h2><p className="mt-1 text-xs leading-5 text-slate-400">Expand a report to review the fault code, raw evidence, mapped reason, and suggested operator checks.</p></div>
+      <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${reports.length ? 'bg-rose-500/10 text-rose-300' : 'bg-emerald-500/10 text-emerald-400'}`}>{reports.length ? `${reports.length} reported` : 'No reports'}</span>
+    </div>
+    {reports.length ? <div className="mt-4 grid gap-3 lg:grid-cols-2">{reports.map(({ device, kind, fault }) => {
+      const model = telemetryText(device.telemetry, ['model', 'deviceModel', 'device_model', 'modelName']) ?? undefined;
+      const guidance = getFaultGuidance(fault, model);
+      const mappingLabel = guidance.mapping === 'source-reported' ? 'Source reason' : guidance.mapping === 'reference-mapped' ? 'Reference mapping' : 'Reason not mapped';
+      return <details key={`${device.id}-${kind}-${fault.id}`} className="group rounded-xl border border-rose-500/20 bg-rose-500/[0.04]">
+        <summary className="flex cursor-pointer list-none items-start justify-between gap-3 px-3.5 py-3 marker:content-none focus-ring">
+          <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-300">{kind}</span><span className="text-[10px] font-semibold text-slate-400">{device.name}</span></div><p className="mt-2 truncate text-xs font-bold text-slate-100">{guidance.title}</p><p className="mt-1 truncate font-mono text-[10px] text-slate-500">{fault.code ? `Code ${fault.code}` : 'Code not reported'} · {fault.source}</p></div>
+          <span className="shrink-0 text-[10px] font-semibold text-rose-300 group-open:hidden">Review</span><span className="hidden shrink-0 text-[10px] font-semibold text-rose-300 group-open:inline">Close</span>
+        </summary>
+        <div className="border-t border-rose-500/15 px-3.5 py-3 text-xs leading-5 text-slate-300">
+          <div className="grid gap-2 sm:grid-cols-2"><div><p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Fault reason</p><p className="mt-1">{guidance.reason}</p></div><div><p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Observed</p><p className="mt-1">{fault.observedAt ?? 'Not reported'}</p></div></div>
+          <div className="mt-3 rounded-lg border border-amber-500/15 bg-amber-500/[0.04] px-3 py-2"><p className="text-[9px] font-bold uppercase tracking-wider text-amber-300">{mappingLabel}</p><p className="mt-1 text-[10px] leading-4 text-amber-100/70">{guidance.scope}</p></div>
+          <ol className="mt-3 list-decimal space-y-1 pl-4 text-[11px] leading-5">{guidance.suggestions.map((suggestion) => <li key={suggestion}>{suggestion}</li>)}</ol>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-rose-500/15 pt-3"><span className="max-w-full break-all font-mono text-[10px] text-slate-500" title={fault.rawValue}>Evidence: {fault.rawValue}</span><button type="button" onClick={() => onOpenInverter(device)} className="shrink-0 rounded-md border border-blue-500/25 bg-blue-500/10 px-2.5 py-1.5 text-[10px] font-bold text-blue-300 hover:bg-blue-500/15 focus-ring">Open {device.name}</button></div>
+        </div>
+      </details>;
+    })}</div> : <div className="mt-4 rounded-lg border border-dashed border-[#1E293B] px-4 py-8 text-center text-xs leading-5 text-slate-500">No inverter alarm or fault arrays are currently reporting an active issue.<br /><span className="text-[10px]">Missing source fields remain visible as “not reported” inside the device detail view.</span></div>}
+  </section>;
 }
 
 function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persistence: PersistenceStatus }) {
@@ -2365,8 +2482,8 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   
   return (
     <>
-      <button type="button" aria-label="Close broker settings" onClick={onClose} className="fixed inset-0 z-40 bg-[#0b0f19]/80 backdrop-blur-sm cursor-default" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="scada-safe-drawer fixed right-0 top-0 z-50 flex h-[100dvh] min-h-0 w-full max-w-[min(400px,100vw)] flex-col border-l border-[#1E293B] bg-[#090B13] shadow-2xl">
+      <button type="button" aria-label="Close broker settings" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-slate-950/55 backdrop-blur-[2px]" />
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="scada-safe-drawer fixed right-0 top-0 z-50 flex h-[100dvh] min-h-0 w-[min(88vw,400px)] max-w-[400px] flex-col border-l border-[#1E293B] bg-[#090B13] shadow-2xl">
         <div className="scada-safe-drawer-header flex items-center justify-between border-b border-[#1E293B] px-4 py-5 sm:px-6">
           <div>
             <h2 id="telemetry-settings-title" className="text-lg font-bold text-slate-100 tracking-tight">Settings</h2>
@@ -3013,7 +3130,7 @@ function AppShell() {
   const selectedInverter = useMemo(() => selectedInverterId ? inverterDisplayDevices.find((device) => device.id === selectedInverterId) ?? null : null, [inverterDisplayDevices, selectedInverterId]);
   const onlineInverters = electricalLiveState === 'fresh' ? inverters.filter(d => d.status === 'online').length : 0;
   const totalInverters = inverters.length;
-  const activeAlarms = useMemo(() => operationalDevices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0), 0), [operationalDevices]);
+  const activeAlarms = useMemo(() => operationalDevices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0) + (Array.isArray(d.telemetry.faults) ? d.telemetry.faults.length : 0), 0), [operationalDevices]);
   const alarmTelemetryReported = useMemo(() => operationalDevices.some((device) => Array.isArray(device.telemetry.alarms)), [operationalDevices]);
   const rawKpis = useMemo(() => ({
     activePower: latestRawMetric(dashboardEvidenceRows, ['actpow']),
@@ -3147,7 +3264,7 @@ function AppShell() {
       <Sidebar onSettings={() => { setMobileNav(false); setSettingsOpen(true); }} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} activeSection={activeSection} onNavigate={navigateTo} collapsed={navigationCollapsed} onToggleCollapse={() => setNavigationCollapsed((current) => !current)} />
       
       <div className="scada-content-scroll flex h-full min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
-        <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} now={now} weather={weatherState} siteName={plantSiteName} />
+        <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} onSettings={() => setSettingsOpen(true)} now={now} weather={weatherState} siteName={plantSiteName} />
         
         <main className="min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-6">
           {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}

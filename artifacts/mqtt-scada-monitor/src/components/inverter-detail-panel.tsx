@@ -4,6 +4,7 @@ import {
   CloudSun, Cpu, Factory, Gauge, Info, MapPin, Power, Thermometer, X, Zap,
 } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { getFaultGuidance, normalizeFaults, telemetryText, type FaultEvidence } from '../fault-guidance';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type DeviceStatus = 'online' | 'stale' | 'offline';
@@ -48,6 +49,25 @@ type EnergyHistorySample = {
   inverterId: string;
   inverterName: string;
   parameter: string;
+  value: number;
+  rawValue: string;
+  unit: string;
+  address: string;
+  sourceName: string;
+  observedAt: string;
+  receivedAt: string;
+  scalingStatus: 'validated' | 'raw';
+  sourcePayload: string;
+};
+
+type MeasurementSample = {
+  id: number;
+  siteName: string;
+  inverterId: string;
+  inverterName: string;
+  parameter: string;
+  displayLabel?: string;
+  measurementKind: 'active-power' | 'dc-power' | 'energy' | 'electrical' | 'other';
   value: number;
   rawValue: string;
   unit: string;
@@ -333,6 +353,28 @@ function MetricCard({ icon: Icon, label, metric, detail }: { icon: typeof Zap; l
   </div>;
 }
 
+function FaultEvidenceList({ title, items, deviceModel, emptyMessage }: { title: string; items: FaultEvidence[]; deviceModel: string | null; emptyMessage: string }) {
+  return <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
+    <div className="flex items-center justify-between gap-3">
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><h3 className="mt-1 text-sm font-bold text-slate-100">{items.length ? `${items.length} reported ${title.toLowerCase().slice(0, -1)}${items.length === 1 ? '' : 's'}` : `No active ${title.toLowerCase()} reported`}</h3></div>
+      <CircleAlert size={20} className={items.length ? 'text-rose-400' : 'text-emerald-400'} />
+    </div>
+    {items.length ? <div className="mt-4 space-y-2">{items.map((item) => {
+      const guidance = getFaultGuidance(item, deviceModel ?? undefined);
+      const mappingLabel = guidance.mapping === 'source-reported' ? 'Source reason' : guidance.mapping === 'reference-mapped' ? 'Reference mapping' : 'Reason not mapped';
+      return <details key={item.id} className="group rounded-xl border border-rose-500/20 bg-rose-500/[0.04]">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 marker:content-none focus-ring"><div className="min-w-0"><p className="truncate text-xs font-bold text-rose-200">{guidance.title}</p><p className="mt-1 truncate font-mono text-[10px] text-rose-200/70">{item.code ? `Code ${item.code}` : 'No code reported'} · {item.source}</p></div><span className="shrink-0 text-[10px] font-semibold text-rose-300 group-open:hidden">Details</span><span className="hidden shrink-0 text-[10px] font-semibold text-rose-300 group-open:inline">Hide</span></summary>
+        <div className="border-t border-rose-500/15 px-3 py-3 text-xs leading-5 text-slate-300">
+          <dl className="grid gap-2 sm:grid-cols-2"><div><dt className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Alarm source</dt><dd className="mt-0.5 break-words">{item.source}</dd></div><div><dt className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Observed</dt><dd className="mt-0.5 break-words">{item.observedAt ?? 'Not reported'}</dd></div><div className="sm:col-span-2"><dt className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Fault reason</dt><dd className="mt-0.5">{guidance.reason}</dd></div></dl>
+          <div className="mt-3 rounded-lg border border-amber-500/15 bg-amber-500/[0.04] px-3 py-2"><p className="text-[9px] font-bold uppercase tracking-wider text-amber-300">{mappingLabel}</p><p className="mt-1 text-[10px] leading-4 text-amber-100/70">{guidance.scope}</p></div>
+          <div className="mt-3"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Operator suggestions</p><ol className="mt-2 list-decimal space-y-1 pl-4 text-[11px] leading-5 text-slate-300">{guidance.suggestions.map((suggestion) => <li key={suggestion}>{suggestion}</li>)}</ol></div>
+          <details className="mt-3 rounded-lg bg-[#0b0f19]"><summary className="cursor-pointer px-2.5 py-2 text-[10px] font-semibold text-slate-400">Source evidence</summary><p className="break-all border-t border-[#1e293b] px-2.5 py-2 font-mono text-[10px] text-slate-400">{item.rawValue}</p></details>
+        </div>
+      </details>;
+    })}</div> : <p className="mt-4 text-xs leading-5 text-slate-500">{emptyMessage}</p>}
+  </section>;
+}
+
 function dateLabel(date: Date) {
   return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
 }
@@ -419,12 +461,43 @@ function validEnergyHistory(value: unknown): EnergyHistorySample[] {
   });
 }
 
+function validMeasurements(value: unknown): MeasurementSample[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const sample = item as Record<string, unknown>;
+    const id = typeof sample.id === 'number' ? sample.id : Number(sample.id);
+    const numeric = typeof sample.value === 'number' ? sample.value : Number(sample.value);
+    if (!Number.isInteger(id) || !Number.isFinite(numeric) || typeof sample.observedAt !== 'string' || typeof sample.parameter !== 'string') return [];
+    return [{
+      id,
+      siteName: typeof sample.siteName === 'string' ? sample.siteName : 'Selected site',
+      inverterId: typeof sample.inverterId === 'string' ? sample.inverterId : '',
+      inverterName: typeof sample.inverterName === 'string' ? sample.inverterName : 'Selected inverter',
+      parameter: sample.parameter,
+      displayLabel: typeof sample.displayLabel === 'string' ? sample.displayLabel : undefined,
+      measurementKind: ['active-power', 'dc-power', 'energy', 'electrical', 'other'].includes(sample.measurementKind as string) ? sample.measurementKind as any : 'other',
+      value: numeric,
+      rawValue: typeof sample.rawValue === 'string' ? sample.rawValue : String(sample.value),
+      unit: typeof sample.unit === 'string' ? sample.unit : '',
+      address: typeof sample.address === 'string' ? sample.address : '—',
+      sourceName: typeof sample.sourceName === 'string' ? sample.sourceName : 'MQTT source',
+      observedAt: sample.observedAt,
+      receivedAt: typeof sample.receivedAt === 'string' ? sample.receivedAt : sample.observedAt,
+      scalingStatus: sample.scalingStatus === 'validated' ? 'validated' : 'raw',
+      sourcePayload: typeof sample.sourcePayload === 'string' ? sample.sourcePayload : '',
+    }];
+  });
+}
+
 export default function InverterDetailPanel({ device, onClose, weather, siteName, plantTimezone, mode = 'live', now = Date.now() }: { device: Device; onClose: () => void; weather?: WeatherContext; siteName: string; plantTimezone?: string; mode?: 'demo' | 'live'; now?: number }) {
   const [tab, setTab] = useState<'Overview' | 'Device'>('Overview');
   const [range, setRange] = useState<EnergyRange>('Day');
   const [dateOffset, setDateOffset] = useState(0);
   const [energyHistory, setEnergyHistory] = useState<EnergyHistorySample[]>([]);
   const [energyHistoryState, setEnergyHistoryState] = useState<{ loading: boolean; error: string }>({ loading: false, error: '' });
+  const [measurements, setMeasurements] = useState<MeasurementSample[]>([]);
+  const [measurementsState, setMeasurementsState] = useState<{ loading: boolean; error: string }>({ loading: false, error: '' });
   const dialogRef = useModalAccessibility(onClose);
 
   useEffect(() => {
@@ -472,6 +545,72 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
     return () => controller.abort();
   }, [device.energyInverterId, device.id, mode, range, selectedDateKey, selectedHistoryBounds?.from.getTime(), selectedHistoryBounds?.to.getTime(), siteName]);
 
+  useEffect(() => {
+    if (mode !== 'live' || !selectedHistoryBounds) {
+      if (mode === 'demo' && selectedHistoryBounds) {
+        const rawPower = matchingValue(device.telemetry, ['activekw', 'activepower', 'powerkw', 'realpowerkw', 'outputpowerkw']);
+        const powerValue = rawPower?.value ?? 65.5;
+        const nowMs = Date.now();
+        const samples: MeasurementSample[] = [];
+        const periodMs = selectedHistoryBounds.to.getTime() - selectedHistoryBounds.from.getTime();
+        const step = periodMs / 24; 
+        for (let i = 0; i <= 24; i++) {
+          const time = new Date(selectedHistoryBounds.from.getTime() + step * i);
+          if (time.getTime() > nowMs && range === 'Day') break;
+          const hour = time.getUTCHours();
+          const sunlight = Math.max(0, Math.sin((hour - 6) * Math.PI / 12));
+          samples.push({
+            id: i,
+            siteName: siteName,
+            inverterId: device.id,
+            inverterName: device.name,
+            parameter: 'demo_active_power',
+            displayLabel: 'Demo Active Power',
+            measurementKind: 'active-power',
+            value: powerValue * sunlight * (0.8 + 0.4 * (Math.sin(i) / 2 + 0.5)),
+            rawValue: String(powerValue * sunlight),
+            unit: 'kW',
+            address: '0xDEMO',
+            sourceName: 'Demo Stream',
+            observedAt: time.toISOString(),
+            receivedAt: time.toISOString(),
+            scalingStatus: 'validated',
+            sourcePayload: '{}'
+          });
+        }
+        setMeasurements(samples);
+        setMeasurementsState({ loading: false, error: '' });
+      } else {
+        setMeasurements([]);
+        setMeasurementsState({ loading: false, error: '' });
+      }
+      return;
+    }
+    const controller = new AbortController();
+    const loadMeasurements = async () => {
+      setMeasurementsState({ loading: true, error: '' });
+      try {
+        const params = new URLSearchParams({
+          siteName,
+          inverterId: device.id,
+          period: range,
+          anchor: selectedDateKey,
+        });
+        const response = await fetch(`/api/mqtt/inverter-measurements?${params.toString()}`, { signal: controller.signal, cache: 'no-store' });
+        const payload = await response.json() as { samples?: unknown[]; message?: string };
+        if (!response.ok) throw new Error(payload.message ?? 'Unable to load inverter measurements.');
+        setMeasurements(validMeasurements(payload.samples));
+        setMeasurementsState({ loading: false, error: '' });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setMeasurements([]);
+        setMeasurementsState({ loading: false, error: error instanceof Error ? error.message : 'Unable to load inverter measurements.' });
+      }
+    };
+    void loadMeasurements();
+    return () => controller.abort();
+  }, [device.id, device.name, device.telemetry, mode, range, selectedDateKey, selectedHistoryBounds, siteName]);
+
   const metrics = useMemo(() => ({
     power: telemetryMetric(device, [['power', 'active_kw'], ['power', 'activePower'], ['ac', 'active_kw']], ['activekw', 'activepower', 'powerkw', 'realpowerkw', 'outputpowerkw'], 'kW', true),
     capacity: telemetryMetric(device, [['capacity', 'installed_mwp'], ['capacity', 'installed_kw'], ['power', 'rated_kw']], ['installedpowermwp', 'installedcapacitymwp', 'ratedpowerkw', 'ratedcapacitykw', 'installedpowerkw'], ''),
@@ -487,6 +626,9 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
   const rawRows = useMemo(() => flattenJson(device.telemetry), [device.telemetry]);
   const alarms = Array.isArray(device.telemetry.alarms) ? device.telemetry.alarms : null;
   const faults = Array.isArray(device.telemetry.faults) ? device.telemetry.faults : null;
+  const alarmEvidence = useMemo(() => normalizeFaults(device.telemetry.alarms, 'alarm'), [device.telemetry.alarms]);
+  const faultEvidence = useMemo(() => normalizeFaults(device.telemetry.faults), [device.telemetry.faults]);
+  const deviceModel = telemetryText(device.telemetry, ['model', 'deviceModel', 'device_model', 'modelName']);
   const firmware = typeof device.telemetry.firmware === 'string' ? device.telemetry.firmware : null;
   const validatedSource = device.sourceEvidence?.scalingStatus === 'validated';
   const statusLabel = validatedSource ? 'Validated live source' : device.sourceEvidence ? 'Source tag' : device.status === 'online' ? 'Reporting' : device.status === 'stale' ? 'Telemetry stale' : 'Not reporting';
@@ -509,10 +651,37 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
   const rawTimestamp = new Date(device.lastSeen);
   const lastSeen = Number.isFinite(rawTimestamp.getTime()) ? rawTimestamp.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' }) : 'Timestamp unavailable';
 
+  const validatedPowerSamples = measurements.filter((s) => s.scalingStatus === 'validated' && (s.measurementKind === 'active-power' || s.measurementKind === 'dc-power'));
+  const rawPowerCount = measurements.filter((s) => s.scalingStatus === 'raw' && (s.measurementKind === 'active-power' || s.measurementKind === 'dc-power')).length;
+  
+  const powerChartData = useMemo(() => {
+    const timeMap = new Map<string, { time: string; timestamp: number; ac?: number; dc?: number }>();
+    for (const sample of validatedPowerSamples) {
+      const timeKey = new Date(sample.observedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      if (!timeMap.has(timeKey)) timeMap.set(timeKey, { time: timeKey, timestamp: new Date(sample.observedAt).getTime() });
+      const entry = timeMap.get(timeKey)!;
+      if (sample.measurementKind === 'active-power') entry.ac = sample.value;
+      if (sample.measurementKind === 'dc-power') entry.dc = sample.value;
+    }
+    return Array.from(timeMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+  }, [validatedPowerSamples]);
+  
+  const hasAcPower = powerChartData.some(d => d.ac !== undefined);
+  const hasDcPower = powerChartData.some(d => d.dc !== undefined);
+
+  const newestArchivedParameters = useMemo(() => {
+    const params = new Map<string, MeasurementSample>();
+    const sorted = [...measurements].sort((a, b) => new Date(a.observedAt).getTime() - new Date(b.observedAt).getTime());
+    for (const sample of sorted) {
+      params.set(sample.parameter, sample);
+    }
+    return Array.from(params.values()).sort((a, b) => a.parameter.localeCompare(b.parameter));
+  }, [measurements]);
+
   return (
     <>
       <button type="button" aria-label="Close inverter details" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-[#0b0f19]/75 backdrop-blur-sm" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="scada-inverter-detail-dialog fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#111827] shadow-2xl sm:inset-3 sm:rounded-2xl lg:inset-y-4 lg:left-auto lg:right-4 lg:w-[min(1040px,calc(100vw-2rem))]">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="scada-inverter-detail-dialog fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#111827] shadow-2xl sm:inset-y-3 sm:rounded-2xl lg:inset-y-4 lg:left-auto lg:right-0 lg:w-[min(1040px,calc(100vw-2rem))]">
         <header className="shrink-0 border-b border-[#1e293b] bg-[#111827]/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -543,17 +712,54 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
               <div className="p-4 sm:p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Gauge size={15} className="text-orange-400" />Installed power</div><p data-testid="inverter-installed-power" className={`mt-3 font-mono text-3xl font-bold ${metrics.capacity.value === null ? 'text-slate-500' : 'text-slate-100'}`}>{formatMetric(metrics.capacity, 2)}</p><p className="mt-2 text-[10px] leading-4 text-slate-500">{metrics.capacity.value === null ? 'Not reported by this inverter.' : `Reported by ${metrics.capacity.source}`}</p></div>
             </div>
 
-            <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="inverter-energy-analysis">
-              <div className="flex flex-col gap-4 border-b border-[#1e293b] pb-4 sm:flex-row sm:items-center sm:justify-between">
-                <div><h3 className="text-base font-bold text-slate-100">Energy analysis</h3><p className="mt-1 text-xs text-slate-500">Uses only energy values reported by {device.name}.</p></div>
-                <div role="tablist" aria-label="Inverter energy period" className="scrollbar-thin -mx-1 flex max-w-full gap-1 overflow-x-auto rounded-full bg-[#0b0f19] p-1">
-                  {(['Day', 'Week', 'Month', 'Year', 'Lifetime'] as const).map((item) => <button key={item} type="button" role="tab" aria-selected={range === item} onClick={() => { setRange(item); setDateOffset(0); }} data-testid={`button-inverter-range-${item.toLowerCase()}`} className={`rounded-full px-3 py-2 text-xs font-semibold focus-ring ${range === item ? 'bg-orange-500/15 text-orange-300' : 'text-slate-500 hover:bg-[#1e293b] hover:text-slate-200'}`}>{item}</button>)}
+            {/* Shared History Controls */}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div role="tablist" aria-label="Inverter history period" className="scrollbar-thin -mx-1 flex max-w-full gap-1 overflow-x-auto rounded-full bg-[#0b0f19] p-1 border border-[#1e293b]">
+                {(['Day', 'Week', 'Month', 'Year', 'Lifetime'] as const).map((item) => <button key={item} type="button" role="tab" aria-selected={range === item} onClick={() => { setRange(item); setDateOffset(0); }} data-testid={`button-inverter-range-${item.toLowerCase()}`} className={`rounded-full px-3 py-2 text-xs font-semibold focus-ring transition-colors ${range === item ? 'bg-orange-500/15 text-orange-300' : 'text-slate-500 hover:bg-[#1e293b] hover:text-slate-200'}`}>{item}</button>)}
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#1e293b] bg-[#0f1423] px-3 py-2 sm:min-w-[320px]">
+                <button type="button" disabled={range === 'Lifetime'} onClick={() => setDateOffset((offset) => offset - 1)} aria-label="Previous period" title={range === 'Lifetime' ? 'Lifetime history has no date navigation' : 'Previous period'} className="rounded-md p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 disabled:cursor-not-allowed disabled:text-slate-600 transition-colors"><ChevronLeft size={18} /></button>
+                <div className="min-w-0 flex-1 flex items-center justify-center gap-2 text-center text-sm font-semibold text-slate-200"><CalendarDays size={15} className="shrink-0 text-slate-500" /><span className="break-words">{energyRangeLabel(range, selectedDate)}</span></div>
+                <button type="button" disabled={range === 'Lifetime' || dateOffset >= 0} onClick={() => setDateOffset((offset) => offset + 1)} aria-label="Next period" title={range === 'Lifetime' ? 'Lifetime history has no date navigation' : dateOffset >= 0 ? 'Future history is unavailable' : 'Next period'} className="rounded-md p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 disabled:cursor-not-allowed disabled:text-slate-600 transition-colors"><ChevronRight size={18} /></button>
+              </div>
+            </div>
+
+            <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="inverter-power-trend">
+              <div className="border-b border-[#1e293b] pb-4">
+                <h3 className="text-base font-bold text-slate-100">Power generation trend</h3>
+                <p className="mt-1 text-xs text-slate-500">Validated AC and DC power from device archives.</p>
+              </div>
+              <div className="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end">
+                <div>
+                  <p className="text-xs font-semibold text-blue-300">Peak Reported Power</p>
+                  <p data-testid="inverter-power-trend-value" className={`mt-2 font-mono text-4xl font-bold tracking-tight ${!hasAcPower ? 'text-slate-500' : 'text-blue-400'}`}>
+                    {hasAcPower ? `${Math.max(...powerChartData.map(d => d.ac ?? 0)).toLocaleString()} kW` : '—'}
+                  </p>
+                  <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                    {measurementsState.loading ? 'Loading power history…' : rawPowerCount ? `${rawPowerCount} raw power source sample${rawPowerCount === 1 ? '' : 's'} found; scaling required.` : powerChartData.length === 0 ? 'No per-inverter power samples available.' : 'Reported peak in period.'}
+                  </p>
+                </div>
+                <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-[#334155] bg-[#0b0f19] px-5 text-center text-xs leading-5 text-slate-500" aria-label={powerChartData.length ? 'Validated power history chart' : 'Power history unavailable'}>
+                  {measurementsState.loading ? 'Loading per-inverter history…' : powerChartData.length > 1 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={powerChartData} margin={{ top: 10, right: 10, bottom: 4, left: 4 }}>
+                        <CartesianGrid strokeDasharray="2 4" stroke="#1e293b" vertical={false} />
+                        <XAxis dataKey="time" hide />
+                        <YAxis hide domain={['auto', 'auto']} />
+                        <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} kW`, name === 'ac' ? 'AC Power' : 'DC Power']} />
+                        {hasAcPower && <Line type="monotone" dataKey="ac" name="ac" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />}
+                        {hasDcPower && <Line type="monotone" dataKey="dc" name="dc" stroke="#0ea5e9" strokeWidth={2} dot={false} isAnimationActive={false} />}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : measurements.length ? rawPowerCount ? 'Raw source samples available.' : 'One validated sample in this range.' : 'No power samples reported.'}
                 </div>
               </div>
-              <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-[#1e293b] bg-[#0f1423] px-3 py-2">
-                <button type="button" disabled={range === 'Lifetime'} onClick={() => setDateOffset((offset) => offset - 1)} aria-label="Previous energy period" title={range === 'Lifetime' ? 'Lifetime history has no date navigation' : 'Previous energy period'} className="rounded-md p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 disabled:cursor-not-allowed disabled:text-slate-600"><ChevronLeft size={18} /></button>
-                <div className="min-w-0 flex-1 flex items-center justify-center gap-2 text-center text-sm font-semibold text-slate-200"><CalendarDays size={15} className="shrink-0 text-slate-500" /><span className="break-words">{energyRangeLabel(range, selectedDate)}</span></div>
-                <button type="button" disabled={range === 'Lifetime' || dateOffset >= 0} onClick={() => setDateOffset((offset) => offset + 1)} aria-label="Next energy period" title={range === 'Lifetime' ? 'Lifetime history has no date navigation' : dateOffset >= 0 ? 'Future energy history is unavailable' : 'Next energy period'} className="rounded-md p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 disabled:cursor-not-allowed disabled:text-slate-600"><ChevronRight size={18} /></button>
+            </section>
+
+            <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="inverter-energy-analysis">
+              <div className="border-b border-[#1e293b] pb-4">
+                <h3 className="text-base font-bold text-slate-100">Energy analysis</h3>
+                <p className="mt-1 text-xs text-slate-500">Uses only energy values reported by {device.name}.</p>
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end">
                 <div><p className="text-xs font-semibold text-orange-300">Production ({energyUnit})</p><p data-testid="inverter-energy-value" className={`mt-2 font-mono text-4xl font-bold tracking-tight ${energyMetric.value === null ? 'text-slate-500' : 'text-orange-400'}`}>{formatMetric(energyMetric, 2)}</p><p className="mt-2 text-[11px] leading-5 text-slate-500">{energyMetric.value === null ? range === 'Lifetime' ? 'Lifetime energy is not reported by this inverter.' : energyHistoryState.loading ? 'Loading source-backed inverter samples…' : rawEnergyCount ? `${rawEnergyCount} raw source sample${rawEnergyCount === 1 ? '' : 's'} found; engineering scaling is required.` : 'No per-inverter production samples are available for this range.' : `Source: ${energyMetric.source}`}</p></div>
@@ -591,9 +797,60 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
             </div>
 
             <div className="grid gap-5 lg:grid-cols-2">
-              <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Alarms</p><h3 className="mt-1 text-sm font-bold text-slate-100">{alarms === null ? 'Alarm state not reported' : alarms.length ? `${alarms.length} reported alarm${alarms.length === 1 ? '' : 's'}` : 'No active alarms reported'}</h3></div><CircleAlert size={20} className={alarms?.length ? 'text-rose-400' : alarms === null ? 'text-slate-500' : 'text-emerald-400'} /></div>{alarms?.length ? <ul className="mt-4 space-y-2">{alarms.map((alarm, index) => <li key={index} className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">{formatRawValue(alarm)}</li>)}</ul> : <p className="mt-4 text-xs leading-5 text-slate-500">{alarms === null ? 'This inverter has not sent an alarm field.' : 'The device explicitly reported an empty alarm list.'}</p>}</section>
-              <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Faults</p><h3 className="mt-1 text-sm font-bold text-slate-100">{faults === null ? 'Fault state not reported' : faults.length ? `${faults.length} reported fault${faults.length === 1 ? '' : 's'}` : 'No active faults reported'}</h3></div><CircleAlert size={20} className={faults?.length ? 'text-rose-400' : faults === null ? 'text-slate-500' : 'text-emerald-400'} /></div>{faults?.length ? <ul className="mt-4 space-y-2">{faults.map((fault, index) => <li key={index} className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">{formatRawValue(fault)}</li>)}</ul> : <p className="mt-4 text-xs leading-5 text-slate-500">{faults === null ? 'This inverter has not sent a fault field.' : 'The device explicitly reported an empty fault list.'}</p>}</section>
+              <FaultEvidenceList title="Alarms" items={alarmEvidence} deviceModel={deviceModel} emptyMessage={alarms === null ? 'This inverter has not sent an alarm field.' : 'The device explicitly reported an empty alarm list.'} />
+              <FaultEvidenceList title="Faults" items={faultEvidence} deviceModel={deviceModel} emptyMessage={faults === null ? 'This inverter has not sent a fault field.' : 'The device explicitly reported an empty fault list.'} />
             </div>
+
+            <section className="rounded-2xl border border-[#1e293b] bg-[#111827] overflow-hidden" data-testid="inverter-archived-parameters">
+              <div className="px-4 py-4 sm:px-5 border-b border-[#1e293b] bg-[#111827]">
+                <h3 className="text-sm font-bold text-slate-200">Measuring point parameters</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Newest archived readings for this device.</p>
+              </div>
+              
+              {newestArchivedParameters.length > 0 ? (
+                <div className="overflow-x-auto scrollbar-thin max-h-[400px]">
+                  <table className="w-full min-w-[800px] text-left text-xs">
+                    <thead className="sticky top-0 bg-[#0f1423] shadow-[0_1px_0_0_#1e293b] z-10">
+                      <tr>
+                        <th className="px-4 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">Label / Parameter</th>
+                        <th className="px-4 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">Value</th>
+                        <th className="px-4 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">Source</th>
+                        <th className="px-4 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">Address</th>
+                        <th className="px-4 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">Observed</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1e293b]/70 bg-[#111827]">
+                      {newestArchivedParameters.map((param) => (
+                        <tr key={param.parameter} className="scada-table-row hover:bg-[#1e293b]/30 transition-colors">
+                          <td className="px-4 py-3 align-top">
+                            <p className="font-semibold text-slate-200">{param.displayLabel || param.parameter}</p>
+                            <p className="font-mono text-[10px] text-slate-500 mt-0.5">{param.parameter}</p>
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                            {param.scalingStatus === 'validated' ? (
+                              <p className="font-mono text-sm font-bold text-slate-100">{param.value.toLocaleString()} <span className="text-xs text-slate-400 font-normal">{param.unit}</span></p>
+                            ) : (
+                              <div>
+                                <p className="font-mono text-[11px] text-amber-300 break-all">{param.rawValue}</p>
+                                <p className="text-[9px] uppercase tracking-wider font-bold text-amber-500/70 mt-1">Raw / Unscaled</p>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 align-top text-slate-400">{param.sourceName}</td>
+                          <td className="px-4 py-3 align-top font-mono text-[10px] text-slate-400 break-all">{param.address}</td>
+                          <td className="px-4 py-3 align-top text-slate-400 whitespace-nowrap">{new Date(param.observedAt).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-5 text-center text-sm text-slate-500">
+                  <p>{measurementsState.loading ? 'Loading archived parameters...' : 'No archived measurement parameters found in the selected period.'}</p>
+                  <p className="mt-1 text-xs">Live telemetry metrics above reflect the current device state.</p>
+                </div>
+              )}
+            </section>
 
             <details className="group overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827]">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 text-sm font-bold text-slate-200 marker:content-none sm:px-5">Raw device telemetry <span className="text-[10px] font-semibold text-slate-500 group-open:text-blue-300">{rawRows.length} fields · evidence view</span></summary>

@@ -7,13 +7,14 @@ import {
   mqttConsumerLeasesTable,
   mqttDeliverySequencesTable,
   mqttInverterEnergyHistoryTable,
+  mqttInverterMeasurementHistoryTable,
   mqttSnapshotsTable,
   plantLocationsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
 import { deviceCommunicationState, heartbeatWindows, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
-import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
+import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 
 const router: IRouter = Router();
 const brokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
@@ -1209,6 +1210,42 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
         logger.error({ err: error, sequence: message.sequence }, "MQTT inverter-energy archive write failed after live delivery");
       });
   }
+
+  const measurement = parameter ? inverterMeasurementObservationFromParameter(parameter, configuredMqttPlantSite) : undefined;
+  if (measurement) {
+    void db.insert(mqttInverterMeasurementHistoryTable).values({
+      topic,
+      siteName: measurement.siteName,
+      inverterId: measurement.inverterId,
+      inverterName: measurement.inverterName,
+      parameter: measurement.parameter,
+      displayLabel: measurement.displayLabel,
+      measurementKind: measurement.measurementKind,
+      value: measurement.value,
+      rawValue: measurement.rawValue,
+      unit: measurement.unit,
+      address: measurement.address,
+      sourceName: measurement.sourceName,
+      observedAt: new Date(measurement.observedAt),
+      receivedAt: new Date(receivedAt),
+      scalingStatus: measurement.scalingStatus,
+      sourcePayload: rawPayload,
+      metadata: { ...measurement.metadata, delivery: message.delivery },
+    }).onConflictDoNothing({
+      target: [
+        mqttInverterMeasurementHistoryTable.siteName,
+        mqttInverterMeasurementHistoryTable.topic,
+        mqttInverterMeasurementHistoryTable.inverterId,
+        mqttInverterMeasurementHistoryTable.parameter,
+        mqttInverterMeasurementHistoryTable.address,
+        mqttInverterMeasurementHistoryTable.observedAt,
+        mqttInverterMeasurementHistoryTable.receivedAt,
+        mqttInverterMeasurementHistoryTable.value,
+      ],
+    }).catch((error) => {
+      logger.error({ err: error, sequence: message.sequence }, "MQTT inverter-measurement archive write failed after live delivery");
+    });
+  }
 }
 
 router.get("/mqtt/status", (_req, res) => {
@@ -1466,6 +1503,68 @@ router.get("/mqtt/inverter-energy-history", async (req, res): Promise<void> => {
   } catch (error) {
     logger.error({ err: error, siteName, inverterId }, "Inverter energy history query failed");
     res.status(500).json({ message: "Unable to load per-inverter energy history." });
+  }
+});
+
+router.get("/mqtt/inverter-measurements", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.query.siteName);
+  const inverterId = typeof req.query.inverterId === "string" ? req.query.inverterId.trim() : "";
+  const period = energyHistoryPeriod(req.query.period);
+  const anchor = parseCalendarDate(req.query.anchor);
+  if (!siteName || siteName.length > 160 || !inverterId || inverterId.length > 160) {
+    res.status(400).json({ message: "A plant/site and inverter identifier are required." });
+    return;
+  }
+  if (!period || !anchor) {
+    res.status(400).json({ message: "Use a Day, Week, Month, or Year period and a valid plant-calendar anchor date." });
+    return;
+  }
+
+  const { rangeStart, rangeEnd } = energyHistoryRange(period, anchor);
+  try {
+    const samples = await db
+      .select()
+      .from(mqttInverterMeasurementHistoryTable)
+      .where(and(
+        eq(mqttInverterMeasurementHistoryTable.topic, subscriptionTopic),
+        eq(mqttInverterMeasurementHistoryTable.siteName, siteName),
+        eq(mqttInverterMeasurementHistoryTable.inverterId, inverterId),
+        gte(mqttInverterMeasurementHistoryTable.observedAt, rangeStart),
+        lte(mqttInverterMeasurementHistoryTable.observedAt, rangeEnd),
+      ))
+      .orderBy(asc(mqttInverterMeasurementHistoryTable.observedAt), asc(mqttInverterMeasurementHistoryTable.receivedAt))
+      .limit(3_000);
+
+    res.set("Cache-Control", "no-store").json({
+      range: { from: rangeStart.toISOString(), to: rangeEnd.toISOString() },
+      siteName,
+      inverterId,
+      period,
+      timezone: plantTimezone,
+      samples: samples.map((sample) => ({
+        id: sample.id,
+        siteName: sample.siteName,
+        siteScope: "configured-source-site",
+        inverterId: sample.inverterId,
+        inverterName: sample.inverterName,
+        parameter: sample.parameter,
+        displayLabel: sample.displayLabel,
+        measurementKind: sample.measurementKind,
+        value: sample.value,
+        rawValue: sample.rawValue,
+        unit: sample.unit,
+        address: sample.address,
+        sourceName: sample.sourceName,
+        observedAt: sample.observedAt.toISOString(),
+        receivedAt: sample.receivedAt.toISOString(),
+        scalingStatus: sample.scalingStatus === "validated" ? "validated" : "raw",
+        sourcePayload: sample.sourcePayload,
+        metadata: sample.metadata,
+      })),
+    });
+  } catch (error) {
+    logger.error({ err: error, siteName, inverterId }, "Inverter measurement history query failed");
+    res.status(500).json({ message: "Unable to load archived inverter measurements." });
   }
 });
 

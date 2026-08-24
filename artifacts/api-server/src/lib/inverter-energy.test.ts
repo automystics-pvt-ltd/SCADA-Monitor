@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter } from "./inverter-energy.ts";
+import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter } from "./inverter-energy.ts";
 
 const sourceSite = "trn246/modbus";
 
@@ -102,5 +102,62 @@ test("refuses a plant-conflicting active-power record before it reaches the live
     engineering_unit: "kW",
     scaling_validated: true,
     site_name: "different-plant/modbus",
+  }), sourceSite), undefined);
+});
+
+test("archives explicitly attributed inverter measurement points with source traceability", () => {
+  const measurement = inverterMeasurementObservationFromParameter({
+    name: "phase_a_current",
+    inverter_id: "inv-01",
+    inverter_name: "Inverter 01",
+    site_name: sourceSite,
+    data: "4.60",
+    raw_data: "460",
+    unit: "A",
+    full_addr: "305031",
+    server_name: "ana",
+    timestamp: "2026-08-24T10:00:00.000Z",
+  }, sourceSite);
+
+  assert.deepEqual(measurement && {
+    inverterId: measurement.inverterId,
+    parameter: measurement.parameter,
+    measurementKind: measurement.measurementKind,
+    value: measurement.value,
+    rawValue: measurement.rawValue,
+    unit: measurement.unit,
+    scalingStatus: measurement.scalingStatus,
+  }, {
+    inverterId: "inv-01",
+    parameter: "phase_a_current",
+    measurementKind: "electrical",
+    value: 4.6,
+    rawValue: "460",
+    unit: "A",
+    scalingStatus: "raw",
+  });
+});
+
+test("converts only validated explicit inverter active-power measurements to kW", () => {
+  const measurement = inverterMeasurementObservationFromParameter(trn246InverterYield({
+    inverter_id: "inv-01",
+    semantic: "active_power",
+    engineering_unit: "W",
+    scaling_validated: true,
+    data: 24_500,
+    raw_data: "24500",
+  }), sourceSite);
+
+  assert.equal(measurement?.measurementKind, "active-power");
+  assert.equal(measurement?.value, 24.5);
+  assert.equal(measurement?.unit, "kW");
+  assert.equal(measurement?.scalingStatus, "validated");
+});
+
+test("does not archive measurements without explicit inverter identity", () => {
+  assert.equal(inverterMeasurementObservationFromParameter(trn246InverterYield({
+    inverter_id: undefined,
+    data: 4.6,
+    unit: "A",
   }), sourceSite), undefined);
 });

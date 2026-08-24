@@ -180,7 +180,15 @@
 .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--scada-border); border-radius: 99px; }
 .scrollbar-thin:hover::-webkit-scrollbar-thumb { background: var(--scada-muted); }
 
-.scada-theme { isolation: isolate; min-height: 100dvh; height: 100dvh; }
+.scada-theme {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  isolation: isolate;
+  min-height: 100dvh;
+  height: 100dvh;
+  background: var(--scada-bg);
+}
 .scada-theme main > *,
 .scada-theme [data-section],
 .scada-theme .recharts-responsive-container { min-width: 0; }
@@ -259,6 +267,7 @@ button:not(:disabled):active,
 /* Fixed-height SCADA shell: the content column owns vertical scrolling while
    the navigation remains stable and independently scrollable. */
 .scada-content-scroll {
+  background: var(--scada-bg);
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--scada-border) transparent;

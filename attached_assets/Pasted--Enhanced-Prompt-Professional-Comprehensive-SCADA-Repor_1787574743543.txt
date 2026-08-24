@@ -1,0 +1,112 @@
+### Enhanced Prompt — Professional Comprehensive SCADA Reporting
+
+Build a **comprehensive, enterprise-grade SCADA Reporting module** that feels like a core part of a professional Solar SCADA application—not a basic report page or generic website.
+
+The Reports module should provide a **beautiful, highly structured, easy-to-navigate reporting experience** with all important operational, electrical, energy, inverter, environmental, alarm, and historical information available in one professional reporting system.
+
+Include comprehensive report categories such as:
+
+* **Plant Performance Reports**
+* **Inverter Performance Reports**
+* **Energy Generation Reports**
+* **Electrical Parameter Reports**
+* **MPPT & String Reports**
+* **Alarm & Fault Reports**
+* **Device & Communication Reports**
+* **Environmental & Weather Reports**
+* **Live Telemetry Reports**
+* **Historical Data Reports**
+* **Daily / Weekly / Monthly / Yearly Reports**
+* **Custom Date & Time Reports**
+* **Plant vs Inverter Comparison Reports**
+* **Availability & Performance Reports**
+* **Data Quality & Communication Reports**
+
+Provide a professional **Report Center** with clear categories, report cards, icons, descriptions, quick actions, and an intuitive workflow:
+
+**Select Report → Apply Filters → Preview → Analyze → Export**
+
+### Advanced Filtering
+
+Make filtering extremely easy and professional with:
+
+**Plant/Site → Device/Inverter → Report Type → Parameter → Date Range → Time Range → Status → Alarm/Fault → Data Quality**
+
+Include:
+
+* Today
+* Yesterday
+* Last 7 Days
+* Last 30 Days
+* Current Month
+* Previous Month
+* Custom Date Range
+* Custom Start/End Time
+* Multiple inverter selection
+* Multiple parameter selection
+* Apply / Reset / Refresh
+* Active filter indicators
+
+### Professional Report Preview
+
+Every report should have a polished, customer-ready layout containing:
+
+**Plant/Site Information → Reporting Period → Applied Filters → KPI Summary → Visual Analytics → Detailed Data Table → Alarm/Fault Summary → Data Quality → Report Metadata**
+
+Use appropriate **charts, KPI cards, trend graphs, comparison visualizations, tables, status indicators, and summaries** based on the selected report type.
+
+Do not use unnecessary charts. Each visualization must provide meaningful operational or analytical value.
+
+### Export
+
+Allow users to export reports in multiple professional formats:
+
+**Excel (.xlsx) | CSV (.csv) | PDF (.pdf) | JSON (.json)**
+
+Exports must contain the **actual validated SCADA records** used in the report and preserve:
+
+* Plant/Site
+* Device/Inverter
+* Timestamp
+* Parameter
+* Actual Value
+* Unit
+* Status
+* Data Quality
+* Source
+* Applied filters
+* Report period
+
+PDF reports should be **professionally formatted and customer-ready**, with proper headers, footers, page numbers, charts, tables, summaries, and **Powered by Automystics Technologies Pvt Ltd.**
+
+### SCADA Data Integrity
+
+Reports must never display fabricated, estimated, duplicated, corrupted, or unreliable values.
+
+Use the same validated data logic as the SCADA monitoring system:
+
+**Live Telemetry → Validation → Saved Backend Records → Report Generation**
+
+Clearly distinguish **Live Data, Latest Saved Data, and Historical Saved Data**.
+
+### UI/UX Standard
+
+The Reports module should have a **premium industrial SCADA appearance** with:
+
+* Clean professional layout
+* Modern visualization
+* Excellent spacing and alignment
+* Interactive tables
+* Smooth hover effects
+* Professional tooltips
+* Fast filtering
+* Clear empty/error/loading states
+* Light & Dark modes
+* Responsive desktop/tablet/mobile layouts
+* No overlapping or clipped content
+* Consistent typography and colors
+* Subtle professional animations
+
+The final reporting experience should look **beautiful, sophisticated, comprehensive, and production-ready**, giving customers and plant operators a complete view of their Solar SCADA data while remaining **easy to understand, easy to filter, easy to analyze, and easy to export**.
+
+**Do not modify or break any existing SCADA functionality, MQTT/Modbus communication, database logic, authentication, navigation, or existing features. Add the reporting capability while preserving the current system behavior.**

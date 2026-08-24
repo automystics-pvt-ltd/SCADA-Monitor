@@ -1,0 +1,95 @@
+### Enhanced Prompt — Comprehensive SCADA Reports & Export
+
+Implement a **comprehensive, professional-grade SCADA Reporting module** without affecting any existing functionality, telemetry, database logic, or live monitoring.
+
+Provide a centralized **Reports & Export** screen where users can easily filter, analyze, preview, and export SCADA information.
+
+Include report categories such as:
+
+* Plant Performance Report
+* Inverter Performance Report
+* Electrical Parameters Report
+* Energy Generation Report
+* MPPT & String Report
+* Alarm & Fault Report
+* Device/Communication Report
+* Environmental/Weather Report
+* Live Telemetry Report
+* Historical Data Report
+* Daily / Weekly / Monthly / Custom Period Reports
+
+### Advanced Filtering
+
+Provide clean, professional filters for:
+
+**Plant/Site → Inverter/Device → Parameter → Date → Time Range → Status → Alarm/Fault → Data Quality → Live/Saved Data**
+
+Support:
+
+* Today
+* Yesterday
+* Last 7 Days
+* Last 30 Days
+* Custom Date Range
+* Custom Start/End Time
+* Multiple device selection
+* Multi-parameter selection
+* Clear / Reset filters
+* Save frequently used filter combinations where appropriate
+
+All filters should update the report preview dynamically without interrupting live SCADA monitoring.
+
+### Report Information
+
+Reports should contain **genuine, validated data only**, including:
+
+* Timestamp
+* Plant/Site
+* Device/Inverter
+* Parameter
+* Actual Value
+* Unit
+* Status
+* Data Quality
+* Source
+* Alarm/Fault information where applicable
+
+Clearly distinguish **Live Data, Latest Saved Data, and Historical Saved Data**.
+
+### Export Options
+
+Provide professional export options such as:
+
+**Excel (.xlsx)**
+**CSV (.csv)**
+**PDF (.pdf)**
+**JSON (.json)**
+
+Where appropriate, support **print-ready reports** as well.
+
+Exported files should preserve the selected filters, timestamps, units, parameter names, device information, and report context.
+
+### Professional Report Design
+
+The report preview should include:
+
+* Report title
+* Plant/Site information
+* Selected date/time range
+* Applied filters
+* Summary KPIs
+* Data tables
+* Charts/analytics where useful
+* Alarm/fault summary
+* Device/inverter summary
+* Generated timestamp
+* Data source/status
+* **Powered by Automystics Technologies Pvt Ltd.**
+
+Ensure the report is **clean, readable, professional, customer-ready, and suitable for operational as well as management review**.
+
+### Important SCADA Requirements
+
+Do not generate fake, estimated, duplicated, corrupted, or unreliable records. Reports must use **actual validated backend/live SCADA data** according to the selected report criteria.
+
+The entire reporting experience must be **fast, easy to filter, visually professional, responsive, Light/Dark mode compatible, and fully integrated with the existing Solar SCADA application without changing existing functionality**.
