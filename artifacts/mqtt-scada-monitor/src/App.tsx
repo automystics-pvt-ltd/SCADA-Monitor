@@ -265,6 +265,7 @@ function numberFrom(device: Device, path: string[], fallback = 0) {
 
 const DEVICE_ONLINE_MAX_AGE_MS = 30_000;
 const DEVICE_STALE_MAX_AGE_MS = 120_000;
+const SAVED_RECORD_MAX_AGE_MS = 15 * 60_000;
 
 function statusAt(device: Device, now: number, mode: 'demo' | 'live'): DeviceStatus {
   if (mode === 'demo') return device.status;
@@ -1167,7 +1168,7 @@ function electricalDisplayLabel(item: ElectricalEvidence) {
   return labels[item.kind] ?? electricalKindLabels[item.kind];
 }
 
-function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[]; mode: 'demo' | 'live'; liveState: 'fresh' | 'stale' | 'unavailable' }) {
+function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null }: { rows: ModbusRow[]; mode: 'demo' | 'live'; liveState: 'fresh' | 'stale' | 'unavailable'; savedSnapshot?: SavedKpiSnapshot | null }) {
   const [draftRange, setDraftRange] = useState<ElectricalRange>(() => electricalPresetRange('live'));
   const [appliedRange, setAppliedRange] = useState<ElectricalRange>(() => electricalPresetRange('live'));
   const [historyRows, setHistoryRows] = useState<ModbusRow[]>([]);
@@ -1177,6 +1178,11 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
   const [statusFilter, setStatusFilter] = useState<'all' | ElectricalEvidence['status']>('all');
   const [kindFilter, setKindFilter] = useState<'all' | ElectricalKind>('all');
   const isHistorical = appliedRange.preset !== 'live';
+  const savedRows = useMemo(() => (savedSnapshot?.parameters ?? []) as ModbusRow[], [savedSnapshot]);
+  const showingSavedFallback = mode === 'live' && !isHistorical && liveState !== 'fresh' && savedRows.length > 0;
+  const savedAtLabel = savedSnapshot
+    ? formatInPlantTimezone(savedSnapshot.scheduledFor || savedSnapshot.capturedAt, savedSnapshot.timezone)
+    : 'not available';
 
   useEffect(() => {
     if (mode !== 'live') {
@@ -1211,17 +1217,19 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
     };
   }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory]);
 
-  // Live uses both the most-recent SSE rows and the persisted recent-window rows.
-  // This gives operators useful evidence immediately after a browser reconnect,
-  // while retaining all source samples needed for a short raw-evidence trend.
+  // The live view prefers fresh SSE evidence. When delivery is not fresh, the
+  // immutable latest saved snapshot replaces the cleared/stale browser buffer.
+  // History remains supplemental traceability rather than a substitute for the
+  // explicit latest-record fallback.
   const sourceRows = useMemo(() => {
     if (mode !== 'live') return [];
     const deduplicated = new Map<string, ModbusRow>();
-    for (const row of isHistorical ? historyRows : [...historyRows, ...rows]) {
+    const currentRows = liveState === 'fresh' ? rows : savedRows;
+    for (const row of isHistorical ? historyRows : [...historyRows, ...currentRows]) {
       deduplicated.set(electricalRowIdentity(row), row);
     }
     return [...deduplicated.values()];
-  }, [historyRows, isHistorical, mode, rows]);
+  }, [historyRows, isHistorical, liveState, mode, rows, savedRows]);
 
   // Raw evidence remains inspectable across replay/stale states. Only explicitly
   // validated, fresh telemetry is eligible for engineering cards and health metrics.
@@ -1303,7 +1311,7 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
       frequency: 'Grid frequency · latest reported readings',
       other: 'Electrical source parameter · latest reported readings',
     };
-    const rangeDescription = isHistorical ? 'Selected time range' : 'Recent saved snapshots + live MQTT';
+    const rangeDescription = isHistorical ? 'Selected time range' : showingSavedFallback ? `Last saved snapshot · ${savedAtLabel}` : 'Recent saved snapshots + live MQTT';
     return <div className="scada-chart-surface rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1324,7 +1332,7 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
     <section className="scada-interactive-card relative flex h-full flex-col overflow-hidden rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="section-electrical-parameters">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent" />
       <header className="relative z-10 mb-4 flex flex-col gap-4 border-b border-[#1e293b] pb-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400"><PlugZap size={16} /></span><div><h3 className="text-sm font-bold text-slate-100">Electrical Parameters</h3><p className="mt-0.5 text-[11px] text-slate-500">Live MQTT and recent saved Modbus evidence</p></div></div><p className="mt-3 max-w-2xl text-[11px] leading-5 text-slate-400">The Live view combines current MQTT messages with recent backend snapshots. Values remain raw until the telemetry source explicitly confirms engineering scaling.</p>{!isHistorical && mode === 'live' && liveState !== 'fresh' && <p role="status" className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] leading-5 text-amber-300">{liveState === 'stale' ? 'Live delivery is paused. The most recent backend-saved raw evidence remains visible below.' : 'Awaiting the first fresh MQTT payload. Recent saved backend evidence will appear when available.'}</p>}</div>
+        <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400"><PlugZap size={16} /></span><div><h3 className="text-sm font-bold text-slate-100">Electrical Parameters</h3><p className="mt-0.5 text-[11px] text-slate-500">Live MQTT and recent saved Modbus evidence</p></div></div><p className="mt-3 max-w-2xl text-[11px] leading-5 text-slate-400">The Live view combines current MQTT messages with recent backend snapshots. Values remain raw until the telemetry source explicitly confirms engineering scaling.</p>{!isHistorical && mode === 'live' && liveState !== 'fresh' && <p role="status" data-testid="status-electrical-saved-fallback" className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] leading-5 text-amber-300">{showingSavedFallback ? `Live Data Temporarily Unavailable — Showing Last Saved. Last Saved: ${savedAtLabel}.` : 'No Valid Data Available. Awaiting a fresh MQTT payload or a successfully saved backend record.'}</p>}</div>
         <CustomBadge tone={mode !== 'live' ? 'warning' : validated.length ? 'success' : discoveries.length ? 'warning' : 'neutral'}>{mode !== 'live' ? 'Demo mode — not operational' : validated.length ? `${validated.length} validated value${validated.length === 1 ? '' : 's'}` : discoveries.length ? `${discoveries.length} recent raw sample${discoveries.length === 1 ? '' : 's'}` : 'Awaiting source data'}</CustomBadge>
       </header>
 
@@ -1430,9 +1438,21 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
   );
 }
 
-function EnergySummaryChart({ mode, dailyEnergy }: { mode: 'demo' | 'live'; dailyEnergy: VerifiedKpiCalculation }) {
+function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel }: { mode: 'demo' | 'live'; dailyEnergy: VerifiedKpiCalculation; rawFallback?: RawKpiFallback; savedLabel?: string }) {
   const [range, setRange] = useState<keyof typeof energyDataByRange>('daily');
   const data = mode === 'demo' ? energyDataByRange[range] : [];
+  const hasVerifiedValue = dailyEnergy.quality === 'verified';
+  const hasRawValue = !hasVerifiedValue && rawFallback?.value !== null && rawFallback?.value !== undefined;
+  const displayValue = mode === 'demo'
+    ? range === 'daily' ? '14.13' : range === 'monthly' ? '96.1' : '3,862'
+    : hasVerifiedValue
+      ? dailyEnergy.value!.toLocaleString(undefined, { maximumFractionDigits: 2 })
+      : hasRawValue
+        ? rawFallback!.value!.toLocaleString(undefined, { maximumFractionDigits: 4 })
+        : 'Data unavailable';
+  const displayUnit = mode === 'demo'
+    ? range === 'yearly' ? 'MWh this year' : `MWh ${range === 'daily' ? 'today' : 'this month'}`
+    : hasVerifiedValue ? `${dailyEnergy.unit} from current counter` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'no verified daily counter';
   return (
     <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
@@ -1440,22 +1460,22 @@ function EnergySummaryChart({ mode, dailyEnergy }: { mode: 'demo' | 'live'; dail
            <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2 mb-1">
              <Activity size={14} className="text-slate-400" /> Energy Summary
            </h3>
-           <p className="text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration trend' : dailyEnergy.quality === 'verified' ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter` : 'Verified energy history unavailable'}</p>
+            <p className="text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration trend' : hasVerifiedValue ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter` : hasRawValue ? 'Source-backed raw daily-energy register' : 'Verified energy history unavailable'}</p>
         </div>
         <div role="tablist" aria-label="Energy time range" className="flex bg-[#0f1423] p-0.5 rounded border border-[#1e293b]">
            {(['daily', 'monthly', 'yearly'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-energy-range-${option}`} className={`px-2 py-1 text-[10px] rounded font-medium capitalize focus-ring ${range === option ? 'bg-[#1e293b] text-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>{option}</button>)}
         </div>
       </div>
       <div className="mb-6">
-         <span className={`text-2xl font-bold tracking-tight ${mode === 'demo' || dailyEnergy.quality === 'verified' ? 'text-slate-100' : 'text-slate-500'}`}>{mode === 'demo' ? (range === 'daily' ? '14.13' : range === 'monthly' ? '96.1' : '3,862') : dailyEnergy.quality === 'verified' ? dailyEnergy.value!.toLocaleString(undefined, { maximumFractionDigits: 2 }) : 'Data unavailable'}</span> <span className="text-[11px] text-slate-500">{mode === 'demo' ? (range === 'yearly' ? 'MWh this year' : `MWh ${range === 'daily' ? 'today' : 'this month'}`) : dailyEnergy.quality === 'verified' ? `${dailyEnergy.unit} from current counter` : 'no verified daily counter'}</span>
+         <span className={`text-2xl font-bold tracking-tight ${mode === 'demo' || hasVerifiedValue || hasRawValue ? 'text-slate-100' : 'text-slate-500'}`}>{displayValue}</span> <span className="text-[11px] text-slate-500">{displayUnit}</span>
       </div>
       <div className="flex-1 min-h-[140px]">
-        {data.length ? <ResponsiveContainer width="100%" height="100%">
+         {data.length ? <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
             <Tooltip cursor={{ fill: 'var(--scada-hover)' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${value} MWh`, 'Energy']} />
             <Bar dataKey="value" fill="#f97316" radius={[2, 2, 0, 0]} activeBar={{ fill: '#fb923c' }} />
           </BarChart>
-        </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1e293b] text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">This dashboard has no source-backed energy history.</span></div>}
+         </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1e293b] text-center text-xs text-slate-500">{hasRawValue ? <>Current source value is shown above<br /><span className="text-[10px]">A historical energy series is not available for this view.</span></> : <>Data unavailable<br /><span className="text-[10px]">This dashboard has no source-backed energy history.</span></>}</div>}
       </div>
       <div className="flex justify-between text-[9px] text-slate-500 mt-2 font-mono">
         <span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span>
@@ -1541,7 +1561,7 @@ function WorkspaceHeader({ eyebrow, title, description, action, onBack }: {
   );
 }
 
-function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, calculations, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now }: {
+function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, calculations, savedSnapshot, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now }: {
   section: string;
   devices: Device[];
   rows: ModbusRow[];
@@ -1549,6 +1569,7 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
   liveState: 'fresh' | 'stale' | 'unavailable';
   persistence: PersistenceStatus;
   calculations: VerifiedScadaKpis;
+  savedSnapshot: SavedKpiSnapshot | null;
   rawPayload: string;
   rawJson: JsonValue | null;
   rawTopic: string;
@@ -1564,6 +1585,14 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
   now: number;
 }) {
   const commonAction = <span className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400">{liveState === 'fresh' ? 'Live source connected' : mode === 'demo' ? 'Demo source' : 'Awaiting fresh source data'}</span>;
+  const savedSnapshotRows = (savedSnapshot?.parameters ?? []) as ModbusRow[];
+  const usingSavedSnapshot = mode === 'live' && liveState !== 'fresh' && savedSnapshotRows.length > 0;
+  const evidenceRows = usingSavedSnapshot ? savedSnapshotRows : rows;
+  const workspaceRawFallbacks = rawKpiFallbacks(evidenceRows);
+  const workspaceRawInverters = rawInverterSignals(evidenceRows);
+  const workspaceSavedLabel = usingSavedSnapshot && savedSnapshot
+    ? formatInPlantTimezone(savedSnapshot.scheduledFor || savedSnapshot.capturedAt, savedSnapshot.timezone)
+    : undefined;
   if (section === 'inverters') return (
     <div data-testid="screen-inverters">
       <WorkspaceHeader eyebrow="Asset monitoring" title="Inverter fleet" description="Inspect the health, reporting state, and source-backed output of every inverter connected to this plant." action={commonAction} onBack={onBack} />
@@ -1581,16 +1610,28 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
     </div>
   );
   if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Search, sort, filter, and export the latest Modbus telemetry while preserving raw values, timestamps, and source provenance." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
-  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={rows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} /><PowerTrendChart calculation={calculations.acPower} mode={mode} /></div><div className="mt-5"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} mode={mode} /></div></div>;
+  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={workspaceRawFallbacks.dailyEnergy} savedLabel={workspaceSavedLabel} /><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><div className="xl:col-span-2"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} rawInverters={workspaceRawInverters} mode={mode} savedLabel={workspaceSavedLabel} /></div></div></div>;
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
-  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><SidePanels devices={devices} rows={rows} liveState={liveState} /><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
-  if (section === 'raw-data') return <div data-testid="screen-reports"><WorkspaceHeader eyebrow="Reporting" title="Reports & raw evidence" description="Create a client-ready view of verified KPI calculations alongside the original payload, filters, timestamps, and export controls." action={<span className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300">Traceable evidence</span>} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={rows} className="mb-5" /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
-  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} /></div></div>;
+  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
+  if (section === 'raw-data') return <div data-testid="screen-reports"><WorkspaceHeader eyebrow="Reporting" title="Reports & raw evidence" description="Create a client-ready view of verified KPI calculations alongside the original payload, filters, timestamps, and export controls." action={<span className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300">Traceable evidence</span>} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
+  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} /></div></div>;
 }
 
-function PowerTrendChart({ calculation, mode }: { calculation: VerifiedKpiCalculation; mode: 'demo' | 'live' }) {
+function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calculation: VerifiedKpiCalculation; mode: 'demo' | 'live'; rawFallback?: RawKpiFallback; savedLabel?: string }) {
   const [range, setRange] = useState<keyof typeof powerTrendByRange>('today');
   const data = mode === 'demo' ? powerTrendByRange[range] : [];
+  const hasVerifiedValue = calculation.quality === 'verified';
+  const hasRawValue = !hasVerifiedValue && rawFallback?.value !== null && rawFallback?.value !== undefined;
+  const displayValue = mode === 'demo'
+    ? '—'
+    : hasVerifiedValue
+      ? calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 2 })
+      : hasRawValue
+        ? rawFallback!.value!.toLocaleString(undefined, { maximumFractionDigits: 4 })
+        : 'Data unavailable';
+  const displayUnit = mode === 'demo'
+    ? 'demo trend below'
+    : hasVerifiedValue ? `${calculation.unit} · ${calculation.provenance === 'snapshot' ? 'saved window' : 'right now'}` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'no source-backed power';
   return (
     <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
@@ -1603,7 +1644,7 @@ function PowerTrendChart({ calculation, mode }: { calculation: VerifiedKpiCalcul
         </div>
       </div>
       <div className="mb-6">
-         <span className={`text-2xl font-bold tracking-tight ${calculation.quality === 'verified' ? 'text-slate-100' : 'text-slate-500'}`}>{calculation.quality === 'verified' ? calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 2 }) : 'Data unavailable'}</span> <span className="text-[11px] text-slate-500">{calculation.quality === 'verified' ? `${calculation.unit} · ${calculation.provenance === 'snapshot' ? 'saved window' : 'right now'}` : 'no verified live power'}</span>
+         <span className={`text-2xl font-bold tracking-tight ${mode === 'demo' || hasVerifiedValue || hasRawValue ? 'text-slate-100' : 'text-slate-500'}`}>{displayValue}</span> <span className="text-[11px] text-slate-500">{displayUnit}</span>
       </div>
       <div className="flex-1 min-h-[140px]">
         {data.length ? <ResponsiveContainer width="100%" height="100%">
@@ -1618,8 +1659,8 @@ function PowerTrendChart({ calculation, mode }: { calculation: VerifiedKpiCalcul
             <XAxis dataKey="time" hide />
             <Tooltip cursor={{ stroke: '#64748b', strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`, 'Plant power']} labelFormatter={(label) => `${range === 'today' ? 'Time' : 'Period'}: ${label}`} />
             <Area type="monotone" dataKey="power" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#colorPower)" activeDot={{ r: 4, stroke: '#f8fafc', strokeWidth: 2 }} isAnimationActive={false} />
-          </AreaChart>
-        </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1e293b] text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></div>}
+         </AreaChart>
+         </ResponsiveContainer> : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1e293b] text-center text-xs text-slate-500">{hasRawValue ? <>Current source value is shown above<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></> : <>Data unavailable<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></>}</div>}
       </div>
       <div className="flex justify-between text-[9px] text-slate-500 mt-2 font-mono">
         <span>00:00</span>
@@ -1632,13 +1673,16 @@ function PowerTrendChart({ calculation, mode }: { calculation: VerifiedKpiCalcul
   );
 }
 
-function PowerDistributionChart({ inverters, mode }: { inverters: Device[]; mode: 'demo' | 'live' }) {
-  const poweredInverters = inverters.filter((inverter) => inverter.status === 'online').map((inverter) => ({
-    name: inverter.name.replace('Inverter ', 'INV'),
-    power: numberFrom(inverter, ['power', 'active_kw'], 0),
-  })).filter((inverter) => inverter.power > 0);
+function PowerDistributionChart({ inverters, rawInverters = [], mode, savedLabel }: { inverters: Device[]; rawInverters?: RawTelemetryMetric[]; mode: 'demo' | 'live'; savedLabel?: string }) {
+  const isRawSource = mode === 'live';
+  const poweredInverters = isRawSource
+    ? rawInverters.map((inverter) => ({ name: inverter.parameter.toUpperCase(), power: inverter.value })).filter((inverter) => inverter.power > 0)
+    : inverters.filter((inverter) => inverter.status === 'online').map((inverter) => ({
+      name: inverter.name.replace('Inverter ', 'INV'),
+      power: numberFrom(inverter, ['power', 'active_kw'], 0),
+    })).filter((inverter) => inverter.power > 0);
   const totalPower = poweredInverters.reduce((sum, inverter) => sum + inverter.power, 0);
-  const distributionData = totalPower > 0 ? poweredInverters.map((inverter) => ({ name: inverter.name, value: inverter.power / totalPower * 100 })) : [];
+  const distributionData = totalPower > 0 ? poweredInverters.map((inverter) => ({ name: inverter.name, value: inverter.power / totalPower * 100, rawPower: inverter.power })) : [];
   return (
     <div className="scada-chart-surface bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center gap-2 mb-6">
@@ -1659,8 +1703,8 @@ function PowerDistributionChart({ inverters, mode }: { inverters: Device[]; mode
             </PieChart>
           </ResponsiveContainer> : <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-[#1e293b] px-3 text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">No online inverter power is reported.</span></div>}
           {distributionData.length > 0 && <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-sm font-bold text-slate-100">{(totalPower / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-            <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mt-0.5">MW Total</span>
+             <span className="text-sm font-bold text-slate-100">{isRawSource ? totalPower.toLocaleString(undefined, { maximumFractionDigits: 2 }) : (totalPower / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+             <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mt-0.5">{isRawSource ? `Raw total${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'MW Total'}</span>
           </div>}
         </div>
         
@@ -1671,9 +1715,9 @@ function PowerDistributionChart({ inverters, mode }: { inverters: Device[]; mode
                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS[i] }} />
                 <span className="text-slate-400 font-medium">{entry.name}</span>
               </div>
-              <span className="text-slate-300 font-bold">{entry.value.toFixed(1)}%</span>
+               <span className="text-slate-300 font-bold">{isRawSource ? `${entry.rawPower === undefined ? '—' : entry.rawPower.toLocaleString(undefined, { maximumFractionDigits: 2 })} raw` : `${entry.value.toFixed(1)}%`}</span>
             </div>
-          )) : <p className="text-center text-[10px] text-slate-500">{mode === 'demo' ? 'Demo inverter power will appear here.' : 'Awaiting source-backed inverter power.'}</p>}
+           )) : <p className="text-center text-[10px] text-slate-500">{mode === 'demo' ? 'Demo inverter power will appear here.' : 'No saved inverter registers are available.'}</p>}
         </div>
       </div>
     </div>
@@ -1807,13 +1851,16 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
   );
 }
 
-function SidePanels({ devices, rows, liveState }: { devices: Device[]; rows: ModbusRow[]; liveState: 'fresh' | 'stale' | 'unavailable' }) {
+function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel }: { devices: Device[]; rows: ModbusRow[]; liveState: 'fresh' | 'stale' | 'unavailable'; savedRows?: ModbusRow[]; savedLabel?: string }) {
   const hasFreshTelemetry = liveState === 'fresh';
-  const unavailableLabel = liveState === 'stale' ? 'Telemetry stale' : 'Data unavailable';
+  const showingSavedData = !hasFreshTelemetry && savedRows.length > 0;
+  const evidenceRows = hasFreshTelemetry ? rows : savedRows;
+  const hasUsableEvidence = hasFreshTelemetry || showingSavedData;
+  const unavailableLabel = showingSavedData ? 'Last saved' : liveState === 'stale' ? 'Telemetry stale' : 'Data unavailable';
   const hasAlarmTelemetry = devices.some((device) => Array.isArray(device.telemetry.alarms));
   const alarmTelemetry = devices.flatMap((device) => Array.isArray(device.telemetry.alarms) ? device.telemetry.alarms : []);
   const alarmCount = alarmTelemetry.length;
-  const qualityCounts = rows.reduce<{ good: number; scaling: number; bad: number; unreported: number }>((counts, row) => {
+  const qualityCounts = evidenceRows.reduce<{ good: number; scaling: number; bad: number; unreported: number }>((counts, row) => {
     const quality = String(row.quality ?? row.data_quality ?? '').toLowerCase();
     if (quality.includes('bad') || quality.includes('error') || quality.includes('fault')) counts.bad += 1;
     else if (quality.includes('good') || quality.includes('ok') || quality.includes('valid') || explicitScalingValidated(row)) counts.good += 1;
@@ -1823,7 +1870,7 @@ function SidePanels({ devices, rows, liveState }: { devices: Device[]; rows: Mod
   }, { good: 0, scaling: 0, bad: 0, unreported: 0 });
   const qualityTotal = qualityCounts.good + qualityCounts.scaling + qualityCounts.bad;
   const qualityObserved = qualityTotal + qualityCounts.unreported;
-  const qualityPercent = hasFreshTelemetry && qualityObserved ? Math.round((qualityCounts.good / qualityObserved) * 100) : null;
+  const qualityPercent = hasUsableEvidence && qualityObserved ? Math.round((qualityCounts.good / qualityObserved) * 100) : null;
   return (
     <div className="flex flex-col gap-4 h-full">
       <div className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex-1">
@@ -1848,7 +1895,7 @@ function SidePanels({ devices, rows, liveState }: { devices: Device[]; rows: Mod
             <span className="text-slate-400">Alarm Code</span>
              <span className="font-bold text-slate-500">Data unavailable</span>
           </div>
-            <p className="pt-1 text-[9px] text-slate-500">{!hasFreshTelemetry ? 'Cached alarm evidence remains traceable in Live Data until a fresh payload arrives.' : hasAlarmTelemetry ? (alarmCount ? 'Reported alarm telemetry requires operator review.' : 'No active alarms reported.') : 'No alarm telemetry reported by the connected source.'}</p>
+             <p className="pt-1 text-[9px] text-slate-500">{showingSavedData ? `No live alarm state is available. Last saved alarm register: ${savedLabel ?? 'timestamp unavailable'}.` : !hasFreshTelemetry ? 'Cached alarm evidence remains traceable in Live Data until a fresh payload arrives.' : hasAlarmTelemetry ? (alarmCount ? 'Reported alarm telemetry requires operator review.' : 'No active alarms reported.') : 'No alarm telemetry reported by the connected source.'}</p>
         </div>
       </div>
       
@@ -1868,23 +1915,23 @@ function SidePanels({ devices, rows, liveState }: { devices: Device[]; rows: Mod
            <div className="space-y-2 flex-1">
              <div className="flex items-center justify-between text-[9px]">
                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /><span className="text-slate-400">Good</span></div>
-                <span className="text-slate-200 font-bold">{hasFreshTelemetry ? qualityCounts.good || '—' : '—'}</span>
+                 <span className="text-slate-200 font-bold">{hasUsableEvidence ? qualityCounts.good || '—' : '—'}</span>
              </div>
              <div className="flex items-center justify-between text-[9px]">
                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" /><span className="text-slate-400">Scaling</span></div>
-                <span className="text-slate-200 font-bold">{hasFreshTelemetry ? qualityCounts.scaling || '—' : '—'}</span>
+                 <span className="text-slate-200 font-bold">{hasUsableEvidence ? qualityCounts.scaling || '—' : '—'}</span>
              </div>
              <div className="flex items-center justify-between text-[9px]">
                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" /><span className="text-slate-400">Bad</span></div>
-                <span className="text-slate-200 font-bold">{hasFreshTelemetry ? qualityCounts.bad || '—' : '—'}</span>
+                 <span className="text-slate-200 font-bold">{hasUsableEvidence ? qualityCounts.bad || '—' : '—'}</span>
              </div>
              <div className="flex items-center justify-between text-[9px]">
                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-slate-500" /><span className="text-slate-400">Unreported</span></div>
-               <span className="text-slate-200 font-bold">{hasFreshTelemetry ? qualityCounts.unreported || '—' : '—'}</span>
+                <span className="text-slate-200 font-bold">{hasUsableEvidence ? qualityCounts.unreported || '—' : '—'}</span>
              </div>
            </div>
         </div>
-         <p className="mt-3 text-[9px] text-slate-500">{!hasFreshTelemetry ? 'Cached quality evidence remains traceable in Live Data until a fresh payload arrives.' : qualityObserved ? `${qualityCounts.good} of ${qualityObserved} observed parameter${qualityObserved === 1 ? '' : 's'} are source-confirmed good${qualityCounts.unreported ? ` · ${qualityCounts.unreported} unreported` : ''}.` : 'Data unavailable until telemetry parameters arrive.'}</p>
+          <p className="mt-3 text-[9px] text-slate-500">{showingSavedData ? `Last Saved Data: ${savedLabel ?? 'timestamp unavailable'}. ${qualityObserved ? `${qualityCounts.good} of ${qualityObserved} saved parameters are source-confirmed good.` : 'No quality metadata was reported in the saved record.'}` : !hasFreshTelemetry ? 'Cached quality evidence remains traceable in Live Data until a fresh payload arrives.' : qualityObserved ? `${qualityCounts.good} of ${qualityObserved} observed parameter${qualityObserved === 1 ? '' : 's'} are source-confirmed good${qualityCounts.unreported ? ` · ${qualityCounts.unreported} unreported` : ''}.` : 'Data unavailable until telemetry parameters arrive.'}</p>
       </div>
     </div>
   );
@@ -2378,10 +2425,7 @@ function AppShell() {
     return () => controller.abort();
   }, []);
   useEffect(() => {
-    if (mode !== 'live') {
-      setSavedKpiSnapshot(null);
-      return;
-    }
+    if (mode !== 'live') return;
     const controller = new AbortController();
     const loadSavedKpiSnapshot = async () => {
       try {
@@ -2397,7 +2441,11 @@ function AppShell() {
       }
     };
     void loadSavedKpiSnapshot();
-    return () => controller.abort();
+    const refreshTimer = window.setInterval(() => void loadSavedKpiSnapshot(), 60_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshTimer);
+    };
   }, [mode]);
   useEffect(() => {
     const controller = new AbortController();
@@ -2501,7 +2549,6 @@ function AppShell() {
     setDuplicateEventCount(0);
     setResyncNotice('');
     seenTelemetryEventsRef.current.clear();
-    setSavedKpiSnapshot(null);
     setSelectedInverterId(null);
     if (next === 'demo') {
       const demoPayload = initialDevices[0].telemetry;
@@ -2757,19 +2804,29 @@ function AppShell() {
   const telemetryAge = lastTelemetryAt === null ? null : now - lastTelemetryAt;
   const electricalLiveState: 'fresh' | 'stale' | 'unavailable' = mode === 'demo'
     ? 'fresh'
-    : communication?.deviceCommunication === 'live'
+    : telemetryAge !== null && telemetryAge <= DEVICE_ONLINE_MAX_AGE_MS
       ? 'fresh'
-      : communication?.deviceCommunication === 'stale'
+      : communication?.deviceCommunication === 'stale' || (telemetryAge !== null && telemetryAge <= DEVICE_STALE_MAX_AGE_MS)
         ? 'stale'
-        : telemetryAge === null || telemetryAge > DEVICE_STALE_MAX_AGE_MS
-          ? 'unavailable'
-          : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS
-            ? 'stale'
-            : 'fresh';
+        : 'unavailable';
+  const savedRecordTime = savedKpiSnapshot
+    ? Date.parse(savedKpiSnapshot.capturedAt || savedKpiSnapshot.scheduledFor)
+    : NaN;
+  const savedRecordAge = Number.isFinite(savedRecordTime) ? Math.max(0, now - savedRecordTime) : Number.POSITIVE_INFINITY;
+  const hasValidSavedSnapshot = savedKpiSnapshot?.saveStatus === 'saved'
+    && (savedKpiSnapshot.parameters.length ?? 0) > 0
+    && savedRecordAge <= SAVED_RECORD_MAX_AGE_MS;
+  const eligibleSavedSnapshot = hasValidSavedSnapshot ? savedKpiSnapshot : null;
+  const savedSnapshotRows = useMemo(() => (savedKpiSnapshot?.parameters ?? []) as ModbusRow[], [savedKpiSnapshot]);
+  const showingSavedRecord = mode === 'live' && electricalLiveState !== 'fresh' && hasValidSavedSnapshot;
+  const dashboardEvidenceRows = showingSavedRecord ? savedSnapshotRows : modbusRows;
+  const lastSavedLabel = hasValidSavedSnapshot
+    ? formatInPlantTimezone(savedKpiSnapshot!.scheduledFor || savedKpiSnapshot!.capturedAt, savedKpiSnapshot!.timezone ?? persistence.timezone)
+    : 'not available';
   const operationalDevices = useMemo(() => devices.map((device) => ({ ...device, status: statusAt(device, now, mode) })), [devices, mode, now]);
   const sourceTagInverters = useMemo(() => {
     const latestBySource = new Map<string, Device>();
-    for (const row of modbusRows) {
+    for (const row of dashboardEvidenceRows) {
       const signal = rawInverterSignals([row])[0];
       if (!signal) continue;
       const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'Unspecified MQTT source');
@@ -2805,7 +2862,7 @@ function AppShell() {
       if (!current || candidate.lastSeen >= current.lastSeen) latestBySource.set(sourceKey, candidate);
     }
     return [...latestBySource.values()];
-  }, [modbusRows, now, persistence.inverterEnergySite, plantSiteName]);
+  }, [dashboardEvidenceRows, now, persistence.inverterEnergySite, plantSiteName]);
   const inverterDisplayDevices = useMemo(() => [...operationalDevices, ...sourceTagInverters], [operationalDevices, sourceTagInverters]);
   const inverters = useMemo(() => operationalDevices.filter(d => d.type === 'Power inverter'), [operationalDevices]);
   const onlinePowerReadings = useMemo(() => electricalLiveState === 'fresh' ? inverters.filter((device) => device.status === 'online').map((device) => {
@@ -2819,14 +2876,14 @@ function AppShell() {
   const activeAlarms = useMemo(() => operationalDevices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0), 0), [operationalDevices]);
   const alarmTelemetryReported = useMemo(() => operationalDevices.some((device) => Array.isArray(device.telemetry.alarms)), [operationalDevices]);
   const rawKpis = useMemo(() => ({
-    activePower: latestRawMetric(modbusRows, ['actpow']),
-    dailyEnergy: latestRawMetric(modbusRows, ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']),
-    totalEnergy: latestRawMetric(modbusRows, ['totalenergy', 'totalenergykwh', 'lifetimeenergy', 'lifetimeenergykwh']),
-    specificYield: latestRawMetric(modbusRows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']),
-    alarms: latestRawMetric(modbusRows, ['alarm', 'alarms', 'alarmcode', 'fault', 'faultcode']),
-    inverters: rawInverterSignals(modbusRows),
-  }), [modbusRows]);
-  const rawFallbacks = useMemo(() => rawKpiFallbacks(modbusRows), [modbusRows]);
+    activePower: latestRawMetric(dashboardEvidenceRows, ['actpow']),
+    dailyEnergy: latestRawMetric(dashboardEvidenceRows, ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']),
+    totalEnergy: latestRawMetric(dashboardEvidenceRows, ['totalenergy', 'totalenergykwh', 'lifetimeenergy', 'lifetimeenergykwh']),
+    specificYield: latestRawMetric(dashboardEvidenceRows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']),
+    alarms: latestRawMetric(dashboardEvidenceRows, ['alarm', 'alarms', 'alarmcode', 'fault', 'faultcode']),
+    inverters: rawInverterSignals(dashboardEvidenceRows),
+  }), [dashboardEvidenceRows]);
+  const rawFallbacks = useMemo(() => rawKpiFallbacks(dashboardEvidenceRows), [dashboardEvidenceRows]);
   const liveKpiCalculations = useMemo(() => calculateVerifiedScadaKpis(
     mode === 'live' ? modbusRows.filter((row) => row.provenance === 'live') : modbusRows,
     { asOf: now, maximumAgeMs: DEVICE_STALE_MAX_AGE_MS },
@@ -2841,16 +2898,21 @@ function AppShell() {
       },
     } : undefined,
   ), [savedKpiSnapshot]);
-  const savedSnapshotScheduledAt = savedKpiSnapshot ? new Date(savedKpiSnapshot.scheduledFor).getTime() : NaN;
-  const latestSavedSnapshotIsFresh = savedKpiSnapshot?.saveStatus === 'saved'
-    && Number.isFinite(savedSnapshotScheduledAt)
-    && savedSnapshotScheduledAt >= now - 20 * 60_000;
-  const calculations = useMemo<VerifiedScadaKpis>(() => ({
-    acPower: latestSavedSnapshotIsFresh ? selectVerifiedCalculation(liveKpiCalculations.acPower, savedKpiCalculations.acPower) : liveKpiCalculations.acPower,
-    dailyEnergy: latestSavedSnapshotIsFresh ? selectVerifiedCalculation(liveKpiCalculations.dailyEnergy, savedKpiCalculations.dailyEnergy) : liveKpiCalculations.dailyEnergy,
-    totalEnergy: latestSavedSnapshotIsFresh ? selectVerifiedCalculation(liveKpiCalculations.totalEnergy, savedKpiCalculations.totalEnergy) : liveKpiCalculations.totalEnergy,
-    specificYield: latestSavedSnapshotIsFresh ? selectVerifiedCalculation(liveKpiCalculations.specificYield, savedKpiCalculations.specificYield) : liveKpiCalculations.specificYield,
-  }), [latestSavedSnapshotIsFresh, liveKpiCalculations, savedKpiCalculations]);
+  const calculations = useMemo<VerifiedScadaKpis>(() => {
+    const primary = showingSavedRecord ? savedKpiCalculations : liveKpiCalculations;
+    const secondary = hasValidSavedSnapshot
+      ? showingSavedRecord ? liveKpiCalculations : savedKpiCalculations
+      : null;
+    const select = (key: keyof VerifiedScadaKpis) => secondary
+      ? selectVerifiedCalculation(primary[key], secondary[key])
+      : primary[key];
+    return {
+      acPower: select('acPower'),
+      dailyEnergy: select('dailyEnergy'),
+      totalEnergy: select('totalEnergy'),
+      specificYield: select('specificYield'),
+    };
+  }, [hasValidSavedSnapshot, liveKpiCalculations, savedKpiCalculations, showingSavedRecord]);
   const rawKpiValue = (metric: RawTelemetryMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
   const rawKpiUnit = (metric: RawTelemetryMetric | null) => metric ? 'raw' : '';
   const calculationValue = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 }) : '—';
@@ -2874,7 +2936,7 @@ function AppShell() {
       return {
         value: 'Not reported',
         unit: '',
-        subtext: rawFallback.readiness,
+        subtext: showingSavedRecord ? `${rawFallback.readiness} Last Saved: ${lastSavedLabel}.` : rawFallback.readiness,
         formula: rawFallback.formula,
       };
     }
@@ -2882,7 +2944,7 @@ function AppShell() {
     return {
       value: rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 }),
       unit: rawFallback.unit,
-      subtext: `${rawFallback.method} · ${registerList} · scaling required`,
+      subtext: `${rawFallback.method} · ${registerList} · scaling required${showingSavedRecord ? ` · Last Saved: ${lastSavedLabel}` : ''}`,
       formula: rawFallback.formula,
     };
   };
@@ -2916,6 +2978,23 @@ function AppShell() {
       : deviceCommunication === 'interrupted'
         ? 'INTERRUPTED'
         : deviceCommunication.toUpperCase();
+  const dashboardDataStatus = mode === 'demo'
+    ? { title: 'Demo Data Available', detail: 'Demonstration values are not operational telemetry.', tone: 'border-blue-500/25 bg-blue-500/5 text-blue-300' }
+    : electricalLiveState === 'fresh'
+      ? { title: 'Live Data Available', detail: hasValidSavedSnapshot ? `Fresh MQTT evidence is active. Last Saved: ${lastSavedLabel}.` : 'Fresh MQTT evidence is active.', tone: 'border-emerald-500/25 bg-emerald-500/5 text-emerald-300' }
+      : hasValidSavedSnapshot
+        ? lastTelemetryAt === null
+          ? {
+              title: 'Last Saved Data',
+              detail: `Saved backend evidence from ${lastSavedLabel} remains on screen until a fresh live payload arrives.`,
+              tone: 'border-blue-500/25 bg-blue-500/5 text-blue-300',
+            }
+          : {
+              title: 'Live Data Temporarily Unavailable — Showing Last Saved',
+              detail: `Saved backend evidence from ${lastSavedLabel} remains on screen until a fresh live payload arrives.`,
+              tone: 'border-amber-500/25 bg-amber-500/5 text-amber-300',
+            }
+        : { title: 'No Valid Data Available', detail: 'No fresh MQTT telemetry or successfully saved backend record is available for this dashboard.', tone: 'border-rose-500/25 bg-rose-500/5 text-rose-300' };
   const telemetryStatusTone = mode === 'demo' || (deviceCommunication === 'live' && connected)
     ? { container: 'border-emerald-500/25 bg-emerald-500/5 text-emerald-400', dot: 'bg-emerald-400 pulse-soft' }
     : deviceCommunication === 'stale' || deviceCommunication === 'awaiting-first-data' || !connected
@@ -2931,7 +3010,7 @@ function AppShell() {
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} now={now} weather={weatherState} siteName={plantSiteName} />
         
         <main className="min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden p-3 sm:p-6">
-          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
+          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -2946,6 +3025,10 @@ function AppShell() {
               </div>
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex flex-col items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400 sm:flex-row"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div className="min-w-0 flex-1"><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 break-words text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="shrink-0 text-xs font-semibold underline focus-ring">Retry connection</button></div>}
+            {mode === 'live' && <section role="status" data-testid="status-dashboard-data-source" className={`mb-4 flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${dashboardDataStatus.tone}`}>
+              <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] opacity-75">Dashboard data source</p><p className="mt-1 text-sm font-bold">{dashboardDataStatus.title}</p><p className="mt-1 text-[11px] leading-5 opacity-85">{dashboardDataStatus.detail}</p></div>
+              {hasValidSavedSnapshot && <span className="shrink-0 rounded-md border border-current/20 bg-black/10 px-2.5 py-1.5 text-[10px] font-semibold">Last Saved: {lastSavedLabel}</span>}
+            </section>}
             <section data-testid="panel-live-communication" aria-label="Live communication health" className="mb-4 rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -3001,14 +3084,14 @@ function AppShell() {
               <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : dailyEnergyCard.subtext} formula={mode === 'demo' ? 'Demo daily energy counter' : dailyEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact daily-energy source register if provided. It never creates energy by integrating unvalidated power records." />
               <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : totalEnergyCard.subtext} formula={mode === 'demo' ? 'Demo cumulative energy counter' : totalEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact raw cumulative-energy evidence when it is available. kWh appears only after approved scaling and units are supplied." />
               <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : specificYieldCard.subtext} formula={mode === 'demo' ? 'Demo daily energy ÷ installed capacity' : specificYieldCard.formula} onClick={() => navigateTo('power')} help="The card shows a source-provided raw specific-yield register if present. An engineering-specific yield is calculated only from verified daily energy and installed DC capacity." />
-              <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
-              <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpiValue(rawKpis.alarms)} unit={mode === 'demo' ? '' : rawKpiUnit(rawKpis.alarms)} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')} onClick={() => navigateTo('alarms')} help="The raw alarm register is displayed exactly as received; alarm-code mapping is required for an active-alarm count." />
+              <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${showingSavedRecord ? `Last Saved: ${lastSavedLabel}` : rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
+              <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpiValue(rawKpis.alarms)} unit={mode === 'demo' ? '' : rawKpiUnit(rawKpis.alarms)} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : `${rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')}${showingSavedRecord && rawKpis.alarms ? ` · Last Saved: ${lastSavedLabel}` : ''}`} onClick={() => navigateTo('alarms')} help="The raw alarm register is displayed exactly as received; alarm-code mapping is required for an active-alarm count." />
             </div>
-            {mode === 'live' && <CalculationSummaryPanel calculations={calculations} rawRows={modbusRows} className="mt-4" />}
+            {mode === 'live' && <CalculationSummaryPanel calculations={calculations} rawRows={dashboardEvidenceRows} className="mt-4" />}
           </section>
           
           <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
-            <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} />
+            <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} savedSnapshot={eligibleSavedSnapshot} />
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -3016,19 +3099,19 @@ function AppShell() {
               <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
             <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2">
-              <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} />
+              <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} savedRows={showingSavedRecord ? savedSnapshotRows : []} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} />
             </div>
           </div>
           
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               <div id="energy" data-section="energy" className="min-w-0 scroll-mt-6">
-                <EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} />
+                <EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={rawFallbacks.dailyEnergy} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} />
              </div>
               <div id="power" data-section="power" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2">
-                <PowerTrendChart calculation={calculations.acPower} mode={mode} />
+                <PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={rawFallbacks.acPower} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} />
              </div>
-             <div className="min-w-0">
-                <PowerDistributionChart inverters={mode === 'demo' ? inverters : []} mode={mode} />
+              <div className="min-w-0 md:col-span-2 xl:col-span-3">
+                 <PowerDistributionChart inverters={mode === 'demo' ? inverters : []} rawInverters={rawKpis.inverters} mode={mode} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} />
             </div>
           </div>
 

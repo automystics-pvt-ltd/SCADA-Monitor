@@ -1,0 +1,29 @@
+Ensure the Dashboard always displays the most recently successfully saved and validated record so users can clearly see that the SCADA application is operating correctly.
+
+Continuously fetch the latest valid saved record from the backend table and display it in the relevant KPI cards and dashboard components.
+Show the saved-record timestamp clearly, e.g. “Last Saved: 10:15 AM”.
+When a new scheduled record is successfully saved, automatically detect it and update the Dashboard immediately without page refresh or interruption.
+Until the next valid record is successfully saved, continue displaying the previous valid saved record. Never clear the values, replace them with zero, or show undefined/incorrect values.
+If live device telemetry temporarily stops arriving, the Dashboard must fall back to the latest valid saved backend record so the user still sees genuine data.
+Clearly distinguish the data state:
+🟢 Live Data Available
+🔵 Last Saved Data
+🟡 Live Data Temporarily Unavailable — Showing Last Saved
+🔴 No Valid Data Available
+Do not present an old saved record as current live data. Always show the actual timestamp and data source.
+When live telemetry resumes, automatically switch back to live data without requiring user intervention.
+When the next scheduled backend record arrives, automatically replace the previous saved record with the new validated record.
+Ensure this behavior works continuously without interrupting MQTT monitoring, live telemetry processing, or other SCADA functions.
+Required Logic
+
+Live Telemetry → Validate → Save Scheduled Record → Backend Table → Detect New Valid Record → Update Dashboard
+
+If live telemetry is unavailable:
+
+Backend Table → Fetch Latest Valid Saved Record → Display Previous Saved Record → Show Actual Timestamp/Status
+
+When new telemetry becomes available:
+
+Live Telemetry Resumes → Validate → Display Live Data → Next Scheduled Save → Update Saved Record
+
+The system must never fabricate, estimate, or display unreliable values. The user should always see either genuine live telemetry or the latest genuine validated saved record, with a clear indication of which one is being displayed.
