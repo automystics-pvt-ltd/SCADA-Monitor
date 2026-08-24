@@ -100,7 +100,7 @@ function telemetryMetric(device: Device, paths: string[][], keys: string[], unit
   if (device.sourceEvidence && allowRawSource) {
     return {
       value: device.sourceEvidence.value,
-      unit: 'raw',
+      unit: '',
       source: `${device.sourceEvidence.parameter} · ${device.sourceEvidence.address}`,
       quality: 'raw',
     };
@@ -115,7 +115,7 @@ function telemetryMetric(device: Device, paths: string[][], keys: string[], unit
 }
 
 function formatMetric(metric: Metric, fractionDigits = 1) {
-  if (metric.value === null) return 'Data unavailable';
+  if (metric.value === null) return 'Not reported';
   return `${metric.value.toLocaleString(undefined, { maximumFractionDigits: fractionDigits })}${metric.unit ? ` ${metric.unit}` : ''}`;
 }
 
@@ -259,9 +259,9 @@ function FlowLabel({ label, metric, className }: { label: string; metric: Metric
 function PowerFlow({ power, status }: { power: Metric; status: DeviceStatus }) {
   const isFlowing = power.value !== null && power.value > 0 && status === 'online' && power.quality !== 'raw';
   return (
-      <section className="scada-power-flow relative overflow-hidden rounded-2xl border border-[#1E293B] bg-[radial-gradient(ellipse_at_top,rgba(255,92,0,.1),transparent_60%),#090B13] px-3 py-5 sm:px-6" data-testid="inverter-power-flow">
+      <section className="scada-power-flow relative overflow-hidden rounded-2xl border border-[#1E293B] px-3 py-5 sm:px-6" data-testid="inverter-power-flow">
       <div className="pointer-events-none absolute inset-0 opacity-[0.15] [background-image:linear-gradient(rgba(255,255,255,.1)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.1)_1px,transparent_1px)] [background-size:24px_24px]" />
-      <div className="relative mx-auto h-[330px] max-w-2xl sm:h-[350px]">
+      <div className="relative mx-auto h-[330px] max-w-5xl sm:h-[350px]">
         <svg viewBox="0 0 720 380" role="img" aria-label="Solar power flow from array through selected inverter to grid export" className="h-full w-full">
           <defs>
             <linearGradient id="inverterFlowLine" x1="0%" x2="100%">
@@ -270,41 +270,41 @@ function PowerFlow({ power, status }: { power: Metric; status: DeviceStatus }) {
             </linearGradient>
             <filter id="inverterFlowGlow"><feGaussianBlur stdDeviation="4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
           </defs>
-          <path d="M170 118 H304 Q328 118 328 144 V165" fill="none" className={isFlowing ? 'inverter-flow-path' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : '#1E293B'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
-          <path d="M392 165 V144 Q392 118 416 118 H554" fill="none" className={isFlowing ? 'inverter-flow-path inverter-flow-path-delayed' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : '#1E293B'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
-          <path d="M360 216 V257 H205" fill="none" stroke="#1E293B" strokeWidth="3" strokeLinecap="round" />
+          <path d="M170 118 H304 Q328 118 328 144 V165" fill="none" className={isFlowing ? 'inverter-flow-path' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : 'var(--scada-border)'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
+          <path d="M392 165 V144 Q392 118 416 118 H554" fill="none" className={isFlowing ? 'inverter-flow-path inverter-flow-path-delayed' : ''} stroke={isFlowing ? 'url(#inverterFlowLine)' : 'var(--scada-border)'} strokeDasharray={isFlowing ? '12 8' : undefined} strokeWidth="4" strokeLinecap="round" filter={isFlowing ? 'url(#inverterFlowGlow)' : undefined} />
+          <path d="M360 216 V257 H205" fill="none" stroke="var(--scada-border)" strokeWidth="3" strokeLinecap="round" />
           <g transform="translate(66 65)">
-            <polygon points="0,38 88,0 144,26 55,66" fill="#0F1322" stroke="#334155" strokeWidth="2" />
-            <path d="M17 38 103 5M33 46 119 13M48 55 135 21M29 26 62 53M55 15 89 43M81 5 115 33" stroke="#475569" strokeWidth="1.5" opacity=".9" />
-            <path d="M55 66 v35 M99 48 v53 M48 101 h58" stroke="#334155" strokeWidth="3" strokeLinecap="round" />
+            <polygon points="0,38 88,0 144,26 55,66" fill="var(--scada-surface-raised)" stroke="var(--scada-muted)" strokeWidth="2" />
+            <path d="M17 38 103 5M33 46 119 13M48 55 135 21M29 26 62 53M55 15 89 43M81 5 115 33" stroke="var(--scada-muted)" strokeWidth="1.5" opacity=".9" />
+            <path d="M55 66 v35 M99 48 v53 M48 101 h58" stroke="var(--scada-muted)" strokeWidth="3" strokeLinecap="round" />
           </g>
           <g transform="translate(323 140)">
-            <rect width="74" height="80" rx="11" fill="#090B13" stroke="#00E5FF" strokeWidth="2.5" filter="drop-shadow(0 0 8px rgba(0,229,255,0.3))" />
-            <rect x="14" y="14" width="46" height="25" rx="4" fill="#0F1322" stroke="#1E293B" />
-            <circle cx="37" cy="57" r="7" fill={isFlowing ? '#00F2A6' : '#334155'} filter={isFlowing ? 'drop-shadow(0 0 6px rgba(0,242,166,0.5))' : undefined} />
-            <path d="M33 67 h8" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
+            <rect width="74" height="80" rx="11" fill="var(--scada-surface)" stroke="var(--scada-accent)" strokeWidth="2.5" filter="drop-shadow(0 0 8px rgba(0,229,255,0.3))" />
+            <rect x="14" y="14" width="46" height="25" rx="4" fill="var(--scada-surface-raised)" stroke="var(--scada-border)" />
+            <circle cx="37" cy="57" r="7" fill={isFlowing ? '#00F2A6' : 'var(--scada-muted)'} filter={isFlowing ? 'drop-shadow(0 0 6px rgba(0,242,166,0.5))' : undefined} />
+            <path d="M33 67 h8" stroke="var(--scada-muted)" strokeWidth="2" strokeLinecap="round" />
           </g>
           <g transform="translate(555 49)">
-            <path d="M48 0 0 182h96L48 0Zm0 25 25 137H23L48 25Z" fill="#0F1322" stroke="#334155" strokeWidth="2" />
-            <path d="M14 120h68M24 84h48M32 52h32M48 25v137M23 162l50-78M73 162 23 84" stroke="#475569" strokeWidth="2" />
-            <path d="M-12 47h120M-1 47l-17 25M97 47l17 25" stroke="#334155" strokeWidth="3" strokeLinecap="round" />
-            <rect x="17" y="186" width="62" height="12" rx="4" fill="#1E293B" />
+            <path d="M48 0 0 182h96L48 0Zm0 25 25 137H23L48 25Z" fill="var(--scada-surface-raised)" stroke="var(--scada-muted)" strokeWidth="2" />
+            <path d="M14 120h68M24 84h48M32 52h32M48 25v137M23 162l50-78M73 162 23 84" stroke="var(--scada-muted)" strokeWidth="2" />
+            <path d="M-12 47h120M-1 47l-17 25M97 47l17 25" stroke="var(--scada-muted)" strokeWidth="3" strokeLinecap="round" />
+            <rect x="17" y="186" width="62" height="12" rx="4" fill="var(--scada-border)" />
           </g>
           <g transform="translate(132 237)">
-            <path d="M0 42 54 0l54 42v62H0V42Z" fill="#090B13" stroke="#334155" strokeWidth="2" />
-            <path d="M-8 42 54 -5l62 47" fill="none" stroke="#475569" strokeWidth="3" strokeLinecap="round" />
-            <rect x="20" y="59" width="22" height="45" fill="#0F1322" stroke="#1E293B" />
+            <path d="M0 42 54 0l54 42v62H0V42Z" fill="var(--scada-surface)" stroke="var(--scada-muted)" strokeWidth="2" />
+            <path d="M-8 42 54 -5l62 47" fill="none" stroke="var(--scada-muted)" strokeWidth="3" strokeLinecap="round" />
+            <rect x="20" y="59" width="22" height="45" fill="var(--scada-surface-raised)" stroke="var(--scada-border)" />
             <rect x="65" y="59" width="20" height="18" fill="#FF5C00" opacity=".4" filter="drop-shadow(0 0 5px rgba(255,92,0,0.5))" />
           </g>
-          <text x="112" y="160" fill="#94A3B8" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">SOLAR ARRAY</text>
-          <text x="360" y="247" fill="#00E5FF" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">INVERTER</text>
-          <text x="603" y="262" fill="#94A3B8" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">GRID</text>
-          <text x="186" y="365" fill="#64748B" fontSize="12" fontWeight="700" letterSpacing="2" textAnchor="middle">PLANT LOAD</text>
+          <text x="112" y="160" fill="var(--scada-muted)" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">SOLAR ARRAY</text>
+          <text x="360" y="247" fill="var(--scada-accent)" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">INVERTER</text>
+          <text x="603" y="262" fill="var(--scada-muted)" fontSize="13" fontWeight="700" letterSpacing="2" textAnchor="middle">GRID</text>
+          <text x="186" y="365" fill="var(--scada-muted)" fontSize="12" fontWeight="700" letterSpacing="2" textAnchor="middle">PLANT LOAD</text>
         </svg>
-        <FlowLabel label="Source power" metric={power} className="left-[3%] top-[2%] sm:left-[6%]" />
-        <FlowLabel label="Reported export" metric={power} className="right-[0%] top-[63%] sm:right-[4%]" />
+        <FlowLabel label="Actual power" metric={power} className="left-[3%] top-[2%] sm:left-[6%]" />
+        <FlowLabel label="Actual export" metric={power} className="right-[0%] top-[63%] sm:right-[4%]" />
          <div className="absolute bottom-0 left-1/2 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-full border border-[#1E293B] bg-[#090B13]/90 px-4 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400 backdrop-blur">
-          {power.quality === 'raw' ? 'Raw source tag · scaling required' : power.value === null ? 'No reported power value' : isFlowing ? 'Reported power flow' : 'Flow paused until fresh inverter telemetry'}
+          {power.quality === 'raw' ? 'Actual value received · unit pending' : power.value === null ? 'No reported power value' : isFlowing ? 'Actual power flow' : 'Flow paused until fresh inverter telemetry'}
         </div>
       </div>
     </section>
@@ -322,9 +322,10 @@ function MetricCard({ icon: Icon, label, metric, detail }: { icon: typeof Zap; l
         <Icon size={16} />
       </div>
     </div>
-    <div className="mt-6 relative z-10">
+    <div className="mt-5 relative z-10">
+      <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Actual Value</p>
       <p className={`font-mono text-3xl font-bold tracking-tighter ${unavailable ? 'text-slate-500' : isRaw ? 'text-amber-300' : 'text-slate-100'}`}>{formatMetric(metric, 2)}</p>
-      <p className="mt-3 border-t border-[#1E293B]/70 pt-3 min-h-4 text-[10px] leading-relaxed text-slate-500 font-bold uppercase tracking-widest">{unavailable ? 'Not reported' : isRaw ? `${metric.source} · scaling required` : `${detail} · ${metric.source}`}</p>
+      <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 border-t border-[#1E293B]/70 pt-3 text-[10px] leading-4 text-slate-500">{unavailable ? <span>Not reported</span> : isRaw ? <><span>Unit not declared</span><span>Source: {metric.source}</span><span>Status: Engineering scaling pending</span></> : <><span>{detail}</span><span>Source: {metric.source}</span><span>Status: Normal</span></>}</div>
     </div>
   </div>;
 }
@@ -507,7 +508,7 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
   return (
     <>
       <button type="button" aria-label="Close inverter details" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-[#0b0f19]/75 backdrop-blur-sm" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#111827] shadow-2xl sm:inset-3 sm:rounded-2xl lg:inset-y-4 lg:left-auto lg:right-4 lg:w-[min(1040px,calc(100vw-2rem))]">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="scada-inverter-detail-dialog fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[#111827] shadow-2xl sm:inset-3 sm:rounded-2xl lg:inset-4 lg:left-4 lg:right-4 lg:w-auto">
         <header className="shrink-0 border-b border-[#1e293b] bg-[#111827]/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -534,8 +535,8 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
             <PowerFlow power={metrics.power} status={device.status} />
 
             <div className="grid grid-cols-1 divide-y divide-[#1e293b] overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-              <div className="p-4 sm:p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Power size={15} className="text-orange-400" />Real-time power</div><p data-testid="inverter-real-time-power" className={`mt-3 font-mono text-3xl font-bold ${metrics.power.value === null ? 'text-slate-500' : metrics.power.quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}`}>{formatMetric(metrics.power, 2)}</p><p className="mt-2 text-[10px] leading-4 text-slate-500">{metrics.power.quality === 'raw' ? 'Source tag only · engineering scaling required' : metrics.power.value === null ? 'This inverter has not reported active power.' : `Reported by ${metrics.power.source}`}</p></div>
-              <div className="p-4 sm:p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Gauge size={15} className="text-orange-400" />Installed power</div><p data-testid="inverter-installed-power" className={`mt-3 font-mono text-3xl font-bold ${metrics.capacity.value === null ? 'text-slate-500' : 'text-slate-100'}`}>{formatMetric(metrics.capacity, 2)}</p><p className="mt-2 text-[10px] leading-4 text-slate-500">{metrics.capacity.value === null ? 'Not reported by this inverter.' : `Reported by ${metrics.capacity.source}`}</p></div>
+              <div className="p-4 sm:p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Power size={15} className="text-orange-400" />Real-time power</div><p className="mt-3 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Actual Value</p><p data-testid="inverter-real-time-power" className={`mt-1 font-mono text-3xl font-bold ${metrics.power.value === null ? 'text-slate-500' : metrics.power.quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}`}>{formatMetric(metrics.power, 2)}</p><div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[10px] leading-4 text-slate-500">{metrics.power.quality === 'raw' ? <><span>Unit not declared</span><span>Source: {metrics.power.source}</span><span>Status: Engineering scaling pending</span></> : metrics.power.value === null ? <span>This inverter has not reported active power.</span> : <><span>Source: {metrics.power.source}</span><span>Status: Normal</span></>}</div></div>
+              <div className="p-4 sm:p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Gauge size={15} className="text-orange-400" />Installed power</div><p className="mt-3 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Actual Value</p><p data-testid="inverter-installed-power" className={`mt-1 font-mono text-3xl font-bold ${metrics.capacity.value === null ? 'text-slate-500' : 'text-slate-100'}`}>{formatMetric(metrics.capacity, 2)}</p><div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[10px] leading-4 text-slate-500">{metrics.capacity.value === null ? <><span>Capacity register not reported</span><span>Source metadata required</span></> : <><span>Source: {metrics.capacity.source}</span><span>Status: Normal</span></>}</div></div>
             </div>
 
             <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="inverter-energy-analysis">
@@ -551,11 +552,11 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
                 <button type="button" disabled={range === 'Lifetime' || dateOffset >= 0} onClick={() => setDateOffset((offset) => offset + 1)} aria-label="Next energy period" title={range === 'Lifetime' ? 'Lifetime history has no date navigation' : dateOffset >= 0 ? 'Future energy history is unavailable' : 'Next energy period'} className="rounded-md p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 disabled:cursor-not-allowed disabled:text-slate-600"><ChevronRight size={18} /></button>
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end">
-                <div><p className="text-xs font-semibold text-orange-300">Production ({energyUnit})</p><p data-testid="inverter-energy-value" className={`mt-2 font-mono text-4xl font-bold tracking-tight ${energyMetric.value === null ? 'text-slate-500' : 'text-orange-400'}`}>{formatMetric(energyMetric, 2)}</p><p className="mt-2 text-[11px] leading-5 text-slate-500">{energyMetric.value === null ? range === 'Lifetime' ? 'Lifetime energy is not reported by this inverter.' : energyHistoryState.loading ? 'Loading source-backed inverter samples…' : rawEnergyCount ? `${rawEnergyCount} raw source sample${rawEnergyCount === 1 ? '' : 's'} found; engineering scaling is required.` : 'No per-inverter production samples are available for this range.' : `Source: ${energyMetric.source}`}</p></div>
-                 <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-[#334155] bg-[#0b0f19] px-5 text-center text-xs leading-5 text-slate-500" aria-label={chartData.length ? 'Validated per-inverter energy history chart' : 'Energy history unavailable for the selected range'}>{energyHistoryState.loading ? 'Loading per-inverter history…' : chartData.length > 1 ? <ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 4, left: 4 }}><CartesianGrid strokeDasharray="2 4" stroke="#1e293b" vertical={false} /><XAxis dataKey="time" hide /><YAxis hide domain={['auto', 'auto']} /><Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} formatter={(value) => [`${Number(value).toLocaleString()} ${energyUnit}`, 'Energy']} /><Line type="monotone" dataKey="value" stroke="#f97316" strokeWidth={2} dot={false} isAnimationActive={false} /></LineChart></ResponsiveContainer> : energyHistory.length ? rawEnergyCount ? 'Raw source samples available.' : 'One validated sample in this range.' : 'No per-inverter energy samples reported.'}</div>
+                <div><p className="text-xs font-semibold text-orange-300">Production</p><p className="mt-2 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Actual Value</p><p data-testid="inverter-energy-value" className={`mt-1 font-mono text-4xl font-bold tracking-tight ${energyMetric.value === null ? 'text-slate-500' : 'text-orange-400'}`}>{formatMetric(energyMetric, 2)}</p><div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[11px] leading-5 text-slate-500">{energyMetric.value === null ? range === 'Lifetime' ? <span>Lifetime energy is not reported by this inverter.</span> : energyHistoryState.loading ? <span>Loading source-backed inverter samples…</span> : rawEnergyCount ? <><span>{rawEnergyCount} actual source sample{rawEnergyCount === 1 ? '' : 's'}</span><span>Unit pending</span></> : <span>No per-inverter production samples are available for this range.</span> : <><span>Unit: {energyUnit}</span><span>Source: {energyMetric.source}</span><span>Status: Normal</span></>}</div></div>
+                 <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-[#334155] bg-[#0b0f19] px-5 text-center text-xs leading-5 text-slate-500" aria-label={chartData.length ? 'Validated per-inverter energy history chart' : 'Energy history unavailable for the selected range'}>{energyHistoryState.loading ? 'Loading per-inverter history…' : chartData.length > 1 ? <ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 4, left: 4 }}><CartesianGrid strokeDasharray="2 4" stroke="#1e293b" vertical={false} /><XAxis dataKey="time" hide /><YAxis hide domain={['auto', 'auto']} /><Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} formatter={(value) => [`Actual Value: ${Number(value).toLocaleString()} ${energyUnit}`, 'Energy']} /><Line type="monotone" dataKey="value" stroke="#f97316" strokeWidth={2} dot={false} isAnimationActive={false} /></LineChart></ResponsiveContainer> : energyHistory.length ? rawEnergyCount ? 'Actual source samples available; unit pending.' : 'One validated sample in this range.' : 'No per-inverter energy samples reported.'}</div>
               </div>
-               <div className="mt-3 flex items-start gap-2 text-[10px] leading-4 text-slate-500"><Info size={13} className="mt-0.5 shrink-0 text-blue-400" /><span>{energyHistoryState.error ? <span role="alert" data-testid="status-inverter-energy-error" className="text-amber-300">{energyHistoryState.error}</span> : <>Samples are scoped to the configured source site {siteName} · {device.name}. Only explicitly scaling-validated samples drive the chart; raw MQTT values remain visible below. Plant totals are never used as a substitute.</>}</span></div>
-                {energyHistory.length > 0 && <details className="mt-4 overflow-hidden rounded-xl border border-[#1e293b] bg-[#0f1423]"><summary className="cursor-pointer px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Source samples <span className="ml-1 font-normal normal-case tracking-normal text-slate-600">{energyHistory.length} retained</span></summary><div className="border-t border-[#1e293b]"><p className="px-3 py-2 text-[10px] text-slate-500 sm:hidden">Swipe horizontally to inspect all source fields.</p><div className="max-h-48 overflow-auto"><table className="min-w-[720px] w-full text-left text-[10px]"><thead className="sticky top-0 bg-[#0f1423]"><tr>{['Observed', 'Value', 'Parameter', 'Source', 'Address', 'Raw value', 'Scaling'].map((heading) => <th key={heading} className="px-3 py-2 font-bold uppercase tracking-wider text-slate-600">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{energyHistory.map((sample) => <tr key={sample.id}><td className="px-3 py-2 text-slate-400">{new Date(sample.observedAt).toLocaleString()}</td><td className="px-3 py-2 font-mono text-slate-300">{sample.scalingStatus === 'validated' ? `${sample.value.toLocaleString()} ${sample.unit}` : 'Raw only'}</td><td className="px-3 py-2 font-mono text-blue-300 break-all">{sample.parameter}</td><td className="px-3 py-2 text-slate-400 break-words">{sample.sourceName}<span className="block text-[9px] text-slate-600">Configured source site</span></td><td className="px-3 py-2 font-mono text-slate-400 break-all">{sample.address}</td><td className="px-3 py-2 font-mono text-slate-300 break-all">{sample.rawValue}</td><td className={`px-3 py-2 ${sample.scalingStatus === 'validated' ? 'text-emerald-400' : 'text-amber-400'}`}>{sample.scalingStatus === 'validated' ? 'Validated' : 'Raw / Scaling Required'}</td></tr>)}</tbody></table></div></div></details>}
+               <div className="mt-3 flex items-start gap-2 text-[10px] leading-4 text-slate-500"><Info size={13} className="mt-0.5 shrink-0 text-blue-400" /><span>{energyHistoryState.error ? <span role="alert" data-testid="status-inverter-energy-error" className="text-amber-300">{energyHistoryState.error}</span> : <>Samples are scoped to the configured source site {siteName} · {device.name}. Only scaling-validated samples drive the chart; actual values from MQTT remain available in the source samples below. Plant totals are never used as a substitute.</>}</span></div>
+                {energyHistory.length > 0 && <details className="mt-4 overflow-hidden rounded-xl border border-[#1e293b] bg-[#0f1423]"><summary className="cursor-pointer px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Source samples <span className="ml-1 font-normal normal-case tracking-normal text-slate-600">{energyHistory.length} retained</span></summary><div className="border-t border-[#1e293b]"><p className="px-3 py-2 text-[10px] text-slate-500 sm:hidden">Swipe horizontally to inspect all source fields.</p><div className="max-h-48 overflow-auto"><table className="min-w-[720px] w-full text-left text-[10px]"><thead className="sticky top-0 bg-[#0f1423]"><tr>{['Last Updated', 'Actual Value', 'Parameter', 'Source', 'Modbus Register', 'Original Value', 'Status'].map((heading) => <th key={heading} className="px-3 py-2 font-bold uppercase tracking-wider text-slate-600">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{energyHistory.map((sample) => <tr key={sample.id}><td className="px-3 py-2 text-slate-400">{new Date(sample.observedAt).toLocaleString()}</td><td className="px-3 py-2 font-mono text-slate-300">{sample.scalingStatus === 'validated' ? `${sample.value.toLocaleString()} ${sample.unit}` : `${sample.value.toLocaleString()} · unit pending`}</td><td className="px-3 py-2 font-mono text-blue-300 break-all">{sample.parameter}</td><td className="px-3 py-2 text-slate-400 break-words">{sample.sourceName}<span className="block text-[9px] text-slate-600">Configured source site</span></td><td className="px-3 py-2 font-mono text-slate-400 break-all">{sample.address}</td><td className="px-3 py-2 font-mono text-slate-300 break-all">{sample.rawValue}</td><td className={`px-3 py-2 ${sample.scalingStatus === 'validated' ? 'text-emerald-400' : 'text-amber-400'}`}>{sample.scalingStatus === 'validated' ? 'Normal' : 'Unit pending'}</td></tr>)}</tbody></table></div></div></details>}
             </section>
           </div> : <div className="mx-auto max-w-5xl space-y-5">
             <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
