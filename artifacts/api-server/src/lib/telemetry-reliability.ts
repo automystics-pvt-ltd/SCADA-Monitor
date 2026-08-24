@@ -89,3 +89,16 @@ export function recoveryNeedsResync(requestedAfter: number | undefined, replayHi
   }
   return expectedSequence - 1 !== replayHighWater;
 }
+
+/**
+ * A newly opened monitor needs the latest evidence for each signal, not an
+ * unbounded dump of process-local history. A reconnect with Last-Event-ID
+ * still uses contiguous replay; this helper is only for initial bootstrap.
+ */
+export function latestBootstrapMessages<T extends { sequence: number }>(messages: T[], signalKey: (message: T) => string, limit: number) {
+  const latestBySignal = new Map<string, T>();
+  for (const message of messages) latestBySignal.set(signalKey(message), message);
+  return [...latestBySignal.values()]
+    .sort((left, right) => left.sequence - right.sequence)
+    .slice(-Math.max(1, limit));
+}

@@ -16,23 +16,8 @@ function trn246InverterYield(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test("accepts the explicitly mapped TRN246 per-inverter yield register with raw scaling evidence", () => {
-  const observation = inverterEnergyObservationFromParameter(trn246InverterYield(), sourceSite);
-  assert.deepEqual(observation && {
-    siteName: observation.siteName,
-    inverterId: observation.inverterId,
-    value: observation.value,
-    address: observation.address,
-    scalingStatus: observation.scalingStatus,
-    sourceMapping: observation.metadata.sourceMapping,
-  }, {
-    siteName: sourceSite,
-    inverterId: "inv1",
-    value: 3419,
-    address: "305003",
-    scalingStatus: "raw",
-    sourceMapping: "ana/305003/invN",
-  });
+test("rejects the TRN246 invN identity register as an inverter-energy source", () => {
+  assert.equal(inverterEnergyObservationFromParameter(trn246InverterYield(), sourceSite), undefined);
 });
 
 test("rejects bare inverter tags that do not match the trusted source/register mapping", () => {

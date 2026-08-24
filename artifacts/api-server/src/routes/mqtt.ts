@@ -14,7 +14,7 @@ import {
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
-import { deviceCommunicationState, heartbeatWindows, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
+import { deviceCommunicationState, heartbeatWindows, latestBootstrapMessages, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
 import {
@@ -39,13 +39,14 @@ const mqttClientId = process.env.MQTT_CLIENT_ID
 const mqttLeaseOwnerId = `lease-${Buffer.from(mqttInstanceIdentity).toString("hex").slice(0, 16)}-${process.pid}`;
 const username = process.env.MQTT_USERNAME;
 const password = process.env.MQTT_PASSWORD;
-const listeners = new Map<Response, {
+type SseListenerState = {
   pending: string[];
   deferredMessages: Array<{ event: string; data: unknown; eventId: number }>;
   paused: boolean;
   backpressured: boolean;
   flushing: boolean;
-}>();
+};
+const listeners = new Map<Response, SseListenerState>();
 const SNAPSHOT_INTERVAL_MS = 15_000;
 const PERSISTENCE_INTERVAL_MINUTES = 15;
 const PERSISTENCE_START_MINUTE = 6 * 60;
@@ -153,6 +154,7 @@ const messageHistory: StoredMessage[] = [];
 const MESSAGE_HISTORY_LIMIT = 5000;
 const COMMUNICATION_PERSISTENCE_QUEUE_LIMIT = 1000;
 const SSE_PENDING_FRAME_LIMIT = 250;
+const SSE_BOOTSTRAP_MESSAGE_LIMIT = 120;
 let deliverySequenceInitialization: Promise<void> | undefined;
 let inboundMessageChain: Promise<void> = Promise.resolve();
 let consumerLeaseHeld = false;
@@ -264,30 +266,56 @@ function enqueueFrame(state: { pending: string[] }, event: string, data: unknown
   state.pending.push(frame(event, data, eventId));
 }
 
-function enqueueReplayFrame(res: Response, state: {
-  pending: string[];
-  deferredMessages: unknown[];
-  paused: boolean;
-  backpressured: boolean;
-  flushing: boolean;
-}, event: string, data: unknown, eventId?: number) {
-  if (state.pending.length + state.deferredMessages.length >= SSE_PENDING_FRAME_LIMIT) {
-    noteDeliveryGap({
-      detectedAt: new Date().toISOString(),
-      reason: "SSE replay exceeded the bounded client recovery buffer.",
-      endSequence: eventId,
-      source: "sse",
-    });
-    listeners.delete(res);
-    res.end();
-    return false;
-  }
-  enqueueFrame(state, event, data, eventId);
-  flushListener(res, state);
-  return true;
+function listenerIsOpen(res: Response) {
+  return listeners.has(res) && !res.writableEnded && !res.destroyed;
 }
 
-function flushListener(res: Response, state: { pending: string[]; paused: boolean; backpressured: boolean; flushing: boolean }) {
+function closeRecoverableSseListener(res: Response, state: SseListenerState, reason: string, eventId?: number) {
+  if (!listeners.has(res)) return;
+  const firstPending = state.pending[0];
+  const deliveredThrough = firstPending
+    ? parseDeliverySequence(firstPending.match(/^id: (\d+)/)?.[1])
+    : state.deferredMessages[0]?.eventId;
+  recordCommunicationEvent({
+    eventType: "sse-recovery-required",
+    topic: subscriptionTopic,
+    receivedAt: new Date(),
+    reason,
+    metadata: {
+      deliveredThrough,
+      pendingFrames: state.pending.length,
+      deferredFrames: state.deferredMessages.length,
+      nextSequence: eventId,
+    },
+  });
+  listeners.delete(res);
+  res.end();
+}
+
+async function waitForSseReplayCapacity(res: Response, state: SseListenerState) {
+  while (listenerIsOpen(res)) {
+    if (!state.backpressured && state.pending.length + state.deferredMessages.length < SSE_PENDING_FRAME_LIMIT) return true;
+    await new Promise<void>((resolve) => {
+      const resume = () => {
+        res.off("drain", resume);
+        res.off("close", resume);
+        resolve();
+      };
+      res.once("drain", resume);
+      res.once("close", resume);
+    });
+  }
+  return false;
+}
+
+async function enqueueReplayFrame(res: Response, state: SseListenerState, event: string, data: unknown, eventId?: number) {
+  if (!await waitForSseReplayCapacity(res, state)) return false;
+  enqueueFrame(state, event, data, eventId);
+  flushListener(res, state);
+  return listenerIsOpen(res);
+}
+
+function flushListener(res: Response, state: SseListenerState) {
   if (state.backpressured || state.flushing || res.writableEnded || res.destroyed) return;
   state.flushing = true;
   try {
@@ -317,19 +345,10 @@ function send(res: Response, event: string, data: unknown, eventId?: number) {
     return;
   }
   if (state.pending.length + state.deferredMessages.length >= SSE_PENDING_FRAME_LIMIT) {
-    const firstPending = state.pending[0];
-    const droppedSequence = firstPending
-      ? firstPending.match(/^id: (\d+)/)?.[1]
-      : state.deferredMessages[0]?.eventId?.toString();
-    noteDeliveryGap({
-      detectedAt: new Date().toISOString(),
-      reason: "SSE listener backpressure exceeded the bounded recovery buffer.",
-      startSequence: parseDeliverySequence(droppedSequence),
-      endSequence: eventId,
-      source: "sse",
-    });
-    listeners.delete(res);
-    res.end();
+    // A slow browser has not lost telemetry: its Last-Event-ID lets it resume
+    // from the durable ledger. This is a recoverable listener condition, not
+    // a plant, broker, or persistence delivery gap.
+    closeRecoverableSseListener(res, state, "SSE listener fell behind its bounded recovery buffer; reconnect will resume from the durable delivery sequence.", eventId);
     return;
   }
   if (state.paused && event === "message" && eventId !== undefined) {
@@ -1136,7 +1155,9 @@ function startClient() {
     connectTimeout: 30_000,
     keepalive: 30,
     clean: false,
-    resubscribe: true,
+    // Subscribe explicitly after each confirmed transport connection so one
+    // reconnect produces one observable subscription acknowledgement.
+    resubscribe: false,
   });
   client = mqttClient;
 
@@ -2281,6 +2302,14 @@ function inMemoryDeliveryHighWater() {
   return messageHistory.at(-1)?.sequence;
 }
 
+function bootstrapMessages(highWater: number) {
+  return latestBootstrapMessages(
+    messageHistory.filter((message) => message.sequence <= highWater),
+    (message) => message.parameter ? snapshotParameterKey(message.parameter) : `raw:${message.sequence}`,
+    SSE_BOOTSTRAP_MESSAGE_LIMIT,
+  );
+}
+
 router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
   const requestedLimit = Number(req.query.limit);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 200) : 50;
@@ -2304,7 +2333,7 @@ router.get("/mqtt/stream", (req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
-  const listenerState = {
+  const listenerState: SseListenerState = {
     pending: [] as string[],
     deferredMessages: [] as Array<{ event: string; data: unknown; eventId: number }>,
     paused: true,
@@ -2332,10 +2361,11 @@ router.get("/mqtt/stream", (req, res) => {
       replayHighWater = Math.max(persistedHighWater ?? 0, inMemoryDeliveryHighWater() ?? 0);
       const highWater = replayHighWater;
       if (requestedAfter === undefined) {
-        for (const message of messageHistory) {
-          if (message.sequence <= highWater) {
-            if (!enqueueReplayFrame(res, listenerState, "message", { ...message, replay: true, recovered: false }, message.sequence)) break;
-          }
+        // A first-time browser needs current source evidence, not every
+        // historical broker frame. Replaying the full process buffer can
+        // trigger proxy backpressure and an avoidable reconnect loop.
+        for (const message of bootstrapMessages(highWater)) {
+          if (!await enqueueReplayFrame(res, listenerState, "message", { ...message, replay: true, recovered: false }, message.sequence)) return;
         }
       } else {
         const recovered = await replayableMessagesAfter(requestedAfter, highWater);
@@ -2349,12 +2379,12 @@ router.get("/mqtt/stream", (req, res) => {
           });
           for (const message of messageHistory) {
             if (message.sequence <= highWater) {
-              if (!enqueueReplayFrame(res, listenerState, "message", { ...message, replay: true, recovered: false }, message.sequence)) break;
+              if (!await enqueueReplayFrame(res, listenerState, "message", { ...message, replay: true, recovered: false }, message.sequence)) return;
             }
           }
         } else {
           for (const message of recovered) {
-            if (!enqueueReplayFrame(res, listenerState, "message", { ...message, replay: false, recovered: true }, message.sequence)) break;
+            if (!await enqueueReplayFrame(res, listenerState, "message", { ...message, replay: false, recovered: true }, message.sequence)) return;
           }
         }
       }
@@ -2368,13 +2398,21 @@ router.get("/mqtt/stream", (req, res) => {
       });
     } finally {
       for (const message of listenerState.deferredMessages.sort((left, right) => left.eventId - right.eventId)) {
-        if (!enqueueReplayFrame(res, listenerState, message.event, message.data, message.eventId)) break;
+        if (!await enqueueReplayFrame(res, listenerState, message.event, message.data, message.eventId)) return;
       }
       listenerState.deferredMessages.length = 0;
       listenerState.paused = false;
       flushListener(res, listenerState);
       deliveredThrough = replayVerified ? replayHighWater : requestedAfter;
       recoveryComplete = true;
+      if (listenerIsOpen(res)) {
+        send(res, "ready", {
+          state: "ready",
+          replayVerified,
+          recoveredThrough: deliveredThrough,
+          bootstrap: requestedAfter === undefined,
+        });
+      }
     }
   })();
 
@@ -2415,5 +2453,9 @@ router.get("/mqtt/stream", (req, res) => {
     res.end();
   });
 });
+
+// Live consumption and scheduled persistence are server responsibilities.
+// They must continue even when no operator has an SSE browser tab open.
+requestMqttConsumer();
 
 export default router;
