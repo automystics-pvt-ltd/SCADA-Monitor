@@ -3011,24 +3011,26 @@ function AppShell() {
             <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
                 <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} />
             </div>
-            <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
-                <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
-            </div>
+            <aside className="min-w-0 space-y-4">
+              <div id="inverters" data-section="inverters" className="scroll-mt-6">
+                  <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
+              </div>
+              <div id="alarms" data-section="alarms" className="scroll-mt-6">
+                  <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} />
+              </div>
+            </aside>
           </div>
           
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-              <div id="energy" data-section="energy" className="min-w-0 scroll-mt-6 xl:col-span-1">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              <div id="energy" data-section="energy" className="min-w-0 scroll-mt-6">
                 <EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} />
              </div>
-              <div id="power" data-section="power" className="min-w-0 scroll-mt-6 xl:col-span-2">
+              <div id="power" data-section="power" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2">
                 <PowerTrendChart calculation={calculations.acPower} mode={mode} />
              </div>
-             <div className="min-w-0 xl:col-span-1">
+             <div className="min-w-0">
                 <PowerDistributionChart inverters={mode === 'demo' ? inverters : []} mode={mode} />
-             </div>
-              <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6 xl:col-span-1">
-                 <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} />
-             </div>
+            </div>
           </div>
 
            <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} onRefresh={refreshWeather} onSiteChange={changeActiveSite} />
