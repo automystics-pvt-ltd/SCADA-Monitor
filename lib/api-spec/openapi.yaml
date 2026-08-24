@@ -204,7 +204,9 @@ components:
       type: object
       properties:
         user:
-          $ref: "#/components/schemas/PlatformAdminUser"
+          oneOf:
+            - $ref: "#/components/schemas/PlatformAdminUser"
+            - type: "null"
         admin:
           type: boolean
       required: [user, admin]
@@ -219,10 +221,10 @@ components:
     PlatformAdminOverview:
       type: object
       properties:
-        organizationCount: { type: integer }
-        siteCount: { type: integer }
-        userCount: { type: integer }
-        activeAccessGrantCount: { type: integer }
+        organizationCount: { type: number }
+        siteCount: { type: number }
+        userCount: { type: number }
+        activeAccessGrantCount: { type: number }
         broker:
           $ref: "#/components/schemas/PlatformMqttConfig"
         communication:
@@ -240,7 +242,7 @@ components:
         name: { type: string }
         slug: { type: string }
         status: { type: string }
-        siteCount: { type: integer }
+        siteCount: { type: number }
       required: [id, name, slug, status, siteCount]
     PlatformOrganizationInput:
       type: object
@@ -254,8 +256,8 @@ components:
         siteName: { type: string }
         organizationId: { type: string }
         organizationName: { type: string }
-        latitude: { type: number, nullable: true }
-        longitude: { type: number, nullable: true }
+        latitude: { type: [number, "null"] }
+        longitude: { type: [number, "null"] }
         timezone: { type: string }
         status: { type: string }
       required: [siteName, organizationId, organizationName, latitude, longitude, timezone, status]
@@ -264,15 +266,15 @@ components:
       properties:
         siteName: { type: string, minLength: 2, maxLength: 160 }
         organizationId: { type: string }
-        latitude: { type: number, nullable: true }
-        longitude: { type: number, nullable: true }
+        latitude: { type: [number, "null"] }
+        longitude: { type: [number, "null"] }
         timezone: { type: string, maxLength: 80 }
       required: [siteName, organizationId, timezone]
     PlatformUser:
       type: object
       properties:
         id: { type: string }
-        email: { type: string, nullable: true }
+        email: { type: [string, "null"] }
         name: { type: string }
         access:
           type: array

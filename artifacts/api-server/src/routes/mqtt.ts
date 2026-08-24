@@ -14,6 +14,7 @@ import {
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
+import { allowGrantedSite, allowUnscopedScadaEvidence, grantedSiteNames } from "../middlewares/platformSiteAccess";
 import { deviceCommunicationState, heartbeatWindows, latestBootstrapMessages, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
@@ -1143,6 +1144,10 @@ function status() {
   };
 }
 
+export function getMqttRuntimeStatus() {
+  return status();
+}
+
 function startClient() {
   if (!consumerLeaseHeld || client) return;
 
@@ -1394,7 +1399,8 @@ router.get("/mqtt/status", (_req, res) => {
   res.json(status());
 });
 
-router.get("/mqtt/snapshots", async (_req, res) => {
+router.get("/mqtt/snapshots", async (req, res) => {
+  if (!await allowUnscopedScadaEvidence(req, res)) return;
   try {
     const snapshots = await db
       .select()
@@ -1409,6 +1415,7 @@ router.get("/mqtt/snapshots", async (_req, res) => {
 });
 
 router.get("/mqtt/snapshots/latest", async (req, res): Promise<void> => {
+  if (!await allowUnscopedScadaEvidence(req, res)) return;
   try {
     const snapshot = await latestSavedSnapshotEvidence();
     res.set("Cache-Control", "no-store").json({ snapshot });
@@ -1418,13 +1425,16 @@ router.get("/mqtt/snapshots/latest", async (req, res): Promise<void> => {
   }
 });
 
-router.get("/mqtt/site-locations", async (_req, res) => {
+router.get("/mqtt/site-locations", async (req, res) => {
   try {
+    const granted = await grantedSiteNames(req);
     const locations = await db
       .select()
       .from(plantLocationsTable)
       .orderBy(asc(plantLocationsTable.siteName));
-    res.set("Cache-Control", "no-store").json({ locations });
+    res.set("Cache-Control", "no-store").json({
+      locations: granted ? locations.filter((location) => granted.has(location.siteName)) : locations,
+    });
   } catch (error) {
     logger.error({ err: error }, "Plant locations query failed");
     res.status(500).json({ message: "Unable to load saved plant locations" });
@@ -1447,6 +1457,7 @@ router.put("/mqtt/site-locations/:siteName", async (req, res): Promise<void> => 
     res.status(403).json({ message: "Your operator account is not authorized to update this plant location." });
     return;
   }
+  if (!await allowGrantedSite(req, res, siteName)) return;
 
   try {
     const [location] = await db
@@ -1470,6 +1481,7 @@ router.get("/mqtt/calibration-profile", async (req, res): Promise<void> => {
     res.status(400).json({ message: "A valid plant/site name is required." });
     return;
   }
+  if (!await allowGrantedSite(req, res, siteName)) return;
   try {
     res.set("Cache-Control", "no-store").json({ profile: await currentPlantCalibrationProfile(siteName) });
   } catch (error) {
@@ -1588,7 +1600,7 @@ function previewMapping(source: CalibrationSource, index: number, nowMs: number)
   return { index, status: "not-found" as const, reason: "No broker evidence currently matches this source, parameter, and register address." };
 }
 
-router.post("/mqtt/calibration-preview", (req, res): void => {
+router.post("/mqtt/calibration-preview", async (req, res): Promise<void> => {
   const siteName = parseSiteName(req.body?.siteName) || configuredMqttPlantSite;
   const requestedSources = req.body?.sources;
   if (siteName.length > 160 || !Array.isArray(requestedSources) || requestedSources.length > 100) {
@@ -1603,6 +1615,7 @@ router.post("/mqtt/calibration-preview", (req, res): void => {
     res.status(403).json({ message: "Your operator account is not authorized to verify calibration mappings for this plant." });
     return;
   }
+  if (!await allowGrantedSite(req, res, siteName)) return;
   const nowMs = Date.now();
   const mappings = requestedSources.map((value: unknown, index: number) => {
     const source = calibrationPreviewSource(value);
@@ -1635,6 +1648,7 @@ router.put("/mqtt/calibration-profile/:siteName", async (req, res): Promise<void
     res.status(403).json({ message: "Your operator account is not authorized to approve this plant calibration profile." });
     return;
   }
+  if (!await allowGrantedSite(req, res, siteName)) return;
   const verification = sources.map((source, index) => previewMapping(source, index, Date.now()));
   if (verification.some((mapping) => mapping.status !== "matched")) {
     res.status(409).json({
@@ -1725,6 +1739,7 @@ function isElectricalParameter(parameter: Record<string, unknown>) {
 }
 
 router.get("/mqtt/electrical-history", async (req, res) => {
+  if (!await allowUnscopedScadaEvidence(req, res)) return;
   const from = parseRangeBoundary(req.query.from, "start");
   const to = parseRangeBoundary(req.query.to, "end");
   if (from === undefined || to === undefined) {
@@ -1800,6 +1815,7 @@ router.get("/mqtt/inverter-energy-history", async (req, res): Promise<void> => {
     res.status(400).json({ message: "Use a Day, Week, Month, or Year period and a valid plant-calendar anchor date." });
     return;
   }
+  if (!await allowGrantedSite(req, res, siteName)) return;
 
   const { rangeStart, rangeEnd } = energyHistoryRange(period, anchor);
   const samplingInterval = period === "Day" ? "1 minute" : period === "Week" ? "15 minutes" : period === "Month" ? "1 hour" : "1 day";
@@ -1864,6 +1880,7 @@ router.get("/mqtt/inverter-measurements", async (req, res): Promise<void> => {
     res.status(400).json({ message: "Use a Day, Week, Month, or Year period and a valid plant-calendar anchor date." });
     return;
   }
+  if (!await allowGrantedSite(req, res, siteName)) return;
 
   const { rangeStart, rangeEnd } = energyHistoryRange(period, anchor);
   try {
@@ -2050,7 +2067,19 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
   }
 
   const requestedSite = parseSiteName(req.query.siteName);
-  const siteName = requestedSite && requestedSite !== "all" ? requestedSite : "";
+  let siteName = requestedSite && requestedSite !== "all" ? requestedSite : "";
+  const granted = await grantedSiteNames(req);
+  if (granted && !siteName) {
+    if (granted.size !== 1) {
+      res.status(400).json({ message: "Select one assigned plant/site before requesting a report." });
+      return;
+    }
+    siteName = [...granted][0];
+  }
+  if (granted && !granted.has(siteName)) {
+    res.status(403).json({ message: "Your assigned site access does not include this report scope." });
+    return;
+  }
   const filters: ReportFilterSet = {
     devices: reportList(req.query.devices),
     parameters: reportList(req.query.parameters),
@@ -2460,6 +2489,7 @@ function bootstrapMessages(highWater: number) {
 }
 
 router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
+  if (!await allowUnscopedScadaEvidence(req, res)) return;
   const requestedLimit = Number(req.query.limit);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 200) : 50;
   try {
@@ -2476,7 +2506,8 @@ router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
   }
 });
 
-router.get("/mqtt/stream", (req, res) => {
+router.get("/mqtt/stream", async (req, res) => {
+  if (!await allowUnscopedScadaEvidence(req, res)) return;
   requestMqttConsumer();
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");

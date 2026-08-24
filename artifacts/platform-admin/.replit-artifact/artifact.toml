@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/platform-admin/"
+title = "Platform Admin"
+description = "An isolated operations control center for authorized platform administrators to manage organizations, sites, access, MQTT settings, health, and audit history."
+version = "1.0.0"
+id = "artifacts/platform-admin"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/platform-admin/" ]
+localPort = 19215
+
+[services.development]
+run = "pnpm --filter @workspace/platform-admin run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/platform-admin", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/platform-admin/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19215"
+BASE_PATH = "/platform-admin/"

@@ -50,6 +50,13 @@
       "when": 1787547000000,
       "tag": "0006_inverter_energy_history",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787601706192,
+      "tag": "0007_platform_admin",
+      "breakpoints": true
     }
   ]
 }
