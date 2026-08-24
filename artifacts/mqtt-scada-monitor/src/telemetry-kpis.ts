@@ -7,6 +7,15 @@ export type RawTelemetryMetric = {
   provenance: "live" | "replay";
 };
 
+export type ScadaAggregate = {
+  value: number | null;
+  method: "inverter-sum" | "main-meter" | "three-phase" | "inverter-energy-sum" | "totalizing-meter" | "unavailable";
+  unit: "raw" | "W";
+  included: RawTelemetryMetric[];
+  excluded: RawTelemetryMetric[];
+  source: RawTelemetryMetric | null;
+};
+
 export type SavedSnapshotMetric = {
   parameter: string;
   value: number;
@@ -119,6 +128,10 @@ function numericValue(row: TelemetryKpiRow) {
   return Number.isFinite(value) ? value : null;
 }
 
+function normalizedKey(value: unknown) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function asRawMetric(row: TelemetryKpiRow): RawTelemetryMetric | null {
   const value = numericValue(row);
   if (value === null) return null;
@@ -148,6 +161,120 @@ export function rawInverterSignals(rows: TelemetryKpiRow[]) {
     .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null)
     .sort((left, right) => left.metric.parameter.localeCompare(right.metric.parameter))
     .map((item) => item.metric);
+}
+
+function latestMetricMatching(rows: TelemetryKpiRow[], predicate: (name: string) => boolean) {
+  const matches = rows
+    .filter((row) => predicate(normalizedKey(row.name)))
+    .map((row) => ({ row, metric: asRawMetric(row) }))
+    .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null);
+  if (!matches.length) return null;
+  return matches.reduce((latest, candidate) => rowTimestamp(candidate.row) > rowTimestamp(latest.row) ? candidate : latest);
+}
+
+function latestMetricsByParameter(rows: TelemetryKpiRow[], predicate: (name: string) => boolean) {
+  const newest = new Map<string, { row: TelemetryKpiRow; metric: RawTelemetryMetric }>();
+  for (const row of rows) {
+    const parameter = normalizedKey(row.name);
+    if (!predicate(parameter)) continue;
+    const metric = asRawMetric(row);
+    if (!metric) continue;
+    const current = newest.get(parameter);
+    if (!current || rowTimestamp(row) >= rowTimestamp(current.row)) newest.set(parameter, { row, metric });
+  }
+  return [...newest.values()].map((item) => item.metric);
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+}
+
+function rejectPowerOutliers(metrics: RawTelemetryMetric[]) {
+  if (metrics.length < 3) return { included: metrics, excluded: [] as RawTelemetryMetric[] };
+  const centre = median(metrics.map((metric) => metric.value));
+  const medianDeviation = median(metrics.map((metric) => Math.abs(metric.value - centre)));
+  const permittedDeviation = Math.max(Math.abs(centre) * 4, medianDeviation * 10, 1);
+  const included = metrics.filter((metric) => Math.abs(metric.value - centre) <= permittedDeviation);
+  return { included, excluded: metrics.filter((metric) => !included.includes(metric)) };
+}
+
+function hasValidatedScaling(row: TelemetryKpiRow) {
+  return [
+    row.scaling_validated,
+    row.scalingValidated,
+    row.engineering_value_validated,
+    row.engineeringValueValidated,
+    row.scaling_status,
+    row.scalingStatus,
+    row.validation_status,
+    row.validationStatus,
+  ].some((value) => value === true || ["validated", "confirmed", "approved"].includes(String(value).toLowerCase()));
+}
+
+function latestValidatedMetric(rows: TelemetryKpiRow[], names: string[]) {
+  const namesSet = new Set(names);
+  const matches = rows
+    .filter((row) => namesSet.has(normalizedKey(row.name)) && hasValidatedScaling(row))
+    .map((row) => ({ row, metric: asRawMetric(row) }))
+    .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null);
+  if (!matches.length) return null;
+  return matches.reduce((latest, candidate) => rowTimestamp(candidate.row) > rowTimestamp(latest.row) ? candidate : latest);
+}
+
+export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
+  const inverterPower = latestMetricsByParameter(rows, (name) => /^inv\d+$/.test(name));
+  const powerSelection = rejectPowerOutliers(inverterPower);
+  const acPower: ScadaAggregate = powerSelection.included.length
+    ? {
+      value: powerSelection.included.reduce((sum, metric) => sum + metric.value, 0),
+      method: "inverter-sum",
+      unit: "raw",
+      included: powerSelection.included,
+      excluded: powerSelection.excluded,
+      source: null,
+    }
+    : (() => {
+      const mainMeter = latestMetricMatching(rows, (name) => ["actpow", "mainmeteractivepower", "gridactivepower", "plantactivepower"].includes(name));
+      if (mainMeter) {
+        return { value: mainMeter.metric.value, method: "main-meter" as const, unit: "raw" as const, included: [mainMeter.metric], excluded: [], source: mainMeter.metric };
+      }
+      const lineVoltage = latestValidatedMetric(rows, ["phaseabvoltage", "phasebcvoltage", "phasecavoltage"]);
+      const phaseCurrent = latestValidatedMetric(rows, ["acurrent", "phaseacurrent", "iacurrent"]);
+      const powerFactor = latestValidatedMetric(rows, ["pf", "powerfactor"]);
+      if (lineVoltage && phaseCurrent && powerFactor) {
+        return {
+          value: Math.sqrt(3) * lineVoltage.metric.value * phaseCurrent.metric.value * powerFactor.metric.value,
+          method: "three-phase" as const,
+          unit: "W" as const,
+          included: [lineVoltage.metric, phaseCurrent.metric, powerFactor.metric],
+          excluded: [],
+          source: null,
+        };
+      }
+      return { value: null, method: "unavailable" as const, unit: "raw" as const, included: [], excluded: [], source: null };
+    })();
+
+  const inverterEnergy = latestMetricsByParameter(rows, (name) => /^inv\d+.*(totalenergy|lifetimeenergy|energykwh|dailyenergy|todayenergy|yield)$/.test(name));
+  const energySelection = rejectPowerOutliers(inverterEnergy);
+  const totalEnergy: ScadaAggregate = energySelection.included.length
+    ? {
+      value: energySelection.included.reduce((sum, metric) => sum + metric.value, 0),
+      method: "inverter-energy-sum",
+      unit: "raw",
+      included: energySelection.included,
+      excluded: energySelection.excluded,
+      source: null,
+    }
+    : (() => {
+      const totalizingMeter = latestMetricMatching(rows, (name) => ["totalenergy", "totalenergykwh", "lifetimeenergy", "lifetimeenergykwh"].includes(name));
+      return totalizingMeter
+        ? { value: totalizingMeter.metric.value, method: "totalizing-meter" as const, unit: "raw" as const, included: [totalizingMeter.metric], excluded: [], source: totalizingMeter.metric }
+        : { value: null, method: "unavailable" as const, unit: "raw" as const, included: [], excluded: [], source: null };
+    })();
+
+  return { acPower, totalEnergy };
 }
 
 export function rawMetricContext(metric: RawTelemetryMetric | null, fallback: string) {

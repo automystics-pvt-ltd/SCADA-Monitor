@@ -1,5 +1,8 @@
 - [Weather location provenance](weather-location-provenance.md) — Select-site, fresh-coordinate, consent, and cache-labeling rules for live weather.
 - [Electrical telemetry validation](electrical-telemetry-validation.md) — Display engineering electrical values only after explicit scaling validation; otherwise preserve raw evidence.
+- [Electrical sample identity](electrical-sample-identity.md) — Source timestamps can repeat for distinct Modbus readings; use receipt identity and value when merging saved telemetry.
+- [Plant aggregate calculations](plant-aggregate-calculations.md) — Prefer latest inverter sums with outlier rejection; energy must come from counters, never unvalidated power integration.
+- [Electrical chart language](electrical-chart-language.md) — Use readable phase/signal names and separate time scope, source, and scaling quality in chart metadata.
 - [SCADA telemetry freshness](scada-telemetry-freshness.md) — Replay and cached telemetry may support traceability, but never reset current operational freshness or cross demo/live provenance.
 - [Lazy module boundaries](lazy-module-boundaries.md) — On-demand monitor modules must not import the App entry at runtime; Vite HMR treats that cycle as an error.
 - [Plant location administration](plant-location-administration.md) — Coordinate writes are a global administrator action; site data remains centrally stored and generic.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals } from "./telemetry-kpis.ts";
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals } from "./telemetry-kpis.ts";
 
 test("selects the newest named raw register and keeps replay provenance", () => {
   const metric = latestRawMetric([
@@ -52,4 +52,44 @@ test("parses a saved snapshot and accepts a newer window without carrying missin
   const newerSnapshot = { ...snapshot, id: 10, scheduledFor: "2026-08-24T04:15:00.000Z", capturedAt: "2026-08-24T04:15:02.000Z" };
   assert.equal(isNewerSavedKpiSnapshot(newerSnapshot, snapshot), true);
   assert.equal(isNewerSavedKpiSnapshot(snapshot, newerSnapshot), false);
+});
+
+test("sums inverter power tags while rejecting an isolated communication outlier", () => {
+  const totals = calculateScadaAggregates([
+    { name: "inv1", data: "3300", full_addr: "305003", timestamp: 50, provenance: "replay" },
+    { name: "inv1", data: "3450", full_addr: "305003", timestamp: 100, provenance: "live" },
+    { name: "inv2", data: "3445", full_addr: "305003", timestamp: 100, provenance: "live" },
+    { name: "inv3", data: "3460", full_addr: "305003", timestamp: 100, provenance: "live" },
+    { name: "inv4", data: "999999", full_addr: "305003", timestamp: 100, provenance: "live" },
+  ]);
+
+  assert.equal(totals.acPower.method, "inverter-sum");
+  assert.equal(totals.acPower.value, 10355);
+  assert.equal(totals.acPower.included.length, 3);
+  assert.equal(totals.acPower.excluded.length, 1);
+  assert.equal(totals.acPower.excluded[0]?.parameter, "inv4");
+});
+
+test("uses main meter and totalizing meter fallbacks without inventing an energy integral", () => {
+  const totals = calculateScadaAggregates([
+    { name: "actpow", data: "43000", full_addr: "305031", timestamp: 100, provenance: "live" },
+    { name: "totalenergy", data: "1220000", full_addr: "305008", timestamp: 100, provenance: "live" },
+  ]);
+
+  assert.equal(totals.acPower.method, "main-meter");
+  assert.equal(totals.acPower.value, 43000);
+  assert.equal(totals.totalEnergy.method, "totalizing-meter");
+  assert.equal(totals.totalEnergy.value, 1220000);
+});
+
+test("uses the three-phase formula only when all inputs explicitly validate scaling", () => {
+  const totals = calculateScadaAggregates([
+    { name: "phaseABvoltage", data: "400", full_addr: "305019", timestamp: 100, scaling_validated: true },
+    { name: "Acurrent", data: "10", full_addr: "305022", timestamp: 100, scaling_validated: true },
+    { name: "pf", data: "0.9", full_addr: "305035", timestamp: 100, scaling_validated: true },
+  ]);
+
+  assert.equal(totals.acPower.method, "three-phase");
+  assert.equal(Math.round(totals.acPower.value ?? 0), 6235);
+  assert.equal(totals.acPower.unit, "W");
 });

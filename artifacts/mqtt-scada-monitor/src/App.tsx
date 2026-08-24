@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
-import { isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type SavedSnapshotMetric } from './telemetry-kpis';
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type SavedSnapshotMetric, type ScadaAggregate } from './telemetry-kpis';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
@@ -979,6 +979,8 @@ type ElectricalEvidence = {
   label: string;
   value: number | null;
   rawValue: string;
+  rawNumericValue: number | null;
+  transportRawValue: string;
   unit: string;
   timestamp: number | null;
   timestampLabel: string;
@@ -1015,6 +1017,12 @@ function telemetryEpoch(row: ModbusRow) {
   const numeric = typeof source === 'number' ? source : Number(source);
   const parsed = Number.isFinite(numeric) ? new Date(numeric < 1_000_000_000_000 ? numeric * 1000 : numeric) : new Date(String(source));
   return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
+function electricalRowIdentity(row: ModbusRow) {
+  const receivedAt = row.serverReceivedAt ?? row.timestamp ?? row.snapshotCapturedAt ?? row.date_iso_8601 ?? row.date ?? '';
+  const reportedValue = row.data ?? row.raw_data ?? '';
+  return `${modbusRowKey(row)}|${String(receivedAt)}|${String(reportedValue)}`;
 }
 
 function electricalKind(row: ModbusRow): ElectricalKind | null {
@@ -1056,20 +1064,23 @@ function electricalEvidence(row: ModbusRow, index: number): ElectricalEvidence |
   const scaled = Number.isFinite(reported) && explicitScalingValidated(row);
   const timestamp = telemetryEpoch(row);
   const dateTime = telemetryDateTime(row);
-  const raw = row.raw_data ?? row.data;
+  const reportedRaw = row.data ?? row.raw_data;
+  const transportRaw = row.raw_data ?? row.data;
   return {
-    id: `${modbusRowKey(row)}-${timestamp ?? index}`,
+    id: `${electricalRowIdentity(row)}-${index}`,
     kind,
     label: String(row.name || electricalKindLabels[kind]),
     value: scaled ? reported : null,
-    rawValue: raw === undefined || raw === null ? 'Data unavailable' : formatValue(raw),
+    rawValue: reportedRaw === undefined || reportedRaw === null ? 'Data unavailable' : formatValue(reportedRaw),
+    rawNumericValue: Number.isFinite(reported) ? reported : null,
+    transportRawValue: transportRaw === undefined || transportRaw === null ? 'Data unavailable' : formatValue(transportRaw),
     unit: typeof row.unit === 'string' && row.unit.trim() ? row.unit : telemetryUnit(row),
     timestamp,
     timestampLabel: dateTime.full,
     source: String(row.server_name || row.topic || 'Modbus'),
     address: String(row.full_addr || row.addr || 'Data unavailable'),
     quality: String(row.quality || row.data_quality || (scaled ? 'Validated scaling' : 'Scaling configuration unavailable')),
-    status: raw === undefined || raw === null ? 'Data Unavailable' : scaled ? 'Validated' : 'Raw / Scaling Required',
+    status: reportedRaw === undefined || reportedRaw === null ? 'Data Unavailable' : scaled ? 'Validated' : 'Raw / Scaling Required',
   };
 }
 
@@ -1079,6 +1090,24 @@ function formatElectricalValue(value: number | null, unit: string) {
 
 function latestEvidence(evidence: ElectricalEvidence[], kinds: ElectricalKind[]) {
   return kinds.map((kind) => evidence.filter((item) => item.kind === kind).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))[0]).filter(Boolean) as ElectricalEvidence[];
+}
+
+function electricalDisplayLabel(item: ElectricalEvidence) {
+  const labels: Partial<Record<ElectricalKind, string>> = {
+    vab: 'Line AB voltage',
+    vbc: 'Line BC voltage',
+    vca: 'Line CA voltage',
+    va: 'Phase A voltage',
+    vb: 'Phase B voltage',
+    vc: 'Phase C voltage',
+    ia: 'Phase A current',
+    ib: 'Phase B current',
+    ic: 'Phase C current',
+    activePower: 'Active power',
+    powerFactor: 'Power factor',
+    frequency: 'Grid frequency',
+  };
+  return labels[item.kind] ?? electricalKindLabels[item.kind];
 }
 
 function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[]; mode: 'demo' | 'live'; liveState: 'fresh' | 'stale' | 'unavailable' }) {
@@ -1093,16 +1122,20 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
   const isHistorical = appliedRange.preset !== 'live';
 
   useEffect(() => {
-    if (!isHistorical || mode !== 'live') {
+    if (mode !== 'live') {
       setHistoryRows([]);
       setHistoryState({ loading: false, error: '' });
       return;
     }
     const controller = new AbortController();
+    const recentWindowMs = 30 * 60 * 1000;
     const loadHistory = async () => {
       setHistoryState({ loading: true, error: '' });
       try {
-        const response = await fetch(`/api/mqtt/electrical-history?from=${encodeURIComponent(new Date(appliedRange.from).toISOString())}&to=${encodeURIComponent(new Date(appliedRange.to).toISOString())}`, { signal: controller.signal });
+        const now = new Date();
+        const from = isHistorical ? new Date(appliedRange.from) : new Date(now.getTime() - recentWindowMs);
+        const to = isHistorical ? new Date(appliedRange.to) : now;
+        const response = await fetch(`/api/mqtt/electrical-history?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`, { signal: controller.signal, cache: 'no-store' });
         const payload = await response.json() as { samples?: unknown[]; message?: string };
         if (!response.ok) throw new Error(payload.message || 'Unable to load persisted electrical telemetry.');
         setHistoryRows(Array.isArray(payload.samples) ? payload.samples.filter(isUnknownRecord).map((item) => item as ModbusRow) : []);
@@ -1114,16 +1147,32 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
       }
     };
     void loadHistory();
-    return () => controller.abort();
+    const refreshTimer = isHistorical ? undefined : window.setInterval(() => void loadHistory(), 60_000);
+    return () => {
+      controller.abort();
+      if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
+    };
   }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory]);
 
+  // Live uses both the most-recent SSE rows and the persisted recent-window rows.
+  // This gives operators useful evidence immediately after a browser reconnect,
+  // while retaining all source samples needed for a short raw-evidence trend.
+  const sourceRows = useMemo(() => {
+    if (mode !== 'live') return [];
+    const deduplicated = new Map<string, ModbusRow>();
+    for (const row of isHistorical ? historyRows : [...historyRows, ...rows]) {
+      deduplicated.set(electricalRowIdentity(row), row);
+    }
+    return [...deduplicated.values()];
+  }, [historyRows, isHistorical, mode, rows]);
+
   // Raw evidence remains inspectable across replay/stale states. Only explicitly
-  // validated, fresh telemetry is eligible for engineering cards and charts.
-  const sourceRows = mode === 'live' ? (isHistorical ? historyRows : rows) : [];
+  // validated, fresh telemetry is eligible for engineering cards and health metrics.
   const discoveries = useMemo(() => sourceRows.map(electricalEvidence).filter(Boolean) as ElectricalEvidence[], [sourceRows]);
   const validated = useMemo(() => discoveries.filter((item) => item.status === 'Validated' && (isHistorical || liveState === 'fresh')), [discoveries, isHistorical, liveState]);
-  const phaseVoltage = useMemo(() => latestEvidence(validated, ['vab', 'vbc', 'vca', 'va', 'vb', 'vc']), [validated]);
-  const phaseCurrent = useMemo(() => latestEvidence(validated, ['ia', 'ib', 'ic']), [validated]);
+  const chartEvidence = useMemo(() => discoveries.filter((item) => item.rawNumericValue !== null), [discoveries]);
+  const phaseVoltage = useMemo(() => latestEvidence(chartEvidence, ['vab', 'vbc', 'vca', 'va', 'vb', 'vc']), [chartEvidence]);
+  const phaseCurrent = useMemo(() => latestEvidence(chartEvidence, ['ia', 'ib', 'ic']), [chartEvidence]);
   const activePower = useMemo(() => latestEvidence(validated, ['activePower'])[0], [validated]);
   const powerFactor = useMemo(() => latestEvidence(validated, ['powerFactor'])[0], [validated]);
   const frequency = useMemo(() => latestEvidence(validated, ['frequency'])[0], [validated]);
@@ -1151,25 +1200,75 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
     setHistoryState({ loading: false, error: '' });
   };
   const choosePreset = (preset: ElectricalRangePreset) => setDraftRange(electricalPresetRange(preset));
-  const trendData = (kind: ElectricalKind) => discoveries.filter((item) => item.kind === kind && item.status === 'Validated' && item.value !== null).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0)).map((item) => ({ time: item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Time unavailable', value: item.value }));
+  const trendData = (kind: ElectricalKind) => discoveries
+    .filter((item) => item.kind === kind && item.rawNumericValue !== null)
+    .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+    .map((item) => ({ time: item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Time unavailable', value: item.rawNumericValue }));
 
-  const Comparison = ({ title, data, unit, testId }: { title: string; data: ElectricalEvidence[]; unit: string; testId: string }) => (
+  const Comparison = ({ title, data, unit, testId }: { title: string; data: ElectricalEvidence[]; unit: string; testId: string }) => {
+    const hasOnlyValidatedValues = data.length > 0 && data.every((item) => item.status === 'Validated');
+    const chartUnit = hasOnlyValidatedValues ? unit : 'raw';
+    const isVoltage = title.toLowerCase().includes('voltage');
+    const explanation = isVoltage ? 'Latest line-to-line voltage readings: AB, BC, and CA.' : 'Latest phase-current readings: A, B, and C.';
+    return (
     <div className="scada-chart-surface rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4" data-testid={testId}>
-      <div className="mb-3 flex items-center justify-between gap-3"><h4 className="text-xs font-bold text-slate-200">{title}</h4><span className="text-[10px] text-slate-500">Validated values only</span></div>
-      {data.length ? <div className="h-36"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.map((item) => ({ name: item.label, value: item.value }))} layout="vertical" margin={{ left: 12, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={92} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip cursor={{ fill: 'var(--scada-hover)' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString()} ${unit}`, title]} /><Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} activeBar={{ fill: '#60a5fa' }} isAnimationActive={false} /></BarChart></ResponsiveContainer></div> : <p className="flex h-36 items-center justify-center text-center text-xs text-slate-500"><span>Data unavailable<span className="mt-1 block text-[10px]">A validated source value is required.</span></span></p>}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">{isVoltage ? 'Voltage balance' : 'Current balance'}</p>
+          <h4 className="mt-1 text-xs font-bold text-slate-200">{title}</h4>
+          <p className="mt-1 text-[10px] leading-4 text-slate-500">{explanation}</p>
+        </div>
+        <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-semibold ${hasOnlyValidatedValues ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : data.length ? 'border-amber-500/20 bg-amber-500/10 text-amber-300' : 'border-slate-700 bg-slate-800 text-slate-400'}`}>
+          {hasOnlyValidatedValues ? 'Validated' : data.length ? 'Raw · scaling needed' : 'Awaiting data'}
+        </span>
+      </div>
+      {data.length ? <div className="h-36"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.map((item) => ({ name: electricalDisplayLabel(item), value: item.value ?? item.rawNumericValue }))} layout="vertical" margin={{ left: 12, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={108} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip cursor={{ fill: 'var(--scada-hover)' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString()} ${chartUnit}`, title]} /><Bar dataKey="value" fill={hasOnlyValidatedValues ? '#3b82f6' : '#f59e0b'} radius={[0, 4, 4, 0]} activeBar={{ fill: hasOnlyValidatedValues ? '#60a5fa' : '#fbbf24' }} isAnimationActive={false} /></BarChart></ResponsiveContainer></div> : <p className="flex h-36 items-center justify-center text-center text-xs text-slate-500"><span>No recent source values<span className="mt-1 block text-[10px]">This comparison will update when the broker or saved snapshot provides these parameters.</span></span></p>}
+      <p className="mt-2 text-[10px] leading-4 text-slate-500">{hasOnlyValidatedValues ? 'Engineering units are validated for this comparison.' : data.length ? 'Reported register values are shown as evidence; engineering V/A scaling is not yet confirmed.' : 'No broker or saved-snapshot readings are available for this comparison.'}</p>
     </div>
-  );
+    );
+  };
   const Trend = ({ title, kind, unit, color }: { title: string; kind: ElectricalKind; unit: string; color: string }) => {
     const data = trendData(kind);
-    return <div className="scada-chart-surface rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4"><div className="mb-3 flex items-center justify-between gap-3"><h4 className="text-xs font-bold text-slate-200">{title}</h4><span className="text-[10px] text-slate-500">{isHistorical ? 'Selected range' : 'Live sample'}</span></div>{data.length > 1 ? <div className="h-28"><ResponsiveContainer width="100%" height="100%"><LineChart data={data}><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} /><YAxis hide /><Tooltip cursor={{ stroke: '#64748b', strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString()} ${unit}`, title]} /><Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#f8fafc' }} isAnimationActive={false} /></LineChart></ResponsiveContainer></div> : <p className="flex h-28 items-center justify-center text-center text-xs text-slate-500">{isHistorical ? 'Data unavailable for this range.' : 'Select a historical range for a trend.'}</p>}</div>;
+    const hasOnlyValidatedValues = discoveries.filter((item) => item.kind === kind && item.rawNumericValue !== null).every((item) => item.status === 'Validated');
+    const chartUnit = hasOnlyValidatedValues ? unit : 'raw';
+    const trendDescription: Record<ElectricalKind, string> = {
+      vab: 'Line AB voltage · latest reported readings',
+      vbc: 'Line BC voltage · latest reported readings',
+      vca: 'Line CA voltage · latest reported readings',
+      va: 'Phase A voltage · latest reported readings',
+      vb: 'Phase B voltage · latest reported readings',
+      vc: 'Phase C voltage · latest reported readings',
+      ia: 'Phase A current · latest reported readings',
+      ib: 'Phase B current · latest reported readings',
+      ic: 'Phase C current · latest reported readings',
+      activePower: 'Plant active power · latest reported readings',
+      powerFactor: 'Power factor · latest reported readings',
+      frequency: 'Grid frequency · latest reported readings',
+      other: 'Electrical source parameter · latest reported readings',
+    };
+    const rangeDescription = isHistorical ? 'Selected time range' : 'Recent saved snapshots + live MQTT';
+    return <div className="scada-chart-surface rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Signal trend</p>
+          <h4 className="mt-1 text-xs font-bold text-slate-200">{title}</h4>
+          <p className="mt-1 text-[10px] leading-4 text-slate-500">{trendDescription[kind]}</p>
+        </div>
+        <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-semibold ${hasOnlyValidatedValues && data.length ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : data.length ? 'border-amber-500/20 bg-amber-500/10 text-amber-300' : 'border-slate-700 bg-slate-800 text-slate-400'}`}>
+          {hasOnlyValidatedValues && data.length ? 'Validated' : data.length ? 'Raw · scaling needed' : 'Awaiting data'}
+        </span>
+      </div>
+      {data.length > 1 ? <div className="h-28"><ResponsiveContainer width="100%" height="100%"><LineChart data={data}><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} /><YAxis hide /><Tooltip cursor={{ stroke: '#64748b', strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString()} ${chartUnit}`, title]} /><Line type="monotone" dataKey="value" stroke={hasOnlyValidatedValues ? color : '#f59e0b'} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#f8fafc' }} isAnimationActive={false} /></LineChart></ResponsiveContainer></div> : <p className="flex h-28 items-center justify-center text-center text-xs text-slate-500">{data.length ? 'One recent source reading received. The trend will extend with the next sample.' : 'No source readings are available for this signal in the selected window.'}</p>}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500"><span>{rangeDescription}</span><span>{data.length ? `${data.length} source reading${data.length === 1 ? '' : 's'}` : 'No readings'}</span></div>
+    </div>;
   };
 
   return (
     <section className="scada-interactive-card relative flex h-full flex-col overflow-hidden rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="section-electrical-parameters">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent" />
       <header className="relative z-10 mb-4 flex flex-col gap-4 border-b border-[#1e293b] pb-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400"><PlugZap size={16} /></span><div><h3 className="text-sm font-bold text-slate-100">Electrical Parameters</h3><p className="mt-0.5 text-[11px] text-slate-500">Source-backed Modbus electrical analytics</p></div></div><p className="mt-3 max-w-2xl text-[11px] leading-5 text-slate-400">Engineering values appear only when telemetry explicitly confirms scaling. Unconfirmed inputs remain traceable as raw values and never drive charts or health indicators.</p>{!isHistorical && mode === 'live' && liveState !== 'fresh' && <p role="status" className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] leading-5 text-amber-300">{liveState === 'stale' ? 'Live electrical analytics are withheld until a fresh MQTT payload arrives. Cached raw evidence remains available in Live Data.' : 'Awaiting the first fresh MQTT payload. Raw evidence will remain traceable when received.'}</p>}</div>
-        <CustomBadge tone={mode !== 'live' || !validated.length ? 'warning' : 'success'}>{mode !== 'live' ? 'Demo mode — not operational' : validated.length ? `${validated.length} validated value${validated.length === 1 ? '' : 's'}` : 'Validation required'}</CustomBadge>
+        <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400"><PlugZap size={16} /></span><div><h3 className="text-sm font-bold text-slate-100">Electrical Parameters</h3><p className="mt-0.5 text-[11px] text-slate-500">Live MQTT and recent saved Modbus evidence</p></div></div><p className="mt-3 max-w-2xl text-[11px] leading-5 text-slate-400">The Live view combines current MQTT messages with recent backend snapshots. Values remain raw until the telemetry source explicitly confirms engineering scaling.</p>{!isHistorical && mode === 'live' && liveState !== 'fresh' && <p role="status" className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] leading-5 text-amber-300">{liveState === 'stale' ? 'Live delivery is paused. The most recent backend-saved raw evidence remains visible below.' : 'Awaiting the first fresh MQTT payload. Recent saved backend evidence will appear when available.'}</p>}</div>
+        <CustomBadge tone={mode !== 'live' ? 'warning' : validated.length ? 'success' : discoveries.length ? 'warning' : 'neutral'}>{mode !== 'live' ? 'Demo mode — not operational' : validated.length ? `${validated.length} validated value${validated.length === 1 ? '' : 's'}` : discoveries.length ? `${discoveries.length} recent raw sample${discoveries.length === 1 ? '' : 's'}` : 'Awaiting source data'}</CustomBadge>
       </header>
 
       <div className="relative z-10 mb-4 rounded-xl border border-[#1e293b] bg-[#0f1423] p-3" data-testid="electrical-time-filter">
@@ -1205,12 +1304,12 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
             const displayedEvidence = evidence ?? rawEvidence;
             const rawOnly = !evidence && Boolean(rawEvidence);
             const value = evidence ? formatElectricalValue(evidence.value, evidence.unit) : rawEvidence ? `${rawEvidence.rawValue} raw` : calculated ? `${calculated.value.toFixed(2)} ${calculated.unit}` : 'Data unavailable';
-            return <div key={title} className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" data-testid={`card-electrical-${title.toLowerCase().replace(/\s+/g, '-')}`} title={displayedEvidence ? `${displayedEvidence.label}\nSource: ${displayedEvidence.source}\nAddress: ${displayedEvidence.address}\nTimestamp: ${displayedEvidence.timestampLabel}\nRaw: ${displayedEvidence.rawValue}\nQuality: ${displayedEvidence.quality}` : `${title} requires validated electrical telemetry.`}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 truncate text-base font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'font-mono text-slate-100'}`}>{value}</p><p className="mt-1 truncate text-[10px] text-slate-500">{evidence ? `${evidence.status} · ${evidence.source}` : rawOnly ? `Raw input · ${rawEvidence!.source} · scaling required` : calculated ? 'Calculated only from validated phase values' : context}</p></div>;
+            return <div key={title} className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" data-testid={`card-electrical-${title.toLowerCase().replace(/\s+/g, '-')}`} title={displayedEvidence ? `${displayedEvidence.label}\nSource: ${displayedEvidence.source}\nAddress: ${displayedEvidence.address}\nTimestamp: ${displayedEvidence.timestampLabel}\nReported raw value: ${displayedEvidence.rawValue}\nTransport payload: ${displayedEvidence.transportRawValue}\nQuality: ${displayedEvidence.quality}` : `${title} requires validated electrical telemetry.`}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 truncate text-base font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'font-mono text-slate-100'}`}>{value}</p><p className="mt-1 truncate text-[10px] text-slate-500">{evidence ? `${evidence.status} · ${evidence.source}` : rawOnly ? `Raw input · ${rawEvidence!.source} · scaling required` : calculated ? 'Calculated only from validated phase values' : context}</p></div>;
           })}
         </div>
         <div className="grid gap-4 xl:grid-cols-2"><Comparison title="Phase Voltage Comparison" data={phaseVoltage} unit={phaseVoltage[0]?.unit || 'V'} testId="chart-phase-voltage-comparison" /><Comparison title="Phase Current Comparison" data={phaseCurrent} unit={phaseCurrent[0]?.unit || 'A'} testId="chart-phase-current-comparison" /></div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Trend title="Voltage Trend" kind="vab" unit="V" color="#3b82f6" /><Trend title="Current Trend" kind="ia" unit="A" color="#10b981" /><Trend title="Active Power Trend" kind="activePower" unit="kW" color="#f59e0b" /><Trend title="Frequency Trend" kind="frequency" unit="Hz" color="#8b5cf6" /></div>
-        <div className="scada-chart-surface overflow-hidden rounded-xl border border-[#1e293b] bg-[#0b0f19]"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1e293b] px-4 py-3"><div><h4 className="text-xs font-bold text-slate-200">Discovered electrical telemetry</h4><p className="mt-0.5 text-[10px] text-slate-500">Raw values stay visible even when engineering scaling needs confirmation.</p></div><span data-testid="text-electrical-discovery-count" className="text-[10px] font-semibold text-slate-400">{traceRows.length} parameter{traceRows.length === 1 ? '' : 's'}</span></div><div className="max-h-64 overflow-auto scrollbar-thin"><table className="min-w-[1060px] w-full text-left"><thead className="sticky top-0 bg-[#111827]"><tr>{['Parameter', 'Current value', 'Unit', 'Timestamp', 'Source', 'Modbus address', 'Raw value', 'Data quality', 'Status'].map((heading) => <th key={heading} className="px-3 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{traceRows.length ? traceRows.map((item) => <tr key={item.id} data-testid={`row-electrical-${item.id}`} title={`${item.label}\nCurrent value: ${formatElectricalValue(item.value, item.unit)}\nRaw value: ${item.rawValue}\nTimestamp: ${item.timestampLabel}\nSource: ${item.source}\nAddress: ${item.address}\nQuality: ${item.quality}\nStatus: ${item.status}`} className="scada-table-row hover:bg-[#1e293b]/40"><td className="px-3 py-2.5 text-xs font-medium text-slate-200">{item.label}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{formatElectricalValue(item.value, item.unit)}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.unit}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.timestampLabel}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.source}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-400">{item.address}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.rawValue}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.quality}</td><td className="px-3 py-2.5"><CustomBadge tone={item.status === 'Validated' ? 'success' : 'warning'}>{item.status}</CustomBadge></td></tr>) : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">{historyState.loading ? 'Loading persisted electrical telemetry…' : isHistorical ? 'Data unavailable for the selected range. Persisted snapshots will appear here once available.' : 'No electrical Modbus parameters have arrived yet. Values will appear automatically when the broker reports them.'}</td></tr>}</tbody></table></div></div>
+        <div className="scada-chart-surface overflow-hidden rounded-xl border border-[#1e293b] bg-[#0b0f19]"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1e293b] px-4 py-3"><div><h4 className="text-xs font-bold text-slate-200">Discovered electrical telemetry</h4><p className="mt-0.5 text-[10px] text-slate-500">Recent backend snapshots and current MQTT values are shown together; transport payload bytes remain traceable.</p></div><span data-testid="text-electrical-discovery-count" className="text-[10px] font-semibold text-slate-400">{traceRows.length} parameter{traceRows.length === 1 ? '' : 's'}</span></div><div className="max-h-64 overflow-auto scrollbar-thin"><table className="min-w-[1100px] w-full text-left"><thead className="sticky top-0 bg-[#111827]"><tr>{['Parameter', 'Reported value', 'Unit', 'Timestamp', 'Source', 'Modbus address', 'Reported raw', 'Data quality', 'Status'].map((heading) => <th key={heading} className="px-3 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{traceRows.length ? traceRows.map((item) => <tr key={item.id} data-testid={`row-electrical-${item.id}`} title={`${item.label}\nReported value: ${item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}\nReported raw: ${item.rawValue}\nTransport payload: ${item.transportRawValue}\nTimestamp: ${item.timestampLabel}\nSource: ${item.source}\nAddress: ${item.address}\nQuality: ${item.quality}\nStatus: ${item.status}`} className="scada-table-row hover:bg-[#1e293b]/40"><td className="px-3 py-2.5 text-xs font-medium text-slate-200">{item.label}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.status === 'Validated' ? item.unit : '—'}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.timestampLabel}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.source}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-400">{item.address}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.rawValue}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.quality}</td><td className="px-3 py-2.5"><CustomBadge tone={item.status === 'Validated' ? 'success' : 'warning'}>{item.status}</CustomBadge></td></tr>) : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">{historyState.loading ? 'Loading recent backend electrical telemetry…' : isHistorical ? 'No saved electrical records are available for the selected range.' : 'No live or recent saved electrical records are available yet.'}</td></tr>}</tbody></table></div></div>
       </div>}
     </section>
   );
@@ -2589,6 +2688,7 @@ function AppShell() {
     alarms: latestRawMetric(modbusRows, ['alarm']),
     inverters: rawInverterSignals(modbusRows),
   }), [modbusRows]);
+  const calculatedTotals = useMemo(() => calculateScadaAggregates(modbusRows), [modbusRows]);
   const rawKpiValue = (metric: RawTelemetryMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
   const rawKpiUnit = (metric: RawTelemetryMetric | null) => metric ? 'raw' : '';
   const savedKpiValue = (metric: SavedSnapshotMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
@@ -2606,6 +2706,27 @@ function AppShell() {
     const observedAt = metric.sourceTimestamp ? ` · source ${formatInPlantTimezone(metric.sourceTimestamp, savedKpiSnapshot.timezone)}` : '';
     return `Saved ${scheduledAt} · captured ${capturedAt}${observedAt} · raw ${metric.parameter} · register ${metric.address} · scaling required`;
   };
+  const aggregateLabel = (aggregate: ScadaAggregate) => {
+    if (aggregate.method === 'inverter-sum') return `Inverter summation · ${aggregate.included.length} source tag${aggregate.included.length === 1 ? '' : 's'} included`;
+    if (aggregate.method === 'main-meter') return `Main meter active-power register · ${aggregate.source?.parameter ?? 'source register'}`;
+    if (aggregate.method === 'three-phase') return 'Validated √3 × line voltage × current × power factor';
+    if (aggregate.method === 'inverter-energy-sum') return `Inverter cumulative-energy sum · ${aggregate.included.length} source counter${aggregate.included.length === 1 ? '' : 's'} included`;
+    if (aggregate.method === 'totalizing-meter') return `Totalizing energy meter · ${aggregate.source?.parameter ?? 'source register'}`;
+    return 'No eligible source calculation is available';
+  };
+  const aggregateContext = (aggregate: ScadaAggregate, fallback: SavedSnapshotMetric | null, unavailable: string) => {
+    if (aggregate.value === null) return savedKpiContext(fallback, unavailable);
+    const excluded = aggregate.excluded.length ? ` · ${aggregate.excluded.length} extreme outlier${aggregate.excluded.length === 1 ? '' : 's'} excluded` : '';
+    const quality = aggregate.unit === 'W' ? 'validated scaling' : 'raw · scaling required';
+    const source = aggregate.source ? ` · register ${aggregate.source.address}` : '';
+    return `${aggregateLabel(aggregate)}${source}${excluded} · ${quality}`;
+  };
+  const aggregateValue = (aggregate: ScadaAggregate, fallback: SavedSnapshotMetric | null) => aggregate.value === null
+    ? savedKpiValue(fallback)
+    : aggregate.value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  const aggregateUnit = (aggregate: ScadaAggregate, fallback: SavedSnapshotMetric | null) => aggregate.value === null
+    ? savedKpiUnit(fallback)
+    : aggregate.unit;
   const deviceCommunication = mode === 'demo'
     ? 'live'
     : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');
@@ -2695,9 +2816,9 @@ function AppShell() {
               </div>
             </section>
             <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : savedKpiValue(savedKpiSnapshot?.metrics.activePower ?? null)} unit={mode === 'demo' ? 'kW' : savedKpiUnit(savedKpiSnapshot?.metrics.activePower ?? null)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo active power' : savedKpiContext(savedKpiSnapshot?.metrics.activePower ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('power')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : aggregateValue(calculatedTotals.acPower, savedKpiSnapshot?.metrics.activePower ?? null)} unit={mode === 'demo' ? 'kW' : aggregateUnit(calculatedTotals.acPower, savedKpiSnapshot?.metrics.activePower ?? null)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : aggregateContext(calculatedTotals.acPower, savedKpiSnapshot?.metrics.activePower ?? null, 'Awaiting live inverter tags or a saved main-meter snapshot')} onClick={() => navigateTo('power')} help="Priority: safe inverter summation, then main-meter active power, then the three-phase formula only with validated scaling. Extreme inverter outliers are excluded from a source-tag sum." />
               <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : savedKpiValue(savedKpiSnapshot?.metrics.dailyEnergy ?? null)} unit={mode === 'demo' ? 'MWh' : savedKpiUnit(savedKpiSnapshot?.metrics.dailyEnergy ?? null)} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : savedKpiContext(savedKpiSnapshot?.metrics.dailyEnergy ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('energy')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : savedKpiValue(savedKpiSnapshot?.metrics.totalEnergy ?? null)} unit={mode === 'demo' ? 'kWh' : savedKpiUnit(savedKpiSnapshot?.metrics.totalEnergy ?? null)} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : savedKpiContext(savedKpiSnapshot?.metrics.totalEnergy ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('energy')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : aggregateValue(calculatedTotals.totalEnergy, savedKpiSnapshot?.metrics.totalEnergy ?? null)} unit={mode === 'demo' ? 'kWh' : aggregateUnit(calculatedTotals.totalEnergy, savedKpiSnapshot?.metrics.totalEnergy ?? null)} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : aggregateContext(calculatedTotals.totalEnergy, savedKpiSnapshot?.metrics.totalEnergy ?? null, 'Awaiting inverter energy counters or a saved totalizing-meter snapshot')} onClick={() => navigateTo('energy')} help="Priority: source-backed per-inverter cumulative energy counters, then the plant totalizing meter. This card never integrates raw power samples to manufacture energy." />
               <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : savedKpiValue(savedKpiSnapshot?.metrics.specificYield ?? null)} unit={mode === 'demo' ? 'kWh/kWp' : savedKpiUnit(savedKpiSnapshot?.metrics.specificYield ?? null)} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : savedKpiContext(savedKpiSnapshot?.metrics.specificYield ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('power')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
               <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
               <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpiValue(rawKpis.alarms)} unit={mode === 'demo' ? '' : rawKpiUnit(rawKpis.alarms)} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')} onClick={() => navigateTo('alarms')} help="The raw alarm register is displayed exactly as received; alarm-code mapping is required for an active-alarm count." />
