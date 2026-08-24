@@ -576,6 +576,9 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
            <p className="mt-1 text-xs font-semibold text-slate-200">Northline operations</p>
          </div>
        </div>
+        <div className={`scada-sidebar-powered shrink-0 border-t border-[#1E293B] px-4 py-3 text-[9px] leading-4 transition-[opacity,height,padding] duration-300 ${collapsed ? 'md:h-0 md:overflow-hidden md:border-t-0 md:px-0 md:py-0 md:opacity-0' : ''}`}>
+          Powered by <span className="font-semibold">Automystics Technologies Pvt Ltd.</span>
+        </div>
     </aside>
   );
 }
