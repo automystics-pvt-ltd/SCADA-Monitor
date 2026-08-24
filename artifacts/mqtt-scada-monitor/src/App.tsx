@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -1807,12 +1807,12 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                      <input inputMode="decimal" aria-label="Plant longitude" data-testid="input-plant-longitude" value={locationLongitude} onChange={(event) => setLocationLongitude(event.target.value)} placeholder="e.g. 72.8777" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none" />
                    </label>
                  </div>
-                   <p className="text-[10px] leading-5 text-slate-500">Coordinates are stored centrally for this plant and automatically reused for weather and site context. Only designated administrators can save changes.</p>
-                   {!locationAdmin && <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Sign in as a location administrator</a>}
+                  <p className="text-[10px] leading-5 text-slate-500">Only operators assigned to this plant can save changes.</p>
+                  <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Log in to update locations</a>
                  {locationError && <p role="alert" data-testid="alert-plant-location" className="text-xs text-rose-400">{locationError}</p>}
                  {!locationError && siteLocationError && <p role="alert" data-testid="alert-plant-location-load" className="text-xs text-rose-400">{siteLocationError}</p>}
                  {locationSaved && <p role="status" data-testid="status-plant-location-saved" className="text-xs text-emerald-400">{locationSaved}</p>}
-                  <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving || !locationAdmin} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>
+                 <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>
                </>
              ) : <p className="rounded-lg border border-dashed border-[#1e293b] px-3 py-4 text-xs text-slate-500">Connect to telemetry to discover plant/site names before adding a location.</p>}
            </div>
@@ -1837,70 +1837,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   );
 }
 
-function InverterDetailPanel({ device, onClose }: { device: Device; onClose: () => void }) {
-  const [tab, setTab] = useState('Overview');
-  const dialogRef = useModalAccessibility(onClose);
-  const tabs = ['Overview', 'Live Power', 'Electrical', 'Energy', 'MPPT', 'Strings', 'Temperature', 'Alarms', 'Faults', 'Historical', 'Raw Data', 'Data Quality'];
-  const activePower = numberFrom(device, ['power', 'active_kw']);
-  const cabinetTemp = numberFrom(device, ['temperature', 'cabinet_c']);
-  const voltage = numberFrom(device, ['dc_bus', 'voltage_v']);
-  const current = numberFrom(device, ['dc_bus', 'current_a']);
-  const rawRows = flattenJson(device.telemetry);
-  const reportedTabs = ['Overview', 'Live Power', 'Electrical', 'Temperature', 'Alarms', 'Raw Data', 'Data Quality'];
-
-  return (
-    <>
-      <button type="button" aria-label="Close inverter details" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-[#0b0f19]/75 backdrop-blur-sm" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="fixed inset-x-3 bottom-3 top-3 z-50 mx-auto flex min-h-0 max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827] shadow-2xl sm:inset-x-8 sm:bottom-8 sm:top-8">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1e293b] px-5 py-4 sm:px-6">
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Inverter fleet / {device.site}</p>
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-bold text-slate-100">{device.name}</h2>
-              <CustomBadge tone={device.status === 'online' ? 'success' : device.status === 'offline' ? 'destructive' : 'warning'}>{device.status}</CustomBadge>
-            </div>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close inverter details" data-testid="button-close-inverter-details" title="Close inverter details" className="rounded-lg p-2 text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring"><X size={20} /></button>
-        </header>
-        <nav aria-label="Inverter detail sections" className="scrollbar-thin flex gap-1 overflow-x-auto border-b border-[#1e293b] px-4 py-2">
-          {tabs.map((item) => <button key={item} type="button" onClick={() => setTab(item)} data-testid={`button-inverter-tab-${item.toLowerCase().replace(/\s+/g, '-')}`} className={`whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium transition-colors focus-ring ${tab === item ? 'bg-[#1e293b] text-slate-100' : 'text-slate-400 hover:bg-[#1e293b]/60 hover:text-slate-200'}`}>{item}</button>)}
-        </nav>
-        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-          {reportedTabs.includes(tab) ? (
-            <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  ['Active power', `${activePower.toLocaleString()} kW`, 'Latest customer value'],
-                  ['DC bus voltage', voltage ? `${voltage.toLocaleString()} V` : 'Not reported', 'Modbus-normalized value'],
-                  ['DC bus current', current ? `${current.toLocaleString()} A` : 'Not reported', 'Modbus-normalized value'],
-                  ['Cabinet temperature', cabinetTemp ? `${cabinetTemp} °C` : 'Not reported', `Last seen ${new Date(device.lastSeen).toLocaleTimeString()}`],
-                ].map(([label, value, context]) => <div key={label} className="rounded-xl border border-[#1e293b] bg-[#0f1423] p-4"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p><p className="mt-2 text-lg font-bold text-slate-100">{value}</p><p className="mt-1 text-xs text-slate-400">{context}</p></div>)}
-              </div>
-              {tab === 'Raw Data' ? (
-                <div className="overflow-hidden rounded-xl border border-[#1e293b]">
-                  <div className="border-b border-[#1e293b] px-4 py-3 text-sm font-semibold text-slate-200">Reported telemetry fields</div>
-                  <div className="max-h-72 overflow-auto">
-                    {rawRows.map((row) => <div key={row.path} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-[#1e293b]/70 px-4 py-2 text-xs"><span className="truncate font-mono text-blue-400">{row.path}</span><span className="truncate font-mono text-slate-300">{row.value}</span></div>)}
-                  </div>
-                </div>
-              ) : tab === 'Alarms' ? <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-5 text-sm text-emerald-400">No active alarms are reported for this inverter.</div> : (
-                <div className="rounded-xl border border-[#1e293b] bg-[#0f1423] p-5 text-sm text-slate-300">
-                  {tab === 'Data Quality' ? 'Latest values are shown exactly as received from the current telemetry source. Raw register detail is available in the Raw Data tab.' : `Latest ${tab.toLowerCase()} monitoring is shown above. Values update when this inverter reports fresh telemetry.`}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
-              <Activity size={32} className="mb-4 text-slate-500" />
-              <h3 className="text-lg font-semibold text-slate-100">No {tab.toLowerCase()} telemetry reported</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-400">{device.name} has not sent values for this section yet. The dashboard will show them automatically when the corresponding MQTT parameters arrive.</p>
-            </div>
-          )}
-        </div>
-      </section>
-    </>
-  );
-}
+const InverterDetailPanel = lazy(() => import('@/components/inverter-detail-panel'));
 
 function AppShell() {
   const [mode, setMode] = useState<'demo' | 'live'>(() => (localStorage.getItem('northline-mode') as 'demo' | 'live') || 'live');
@@ -2329,7 +2266,11 @@ function AppShell() {
         </main>
       </div>
        <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} />
-        {selectedInverter && <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} />}
+        {selectedInverter && (
+          <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1e293b] bg-[#111827] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
+            <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} />
+          </Suspense>
+        )}
       <Toaster />
     </div>
   );
