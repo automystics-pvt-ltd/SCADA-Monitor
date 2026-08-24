@@ -1378,11 +1378,11 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
   const sourceInverters = rawInverterSignals(rows);
   const hasUnmappedPowerEvidence = !inverters.length && rawPower !== undefined;
   return (
-    <div className="scada-interactive-card self-start w-full h-fit rounded-xl border border-[#1e293b] bg-[#111827] p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
+    <div className="scada-interactive-card self-start h-fit w-full min-w-0 rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           <Layers3 size={16} className="text-slate-400" />
-          <h3 className="text-sm font-bold text-slate-200">Inverter Overview</h3>
+          <h3 className="truncate text-sm font-bold text-slate-200">Inverter Overview</h3>
         </div>
         {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-xs text-slate-400 hover:text-slate-200 focus-ring rounded">View all</button>}
       </div>
@@ -1391,38 +1391,38 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
         <table className="w-auto max-w-none text-left">
           <thead>
             <tr className="border-b border-[#1e293b]">
-              <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Inv.</th>
-              <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Status</th>
-              <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Power</th>
-              <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold text-right">Temp</th>
+              <th className="py-2 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Inv.</th>
+              <th className="py-2 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Status</th>
+              <th className="py-2 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Power</th>
+              <th className="py-2 text-right text-[9px] font-semibold uppercase tracking-wider text-slate-500">Temp</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#1e293b]/50">
                {inverters.length ? inverters.map(inv => (
                 <tr key={inv.id} data-testid={`row-inverter-${inv.id}`} role="button" tabIndex={0} aria-label={`Open details for ${inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}`} onClick={() => onOpenInverter(inv)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenInverter(inv); } }} className="scada-table-row scada-inverter-row cursor-pointer transition-colors hover:bg-blue-500/10 focus-visible:bg-blue-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400 active:bg-blue-500/15">
-                  <td className="py-2.5 text-[11px] font-medium text-slate-300"><span className="rounded text-left group-hover:text-blue-300">{inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}</span></td>
-                <td className="py-2.5">
+                  <td className="py-2 text-[11px] font-medium text-slate-300"><span className="rounded text-left group-hover:text-blue-300">{inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}</span></td>
+                <td className="py-2">
                    {inv.sourceEvidence ? <span className="inline-flex rounded-full bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-blue-300">Source tag</span> : <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${inv.status === 'online' ? 'bg-emerald-500/10 text-emerald-400' : inv.status === 'offline' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400'}`}>
                      <span className={`scada-status-indicator w-1 h-1 rounded-full ${inv.status === 'online' ? 'bg-emerald-400 pulse-soft' : inv.status === 'offline' ? 'bg-rose-400' : 'bg-amber-400'}`} />
                      {inv.status}
                    </span>}
                 </td>
-                  <td className="py-2.5 text-[11px] text-slate-300">{inv.sourceEvidence ? `${inv.sourceEvidence.value.toLocaleString()} raw` : Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : 'Data unavailable'}</td>
-                  <td className="py-2.5 text-[11px] text-slate-300 text-right">{inv.sourceEvidence ? 'Not reported' : Number.isFinite(numberFrom(inv, ['temperature', 'cabinet_c'], NaN)) ? `${numberFrom(inv, ['temperature', 'cabinet_c'])}°C` : 'Data unavailable'}</td>
+                  <td className="py-2 text-[11px] text-slate-300">{inv.sourceEvidence ? `${inv.sourceEvidence.value.toLocaleString()} raw` : Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : 'Data unavailable'}</td>
+                  <td className="py-2 text-right text-[11px] text-slate-300">{inv.sourceEvidence ? 'Not reported' : Number.isFinite(numberFrom(inv, ['temperature', 'cabinet_c'], NaN)) ? `${numberFrom(inv, ['temperature', 'cabinet_c'])}°C` : 'Data unavailable'}</td>
               </tr>
               )) : sourceInverters.length ? sourceInverters.map((signal) => (
                 <tr key={signal.parameter} data-testid={`row-source-inverter-${signal.parameter}`} className="scada-table-row hover:bg-[#1e293b]/30">
-                  <td className="py-2.5 text-[11px] font-medium text-slate-300">{signal.parameter.toUpperCase()}</td>
-                  <td className="py-2.5"><span className="inline-flex rounded-full bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-blue-300">Source tag</span></td>
-                  <td className="py-2.5 text-[11px] text-slate-300">{signal.value.toLocaleString()} raw</td>
-                  <td className="py-2.5 text-right text-[11px] text-slate-500">Not reported</td>
+                  <td className="py-2 text-[11px] font-medium text-slate-300">{signal.parameter.toUpperCase()}</td>
+                  <td className="py-2"><span className="inline-flex rounded-full bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-blue-300">Source tag</span></td>
+                  <td className="py-2 text-[11px] text-slate-300">{signal.value.toLocaleString()} raw</td>
+                  <td className="py-2 text-right text-[11px] text-slate-500">Not reported</td>
                 </tr>
               )) : hasUnmappedPowerEvidence ? <tr data-testid="row-unmapped-inverter-evidence"><td className="py-2.5 text-[11px] font-medium text-slate-300">Unmapped active-power register</td><td className="py-2.5"><span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-400">Unmapped</span></td><td className="py-2.5 text-[11px] text-slate-300">{rawPower.toLocaleString()} raw</td><td className="py-2.5 text-right text-[11px] text-slate-500">Not reported</td></tr> : <tr><td colSpan={4} className="py-8 text-center text-xs text-slate-500">No inverter source tags have been discovered yet.</td></tr>}
           </tbody>
         </table>
       </div>
       
-      <div className="mt-2 flex items-center gap-3 border-t border-[#1e293b] pt-3 text-[10px] text-slate-400">
+      <div className="mt-1 flex items-center gap-3 border-t border-[#1e293b] pt-2.5 text-[10px] text-slate-400">
         <span className="uppercase tracking-wider font-semibold">Total Today</span>
           <span className="font-bold text-slate-200">{inverters.length ? inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source tag${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}</span>
       </div>
@@ -3007,8 +3007,8 @@ function AppShell() {
             {mode === 'live' && <CalculationSummaryPanel calculations={calculations} rawRows={modbusRows} className="mt-4" />}
           </section>
           
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6 xl:col-span-2">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+            <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
                 <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} />
             </div>
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
