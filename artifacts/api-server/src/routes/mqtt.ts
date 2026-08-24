@@ -1619,6 +1619,20 @@ function reportTitle(type: ScadaReportType) {
     comparison: "Site comparison",
     availability: "Availability",
     "data-quality": "Data quality",
+    "plant-monitoring": "Plant / site monitoring",
+    "inverter-monitoring": "Inverter monitoring",
+    "electrical-parameters": "Electrical parameters",
+    "ac-dc-power": "AC / DC power",
+    "energy-generation": "Energy generation",
+    "mppt-monitoring": "MPPT monitoring",
+    "string-monitoring": "String monitoring",
+    "temperature-monitoring": "Temperature monitoring",
+    "power-factor-frequency": "Power factor & frequency",
+    "alarm-fault": "Alarm & fault report",
+    "device-communication": "Device communication",
+    "mqtt-modbus-telemetry": "MQTT / Modbus telemetry",
+    "live-data": "Live data",
+    "historical-saved": "Historical saved data",
   }[type];
 }
 
@@ -1651,8 +1665,8 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
     status: req.query.status === "active" || req.query.status === "warning" || req.query.status === "normal" ? req.query.status : "all",
   };
   const reportType = requestedType as ScadaReportType;
-  if (!filters.provenance.length && reportType === "live") filters.provenance = ["live"];
-  if (!filters.provenance.length && reportType === "historical") filters.provenance = ["latest-saved", "historical-saved"];
+   if (!filters.provenance.length && (reportType === "live" || reportType === "live-data")) filters.provenance = ["live"];
+   if (!filters.provenance.length && (reportType === "historical" || reportType === "historical-saved")) filters.provenance = ["latest-saved", "historical-saved"];
   const records: ScadaReportRecord[] = [];
   const excludedEvidence: Array<{ reason: string; source: string; parameter: string }> = [];
   const addRecord = (record: ScadaReportRecord) => {
@@ -1758,6 +1772,7 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
         deviceName: sample.inverterName,
         parameter: sample.parameter,
         displayLabel: sample.displayLabel,
+         measurementKind: sample.measurementKind,
         value: sample.value,
         unit: sample.unit,
         address: sample.address,
@@ -1836,6 +1851,7 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
             deviceName: measurement.inverterName,
             parameter: measurement.parameter,
             displayLabel: measurement.displayLabel,
+             measurementKind: measurement.measurementKind,
             value: measurement.value,
             unit: measurement.unit,
             address: measurement.address,
@@ -1855,14 +1871,25 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
 
     records.sort((left, right) => Date.parse(right.observedAt) - Date.parse(left.observedAt));
     const numericRecords = records.filter((record) => record.value !== null && record.quality === "validated");
-    const chartSignal = numericRecords[0];
-    const chartPoints = chartSignal
-      ? numericRecords.filter((record) => record.unit === chartSignal.unit && record.parameter === chartSignal.parameter && record.deviceId === chartSignal.deviceId).slice(0, 80).reverse().map((record) => ({
-        time: record.observedAt,
-        value: record.value,
-        label: record.deviceName ?? record.parameter,
-      }))
-      : [];
+    const chartGroups = [...new Map(numericRecords.map((record) => [`${record.parameter}|${record.unit}|${record.deviceId ?? ""}`, record])).values()];
+    const charts = chartGroups.slice(0, 6).map((chartSignal) => {
+      const chartPoints = numericRecords
+        .filter((record) => record.unit === chartSignal.unit && record.parameter === chartSignal.parameter && record.deviceId === chartSignal.deviceId)
+        .slice(0, 80)
+        .reverse()
+        .map((record) => ({
+          time: record.observedAt,
+          value: record.value as number,
+          label: record.deviceName ?? record.parameter,
+        }));
+      return chartPoints.length > 1
+        ? { kind: "line" as const, title: `Validated ${chartSignal.displayLabel} trend`, unit: chartSignal.unit, data: chartPoints }
+        : null;
+    }).filter((chart): chart is { kind: "line"; title: string; unit: string; data: Array<{ time: string; value: number; label: string }> } => chart !== null);
+    const latestEvidence = records.reduce<ScadaReportRecord | null>((latest, record) => {
+      if (!latest) return record;
+      return Date.parse(record.receivedAt) > Date.parse(latest.receivedAt) ? record : latest;
+    }, null);
     const excludedByReason = [...new Map(excludedEvidence.map((item) => [item.reason, 0])).entries()].map(([reason]) => ({
       reason,
       count: excludedEvidence.filter((item) => item.reason === reason).length,
@@ -1885,7 +1912,11 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
         { label: "Inverter/device context", value: uniqueDevices.size, unit: "", detail: "Explicitly identified devices in this report.", quality: "validated" },
         { label: "Excluded evidence", value: excludedEvidence.length, unit: "", detail: "Raw or unvalidated values are retained as exclusion context only.", quality: excludedEvidence.length ? "raw" : "validated" },
       ],
-      charts: chartPoints.length > 1 ? [{ kind: "line", title: `Validated ${chartSignal.displayLabel} trend`, unit: chartSignal.unit, data: chartPoints }] : [],
+       charts,
+       freshness: {
+         latestObservedAt: latestEvidence?.observedAt ?? null,
+         latestReceivedAt: latestEvidence?.receivedAt ?? null,
+       },
       records,
       excludedEvidence: { count: excludedEvidence.length, byReason: excludedByReason },
       alarmSummary: { reported: alarmRecords.length, sourceReported: alarmRecords.length, active: alarmRecords.filter((record) => record.status === "active").length },

@@ -208,6 +208,37 @@
   scrollbar-gutter: stable;
 }
 
+/* Report Center uses the shared SCADA tokens in both operator themes. */
+.scada-report-center {
+  color: var(--scada-text);
+}
+.scada-report-center .scada-report-hero {
+  background: linear-gradient(110deg, color-mix(in srgb, var(--scada-accent) 16%, transparent), transparent 45%), var(--scada-surface);
+}
+.scada-report-center [class~="bg-[#090B13]"] {
+  background-color: var(--scada-surface);
+}
+.scada-report-center [class~="bg-[#0F1322]"] {
+  background-color: var(--scada-surface-raised);
+}
+.scada-report-center [class~="border-[#1E293B]"],
+.scada-report-center [class~="border-[#334155]"] {
+  border-color: var(--scada-border);
+}
+.scada-report-center .text-slate-100,
+.scada-report-center .text-slate-200,
+.scada-report-center .text-slate-300 {
+  color: var(--scada-text);
+}
+.scada-report-center .text-slate-400,
+.scada-report-center .text-slate-500,
+.scada-report-center .text-slate-600 {
+  color: var(--scada-muted);
+}
+.scada-report-center [class~="hover:bg-[#1E293B]"]:hover {
+  background-color: var(--scada-hover);
+}
+
 /* Premium interactions */
 button:not(:disabled),
 [role="button"],
@@ -259,6 +290,24 @@ button:not(:disabled):active,
 .scada-inverter-row {
   cursor: pointer;
 }
+.scada-inverter-fleet {
+  container-type: inline-size;
+  width: 100%;
+  min-width: 0;
+}
+.scada-inverter-fleet-tiles {
+  grid-template-columns: minmax(0, 1fr);
+}
+@container (min-width: 480px) {
+  .scada-inverter-fleet-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (min-width: 780px) {
+  .scada-inverter-fleet-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 
 .scada-power-flow {
   background: radial-gradient(ellipse at top, rgba(255, 92, 0, .1), transparent 60%), var(--scada-surface);
@@ -284,6 +333,22 @@ button:not(:disabled):active,
 .scada-sidebar-nav::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--scada-border) 86%, var(--scada-muted));
   border-radius: 999px;
+}
+.scada-main-content {
+  container-type: inline-size;
+  overscroll-behavior-y: contain;
+}
+.scada-data-table-scroll {
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+.scada-safe-drawer {
+  padding-right: env(safe-area-inset-right);
+}
+.scada-safe-drawer-footer {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 .scada-sidebar {
   background:
@@ -374,16 +439,150 @@ button:not(:disabled):active,
   transform: translateX(2px);
 }
 .scada-sidebar-powered {
-  max-width: 200px;
+  max-width: 220px;
   color: var(--scada-muted);
 }
-.scada-sidebar-powered span {
-  color: var(--scada-text);
+.scada-powered-label {
+  display: block;
+  color: var(--scada-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.scada-powered-brand {
+  display: block;
+  margin-top: 3px;
+  background: linear-gradient(100deg, #22D3EE 0%, #3B82F6 45%, #A78BFA 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: -.015em;
+  line-height: 1.35;
+  text-wrap: balance;
+  filter: drop-shadow(0 0 7px rgba(59, 130, 246, .18));
+}
+.light .scada-powered-brand {
+  background: linear-gradient(100deg, #0284C7 0%, #2563EB 48%, #6D28D9 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  filter: none;
 }
 
 @media (max-width: 767px) {
   .scada-sidebar {
     box-shadow: 18px 0 45px rgba(2, 6, 23, .28);
+  }
+}
+
+/* Operator controls stay touchable on small screens without creating a
+   separate mobile component tree. Dense tables retain their full evidence
+   and keep the identity column visible while swiping. */
+@media (max-width: 1023px) {
+  .scada-theme button:not(:disabled),
+  .scada-theme select,
+  .scada-theme input {
+    min-height: 42px;
+  }
+
+  .scada-theme input,
+  .scada-theme select {
+    min-height: 44px;
+  }
+
+  .scada-theme main {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .scada-theme [data-scroll-region] {
+    scrollbar-gutter: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .scada-theme [data-scroll-region] table thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: var(--scada-surface-raised);
+    box-shadow: 1px 0 0 var(--scada-border);
+  }
+
+  .scada-theme [data-scroll-region] table tbody td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--scada-surface);
+    box-shadow: 1px 0 0 var(--scada-border);
+  }
+
+  .scada-theme .scada-data-table-scroll table thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: var(--scada-surface-raised);
+    box-shadow: 1px 0 0 var(--scada-border);
+  }
+
+  .scada-theme .scada-data-table-scroll table tbody td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--scada-surface);
+    box-shadow: 1px 0 0 var(--scada-border);
+  }
+
+  .scada-theme .scada-interactive-card,
+  .scada-theme .scada-chart-surface {
+    border-radius: 12px;
+  }
+
+  .scada-theme .scada-dashboard-primary-grid,
+  .scada-theme .scada-dashboard-analysis-grid {
+    min-width: 0;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  /* Keep the fleet and alarms containers full-width until the content column
+     is wide enough to support a useful two-panel operator layout. */
+  .scada-dashboard-primary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1279px) {
+  .scada-report-filter-stack {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+    row-gap: 1rem;
+  }
+
+  .scada-report-filter-stack > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0;
+  }
+
+  .scada-report-filter-stack > :nth-child(1),
+  .scada-report-filter-stack > :nth-child(2),
+  .scada-report-filter-stack > :nth-last-child(-n + 1) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1536px) {
+  .scada-theme main {
+    padding: 1.5rem 2rem 2.5rem;
+  }
+}
+
+@media (min-width: 2200px) {
+  .scada-theme main {
+    width: 100%;
+    max-width: 2560px;
+    margin-inline: auto;
   }
 }
 

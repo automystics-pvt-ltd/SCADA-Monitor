@@ -7,7 +7,7 @@ import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
-import { getFaultGuidance, normalizeFaults, telemetryText } from './fault-guidance';
+import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
@@ -445,6 +445,42 @@ function telemetryDateTime(row: ModbusRow) {
   };
 }
 
+type AlarmFaultReport = {
+  device?: Device;
+  kind: 'Alarm' | 'Fault';
+  fault: FaultEvidence;
+};
+
+function uniqueAlarmFaultReports(reports: AlarmFaultReport[]) {
+  return Array.from(new Map(reports.map((report) => [
+    `${report.kind}|${report.fault.code ?? ''}|${report.fault.title}|${report.fault.source}|${report.fault.observedAt ?? ''}|${report.fault.rawValue}`,
+    report,
+  ])).values());
+}
+
+function deviceAlarmFaultReports(devices: Device[]): AlarmFaultReport[] {
+  return uniqueAlarmFaultReports(devices.flatMap((device) => {
+    const evidence = collectAlarmFaultEvidence(device.telemetry);
+    return [
+      ...evidence.alarms.map((fault) => ({ device, kind: 'Alarm' as const, fault })),
+      ...evidence.faults.map((fault) => ({ device, kind: 'Fault' as const, fault })),
+    ];
+  }));
+}
+
+function rowAlarmFaultReports(rows: ModbusRow[]): AlarmFaultReport[] {
+  const evidence = collectAlarmFaultEvidenceFromRows(rows);
+  return [
+    ...evidence.alarms.map((fault) => ({ kind: 'Alarm' as const, fault })),
+    ...evidence.faults.map((fault) => ({ kind: 'Fault' as const, fault })),
+  ];
+}
+
+function hasExplicitAlarmFaultField(device: Device) {
+  return ['alarms', 'alarm', 'alarmCode', 'alarm_code', 'alarmStatus', 'alarm_status', 'warnings', 'warning', 'faults', 'fault', 'faultCode', 'fault_code', 'faultStatus', 'fault_status', 'errors', 'error', 'errorCode', 'error_code']
+    .some((key) => Object.prototype.hasOwnProperty.call(device.telemetry, key));
+}
+
 function exportBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -521,7 +557,7 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
   };
 
   return (
-    <aside ref={navigationRef} id="primary-navigation" role={mobileOpen ? 'dialog' : undefined} aria-modal={mobileOpen ? true : undefined} aria-label="Primary navigation" tabIndex={mobileOpen ? -1 : undefined} className={`fixed inset-y-0 left-0 z-30 flex h-[100dvh] min-h-0 w-[min(86vw,260px)] shrink-0 flex-col overflow-hidden border-r border-[#1E293B] bg-[#050811] transition-[width,transform] duration-300 md:sticky md:top-0 md:h-dvh md:translate-x-0 ${collapsed ? 'md:w-[76px]' : 'md:w-[260px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} shadow-[4px_0_24px_rgba(0,0,0,0.4)]`}>
+    <aside ref={navigationRef} id="primary-navigation" role={mobileOpen ? 'dialog' : undefined} aria-modal={mobileOpen ? true : undefined} aria-label="Primary navigation" tabIndex={mobileOpen ? -1 : undefined} className={`scada-sidebar scada-app-sidebar fixed inset-y-0 left-0 z-30 flex h-[100dvh] min-h-0 w-[min(86vw,260px)] shrink-0 flex-col overflow-hidden border-r border-[#1E293B] bg-[#050811] transition-[width,transform] duration-300 md:sticky md:top-0 md:h-dvh md:translate-x-0 ${collapsed ? 'md:w-[76px]' : 'md:w-[200px] lg:w-[230px] xl:w-[260px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} shadow-[4px_0_24px_rgba(0,0,0,0.4)]`}>
       <div className={`flex h-[72px] shrink-0 items-center border-b border-[#1E293B] px-4 bg-[#090B13] ${collapsed ? 'md:justify-center md:gap-2' : 'gap-3 md:px-5'}`}>
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#2563EB]/20 text-[#2563EB] border border-[#2563EB]/30 shadow-[0_0_10px_rgba(37,99,235,0.2)]">
@@ -577,8 +613,9 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
            <p className="mt-1 text-xs font-semibold text-slate-200">Northline operations</p>
          </div>
        </div>
-        <div className={`scada-sidebar-powered shrink-0 border-t border-[#1E293B] px-4 py-3 text-[9px] leading-4 transition-[opacity,height,padding] duration-300 ${collapsed ? 'md:h-0 md:overflow-hidden md:border-t-0 md:px-0 md:py-0 md:opacity-0' : ''}`}>
-          Powered by <span className="font-semibold">Automystics Technologies Pvt Ltd.</span>
+         <div className={`scada-sidebar-powered shrink-0 border-t border-[#1E293B] px-4 py-3 text-[9px] leading-4 transition-[opacity,height,padding] duration-300 ${collapsed ? 'md:h-0 md:overflow-hidden md:border-t-0 md:px-0 md:py-0 md:opacity-0' : ''}`}>
+           <span className="scada-powered-label">Powered by</span>
+           <span className="scada-powered-brand">Automystics Technologies <strong>Pvt Ltd.</strong></span>
         </div>
     </aside>
   );
@@ -731,7 +768,7 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
   const weatherLocalTime = weather.data?.location.localDateTime ?? 'Location data unavailable';
   const weatherMetadata = weather.data ? `${weatherProvenance} · Local ${weatherLocalTime} · Observed ${observationTime} · Received ${receivedTime} · ${weatherCacheStatus}` : 'Weather data unavailable';
   return (
-    <header className="flex min-h-[72px] flex-wrap shrink-0 items-center justify-between gap-3 border-b border-[#1E293B] bg-[#090B13] px-4 py-3 sm:px-6 2xl:flex-nowrap shadow-sm relative z-20">
+    <header className="scada-app-header flex min-h-[72px] flex-wrap shrink-0 items-center justify-between gap-3 border-b border-[#1E293B] bg-[#090B13] px-4 py-3 sm:px-6 2xl:flex-nowrap shadow-sm relative z-20">
       <div className="flex min-w-0 flex-1 items-center gap-3 md:gap-5">
         <button type="button" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} data-testid="button-open-navigation" title="Open navigation" className="md:hidden shrink-0 text-slate-400 rounded-lg p-2 hover:bg-[#1E293B] focus-ring transition-colors" onClick={toggleMobileNav}>
           <Menu size={20} />
@@ -1428,21 +1465,22 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
     ? `${inverter.sourceEvidence.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${inverter.sourceEvidence.scalingStatus === 'validated' ? inverter.sourceEvidence.unit ?? 'kW' : 'raw'}`
     : metricValue(inverter, [['power', 'active_kw'], ['power', 'activePower']], 'kW');
   const dailyEnergyValue = (inverter: Device) => metricValue(inverter, [['energy', 'daily_mwh']], 'MWh');
-  const deviceFaults = (inverter: Device) => normalizeFaults(inverter.telemetry.faults);
-  const deviceAlarms = (inverter: Device) => normalizeFaults(inverter.telemetry.alarms, 'alarm');
+  const deviceFaults = (inverter: Device) => collectAlarmFaultEvidence(inverter.telemetry).faults;
+  const deviceAlarms = (inverter: Device) => collectAlarmFaultEvidence(inverter.telemetry).alarms;
   const deviceIdentity = (inverter: Device) => inverter.sourceEvidence
     ? `${inverter.sourceEvidence.parameter} · ${inverter.sourceEvidence.address}`
     : inverter.id;
   return (
-    <div className="scada-interactive-card self-start h-fit w-full min-w-0 rounded-xl border border-[#1E293B] bg-[#090B13] p-5">
+    <div className="scada-inverter-fleet scada-interactive-card self-start h-fit w-full min-w-0 rounded-xl border border-[#1E293B] bg-[#090B13] p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[#1E293B] pb-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="p-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
             <Layers3 size={16} />
           </div>
-          <div className="min-w-0"><h3 className="truncate text-sm font-bold tracking-wide text-slate-200 uppercase">Inverter fleet</h3><p className="mt-0.5 text-[10px] text-slate-500">Open any device for source evidence and fault guidance.</p></div>
+          <div className="min-w-0"><h3 className="truncate text-sm font-bold tracking-wide text-slate-200 uppercase">Inverter fleet</h3><p className="mt-0.5 text-[10px] text-slate-500">Source-backed device status and reported output.</p></div>
         </div>
         <div className="flex items-center gap-2">
+          <span className="hidden rounded-md border border-indigo-500/20 bg-indigo-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-indigo-300 min-[420px]:inline-flex">{inverters.length ? `${inverters.length} asset${inverters.length === 1 ? '' : 's'}` : 'No mapped assets'}</span>
           <div role="group" aria-label="Inverter fleet display mode" className="flex rounded-lg border border-[#1E293B] bg-[#0b0f19] p-1">
             <button type="button" onClick={() => setView('tiles')} aria-pressed={view === 'tiles'} data-testid="button-inverter-view-tiles" title="Show informative inverter tiles" className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide focus-ring ${view === 'tiles' ? 'bg-blue-500/15 text-blue-300' : 'text-slate-500 hover:text-slate-200'}`}><Grid2X2 size={13} />Tiles</button>
             <button type="button" onClick={() => setView('grid')} aria-pressed={view === 'grid'} data-testid="button-inverter-view-grid" title="Show informative inverter grid" className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide focus-ring ${view === 'grid' ? 'bg-blue-500/15 text-blue-300' : 'text-slate-500 hover:text-slate-200'}`}><LayoutGrid size={13} />Grid</button>
@@ -1450,7 +1488,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
           {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-200 focus-ring rounded-md px-2 py-1 transition-colors bg-[#1E293B]/50 hover:bg-[#1E293B]">View All</button>}
         </div>
       </div>
-      {inverters.length && view === 'tiles' && <div data-testid="inverter-fleet-tiles" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {inverters.length && view === 'tiles' && <div data-testid="inverter-fleet-tiles" className="scada-inverter-fleet-tiles grid gap-3">
         {inverters.map((inverter) => {
           const faults = deviceFaults(inverter);
           const alarms = deviceAlarms(inverter);
@@ -1460,11 +1498,11 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
               <div className="min-w-0"><h4 className="truncate text-sm font-bold text-slate-100 group-hover:text-blue-300">{inverter.name}</h4><p className="mt-1 truncate font-mono text-[10px] text-slate-500" title={deviceIdentity(inverter)}>{deviceIdentity(inverter)}</p></div>
               <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}>{statusLabel(inverter)}</span>
             </div>
-            <div className="mt-4 grid grid-cols-2 overflow-hidden rounded-lg border border-[#1E293B] bg-[#090B13]">
-              <div className="min-w-0 border-r border-[#1E293B] px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Daily generation</p><p className="mt-1 truncate font-mono text-sm font-bold text-slate-200">{dailyEnergyValue(inverter)}</p></div>
-              <div className="min-w-0 px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Active power</p><p className={`mt-1 truncate font-mono text-sm font-bold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-300' : 'text-slate-200'}`}>{powerValue(inverter)}</p></div>
+              <div className="mt-4 grid grid-cols-2 overflow-hidden rounded-lg border border-[#1E293B] bg-[#090B13]">
+               <div className="min-w-0 border-r border-[#1E293B] px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Daily generation</p><p className="mt-1 break-words font-mono text-sm font-bold text-slate-200">{dailyEnergyValue(inverter)}</p></div>
+               <div className="min-w-0 px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Active power</p><p className={`mt-1 break-words font-mono text-sm font-bold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-300' : 'text-slate-200'}`}>{powerValue(inverter)}</p></div>
             </div>
-            <div className="mt-3 flex items-center justify-between gap-3 text-[10px]">
+             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
               <span className={`rounded-full px-2 py-1 font-bold ${hasIssue ? 'bg-rose-500/10 text-rose-300' : 'bg-emerald-500/10 text-emerald-400'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span>
               <span className="font-semibold text-slate-500 group-hover:text-blue-300">View details →</span>
             </div>
@@ -1492,7 +1530,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
       {!inverters.length && <div className="rounded-lg border border-dashed border-[#1E293B] px-4 py-8 text-center text-xs text-slate-500">{sourceInverters.length ? 'Source inverter tags are available but have not been mapped into device cards yet.' : hasUnmappedPowerEvidence ? `Unmapped active-power evidence: ${rawPower.toLocaleString()} raw` : 'No inverter source tags have been discovered yet.'}</div>}
       
       <div className="mt-1 flex items-center gap-3 border-t border-[#1E293B] pt-2.5 text-[10px] text-slate-400">
-        <span className="uppercase tracking-wider font-semibold">Total Today</span>
+         <span className="uppercase tracking-wider font-semibold">Fleet summary</span>
           <span className="font-bold text-slate-200">{inverters.length ? inverters.some((inverter) => inverter.sourceEvidence?.scalingStatus === 'validated') ? `${inverters.filter((inverter) => inverter.sourceEvidence?.scalingStatus === 'validated').length} validated live record${inverters.filter((inverter) => inverter.sourceEvidence?.scalingStatus === 'validated').length === 1 ? '' : 's'}` : inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source tag${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}</span>
       </div>
     </div>
@@ -1687,16 +1725,15 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
         ].map(([label, value, detail]) => <div key={label} className="scada-interactive-card rounded-xl border border-[#1E293B] bg-[#090B13] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p><p className="mt-2 text-xl font-bold text-slate-100">{value}</p><p className="mt-1 text-[10px] text-slate-500">{detail}</p></div>)}
       </div>
       {mode === 'live' && <div className="mb-5"><InverterHealthHeatmap fleet={validatedFleet} onOpenInverter={(record) => onOpenInverter(sourceBackedInverterDevice(record, siteName))} /></div>}
-      <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
+      <div className="w-full">
         <InverterOverviewTable devices={devices} rows={rows} onOpenInverter={onOpenInverter} />
-        <div className="scada-interactive-card rounded-xl border border-[#1E293B] bg-[#090B13] p-5"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Operator guidance</p><h2 className="mt-2 text-lg font-bold text-slate-100">Source-aware fleet status</h2><p className="mt-2 text-sm leading-6 text-slate-400">Live Modbus registers are displayed exactly as received. Engineering output and health transitions become authoritative only when the source provides validated device mapping.</p><div className="mt-5 space-y-2 text-xs text-slate-400"><div className="flex items-center justify-between rounded-lg bg-[#0b0f19] p-3"><span>Current source evidence</span><strong className={liveState === 'fresh' ? 'text-emerald-400' : 'text-amber-400'}>{liveState === 'fresh' ? 'Fresh telemetry' : liveState === 'stale' ? 'Telemetry stale' : 'Not yet available'}</strong></div><div className="flex items-center justify-between rounded-lg bg-[#0b0f19] p-3"><span>Device mapping</span><strong className={devices.some((device) => device.type === 'Power inverter') ? 'text-emerald-400' : 'text-amber-400'}>{devices.some((device) => device.type === 'Power inverter') ? 'Mapped assets available' : 'Mapping required'}</strong></div></div></div>
       </div>
     </div>
   );
   if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Search, sort, filter, and export the latest Modbus telemetry while preserving raw values, timestamps, and source provenance." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
   if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={workspaceRawFallbacks.dailyEnergy} savedLabel={workspaceSavedLabel} /><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><div className="xl:col-span-2"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} rawInverters={workspaceRawInverters} validatedFleet={validatedFleet} mode={mode} savedLabel={workspaceSavedLabel} onOpenInverter={(record) => onOpenInverter(sourceBackedInverterDevice(record, siteName))} /></div></div></div>;
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
-  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><InverterFaultBoard devices={devices} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
+  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><InverterFaultBoard devices={devices} rows={rows} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error|warning/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
   if (section === 'raw-data') return <Suspense fallback={<div role="status" className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-[#334155] bg-[#090B13] text-sm text-slate-400">Loading Report Center…</div>}><ReportCenter siteName={siteName} sites={sites} devices={devices} parameters={Array.from(new Set([...rows, ...savedSnapshotRows].map((row) => String(row.name ?? row.parameter ?? '').trim()).filter(Boolean))).sort()} /></Suspense>;
   return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} /></div></div>;
 }
@@ -2035,15 +2072,22 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
   );
 }
 
-function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel }: { devices: Device[]; rows: ModbusRow[]; liveState: 'fresh' | 'stale' | 'unavailable'; savedRows?: ModbusRow[]; savedLabel?: string }) {
+function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOpenAlarms }: { devices: Device[]; rows: ModbusRow[]; liveState: 'fresh' | 'stale' | 'unavailable'; savedRows?: ModbusRow[]; savedLabel?: string; onOpenAlarms?: () => void }) {
   const hasFreshTelemetry = liveState === 'fresh';
   const showingSavedData = !hasFreshTelemetry && savedRows.length > 0;
   const evidenceRows = hasFreshTelemetry ? rows : savedRows;
   const hasUsableEvidence = hasFreshTelemetry || showingSavedData;
   const unavailableLabel = showingSavedData ? 'Last saved' : liveState === 'stale' ? 'Telemetry stale' : 'Data unavailable';
-  const hasAlarmTelemetry = devices.some((device) => Array.isArray(device.telemetry.alarms));
-  const alarmTelemetry = devices.flatMap((device) => Array.isArray(device.telemetry.alarms) ? device.telemetry.alarms : []);
-  const alarmCount = alarmTelemetry.length;
+  const reports = uniqueAlarmFaultReports([
+    ...(hasFreshTelemetry ? deviceAlarmFaultReports(devices) : []),
+    ...rowAlarmFaultReports(evidenceRows),
+  ]);
+  const alarmReports = reports.filter((report) => report.kind === 'Alarm');
+  const faultReports = reports.filter((report) => report.kind === 'Fault');
+  const explicitAlarmFaultSource = hasFreshTelemetry && devices.some(hasExplicitAlarmFaultField);
+  const hasAlarmFaultEvidence = reports.length > 0 || explicitAlarmFaultSource;
+  const latestFaultCode = faultReports.find((report) => report.fault.code)?.fault.code ?? 'Not reported';
+  const latestAlarmCode = alarmReports.find((report) => report.fault.code)?.fault.code ?? 'Not reported';
   const qualityCounts = evidenceRows.reduce<{ good: number; scaling: number; bad: number; unreported: number }>((counts, row) => {
     const quality = String(row.quality ?? row.data_quality ?? '').toLowerCase();
     if (quality.includes('bad') || quality.includes('error') || quality.includes('fault')) counts.bad += 1;
@@ -2058,28 +2102,31 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel }: { 
   return (
     <div className="flex flex-col gap-4 h-full">
       <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-4 flex-1">
-        <div className="flex items-center gap-2 mb-3">
-          <AlertTriangle size={14} className="text-slate-400" />
-          <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Alarms & Faults</h3>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={14} className={reports.length ? 'text-rose-400' : 'text-slate-400'} />
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Alarms & Faults</h3>
+          </div>
+          {onOpenAlarms && <button type="button" onClick={onOpenAlarms} className="shrink-0 rounded-md px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-blue-300 hover:bg-blue-500/10 focus-ring">Review all</button>}
         </div>
           <div className="space-y-2.5">
           <div className="flex items-center justify-between text-[10px]">
-            <span className="text-slate-400">General Alarm</span>
-             <span className="font-bold text-slate-200">{hasFreshTelemetry && hasAlarmTelemetry ? alarmCount : unavailableLabel}</span>
+            <span className="text-slate-400">Alarm evidence</span>
+              <span className="font-bold text-slate-200">{hasAlarmFaultEvidence ? alarmReports.length : unavailableLabel}</span>
           </div>
           <div className="flex items-center justify-between text-[10px]">
-            <span className="text-slate-400">Fault Alarm</span>
-             <span className="font-bold text-slate-200">{hasFreshTelemetry && hasAlarmTelemetry ? alarmTelemetry.filter((alarm) => String(alarm).toLowerCase().includes('fault')).length : unavailableLabel}</span>
+            <span className="text-slate-400">Fault evidence</span>
+              <span className="font-bold text-slate-200">{hasAlarmFaultEvidence ? faultReports.length : unavailableLabel}</span>
           </div>
           <div className="flex items-center justify-between text-[10px]">
             <span className="text-slate-400">Fault Code</span>
-             <span className="font-bold text-slate-500">Data unavailable</span>
+              <span className="max-w-[55%] truncate font-mono font-bold text-slate-300" title={latestFaultCode}>{hasAlarmFaultEvidence ? latestFaultCode : unavailableLabel}</span>
           </div>
           <div className="flex items-center justify-between text-[10px]">
             <span className="text-slate-400">Alarm Code</span>
-             <span className="font-bold text-slate-500">Data unavailable</span>
+              <span className="max-w-[55%] truncate font-mono font-bold text-slate-300" title={latestAlarmCode}>{hasAlarmFaultEvidence ? latestAlarmCode : unavailableLabel}</span>
           </div>
-             <p className="pt-1 text-[9px] text-slate-500">{showingSavedData ? `No live alarm state is available. Last saved alarm register: ${savedLabel ?? 'timestamp unavailable'}.` : !hasFreshTelemetry ? 'Cached alarm evidence remains traceable in Live Data until a fresh payload arrives.' : hasAlarmTelemetry ? (alarmCount ? 'Reported alarm telemetry requires operator review.' : 'No active alarms reported.') : 'No alarm telemetry reported by the connected source.'}</p>
+              <p className="pt-1 text-[9px] text-slate-500">{showingSavedData ? `Saved alarm and fault registers: ${savedLabel ?? 'timestamp unavailable'}.` : !hasFreshTelemetry ? 'Cached alarm evidence remains traceable in Live Data until a fresh payload arrives.' : hasAlarmFaultEvidence ? `${reports.length} source-reported alarm or fault register${reports.length === 1 ? '' : 's'} available for review. Codes remain unmodified.` : 'No alarm or fault fields were reported by the connected source.'}</p>
         </div>
       </div>
       
@@ -2121,33 +2168,33 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel }: { 
   );
 }
 
-function InverterFaultBoard({ devices, onOpenInverter }: { devices: Device[]; onOpenInverter: (device: Device) => void }) {
-  const reports = devices.filter((device) => device.type === 'Power inverter').flatMap((device) => [
-    ...normalizeFaults(device.telemetry.faults).map((fault) => ({ device, kind: 'Fault' as const, fault })),
-    ...normalizeFaults(device.telemetry.alarms, 'alarm').map((fault) => ({ device, kind: 'Alarm' as const, fault })),
+function InverterFaultBoard({ devices, rows = [], onOpenInverter }: { devices: Device[]; rows?: ModbusRow[]; onOpenInverter: (device: Device) => void }) {
+  const reports = uniqueAlarmFaultReports([
+    ...deviceAlarmFaultReports(devices),
+    ...rowAlarmFaultReports(rows),
   ]);
   return <section data-testid="panel-inverter-faults" className="scada-interactive-card rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1E293B] pb-4">
-      <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-300">Inverter fault monitor</p><h2 className="mt-1 text-sm font-bold text-slate-100">Reported alarms by inverter</h2><p className="mt-1 text-xs leading-5 text-slate-400">Expand a report to review the fault code, raw evidence, mapped reason, and suggested operator checks.</p></div>
+      <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-300">Alarm & fault monitor</p><h2 className="mt-1 text-sm font-bold text-slate-100">Source-reported alarms and fault registers</h2><p className="mt-1 text-xs leading-5 text-slate-400">Expand an item to review its raw evidence, source, timestamp, any reported reason, and scoped operator checks.</p></div>
       <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${reports.length ? 'bg-rose-500/10 text-rose-300' : 'bg-emerald-500/10 text-emerald-400'}`}>{reports.length ? `${reports.length} reported` : 'No reports'}</span>
     </div>
     {reports.length ? <div className="mt-4 grid gap-3 lg:grid-cols-2">{reports.map(({ device, kind, fault }) => {
-      const model = telemetryText(device.telemetry, ['model', 'deviceModel', 'device_model', 'modelName']) ?? undefined;
+      const model = device ? telemetryText(device.telemetry, ['model', 'deviceModel', 'device_model', 'modelName']) ?? undefined : undefined;
       const guidance = getFaultGuidance(fault, model);
       const mappingLabel = guidance.mapping === 'source-reported' ? 'Source reason' : guidance.mapping === 'reference-mapped' ? 'Reference mapping' : 'Reason not mapped';
-      return <details key={`${device.id}-${kind}-${fault.id}`} className="group rounded-xl border border-rose-500/20 bg-rose-500/[0.04]">
+      return <details key={`${device?.id ?? 'source'}-${kind}-${fault.id}`} className="group rounded-xl border border-rose-500/20 bg-rose-500/[0.04]">
         <summary className="flex cursor-pointer list-none items-start justify-between gap-3 px-3.5 py-3 marker:content-none focus-ring">
-          <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-300">{kind}</span><span className="text-[10px] font-semibold text-slate-400">{device.name}</span></div><p className="mt-2 truncate text-xs font-bold text-slate-100">{guidance.title}</p><p className="mt-1 truncate font-mono text-[10px] text-slate-500">{fault.code ? `Code ${fault.code}` : 'Code not reported'} · {fault.source}</p></div>
+          <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-300">{kind}</span><span className="text-[10px] font-semibold text-slate-400">{device?.name ?? 'Source register'}</span></div><p className="mt-2 truncate text-xs font-bold text-slate-100">{guidance.title}</p><p className="mt-1 truncate font-mono text-[10px] text-slate-500">{fault.code ? `Code ${fault.code}` : 'Code not reported'} · {fault.source}</p></div>
           <span className="shrink-0 text-[10px] font-semibold text-rose-300 group-open:hidden">Review</span><span className="hidden shrink-0 text-[10px] font-semibold text-rose-300 group-open:inline">Close</span>
         </summary>
         <div className="border-t border-rose-500/15 px-3.5 py-3 text-xs leading-5 text-slate-300">
           <div className="grid gap-2 sm:grid-cols-2"><div><p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Fault reason</p><p className="mt-1">{guidance.reason}</p></div><div><p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Observed</p><p className="mt-1">{fault.observedAt ?? 'Not reported'}</p></div></div>
           <div className="mt-3 rounded-lg border border-amber-500/15 bg-amber-500/[0.04] px-3 py-2"><p className="text-[9px] font-bold uppercase tracking-wider text-amber-300">{mappingLabel}</p><p className="mt-1 text-[10px] leading-4 text-amber-100/70">{guidance.scope}</p></div>
           <ol className="mt-3 list-decimal space-y-1 pl-4 text-[11px] leading-5">{guidance.suggestions.map((suggestion) => <li key={suggestion}>{suggestion}</li>)}</ol>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-rose-500/15 pt-3"><span className="max-w-full break-all font-mono text-[10px] text-slate-500" title={fault.rawValue}>Evidence: {fault.rawValue}</span><button type="button" onClick={() => onOpenInverter(device)} className="shrink-0 rounded-md border border-blue-500/25 bg-blue-500/10 px-2.5 py-1.5 text-[10px] font-bold text-blue-300 hover:bg-blue-500/15 focus-ring">Open {device.name}</button></div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-rose-500/15 pt-3"><span className="max-w-full break-all font-mono text-[10px] text-slate-500" title={fault.rawValue}>Evidence: {fault.rawValue}</span>{device ? <button type="button" onClick={() => onOpenInverter(device)} className="shrink-0 rounded-md border border-blue-500/25 bg-blue-500/10 px-2.5 py-1.5 text-[10px] font-bold text-blue-300 hover:bg-blue-500/15 focus-ring">Open {device.name}</button> : <span className="shrink-0 rounded-md border border-[#1E293B] bg-[#0b0f19] px-2.5 py-1.5 text-[10px] font-semibold text-slate-400">Raw source evidence</span>}</div>
         </div>
       </details>;
-    })}</div> : <div className="mt-4 rounded-lg border border-dashed border-[#1E293B] px-4 py-8 text-center text-xs leading-5 text-slate-500">No inverter alarm or fault arrays are currently reporting an active issue.<br /><span className="text-[10px]">Missing source fields remain visible as “not reported” inside the device detail view.</span></div>}
+    })}</div> : <div className="mt-4 rounded-lg border border-dashed border-[#1E293B] px-4 py-8 text-center text-xs leading-5 text-slate-500">No source-reported alarm or fault fields are available for this view.<br /><span className="text-[10px]">When the broker publishes an alarm, fault, warning, or error register, its unmodified evidence appears here.</span></div>}
   </section>;
 }
 
@@ -2483,7 +2530,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   return (
     <>
       <button type="button" aria-label="Close broker settings" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-slate-950/55 backdrop-blur-[2px]" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="scada-safe-drawer fixed right-0 top-0 z-50 flex h-[100dvh] min-h-0 w-[min(88vw,400px)] max-w-[400px] flex-col border-l border-[#1E293B] bg-[#090B13] shadow-2xl">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="scada-safe-drawer fixed right-0 top-0 z-50 flex h-[100dvh] min-h-0 w-full max-w-[440px] flex-col border-l border-[#1E293B] bg-[#090B13] shadow-2xl sm:w-[min(88vw,440px)]">
         <div className="scada-safe-drawer-header flex items-center justify-between border-b border-[#1E293B] px-4 py-5 sm:px-6">
           <div>
             <h2 id="telemetry-settings-title" className="text-lg font-bold text-slate-100 tracking-tight">Settings</h2>
@@ -3131,8 +3178,11 @@ function AppShell() {
   const selectedInverter = useMemo(() => selectedInverterId ? inverterDisplayDevices.find((device) => device.id === selectedInverterId) ?? null : null, [inverterDisplayDevices, selectedInverterId]);
   const onlineInverters = electricalLiveState === 'fresh' ? inverters.filter(d => d.status === 'online').length : 0;
   const totalInverters = inverters.length;
-  const activeAlarms = useMemo(() => operationalDevices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0) + (Array.isArray(d.telemetry.faults) ? d.telemetry.faults.length : 0), 0), [operationalDevices]);
-  const alarmTelemetryReported = useMemo(() => operationalDevices.some((device) => Array.isArray(device.telemetry.alarms)), [operationalDevices]);
+  const alarmFaultReports = useMemo(() => uniqueAlarmFaultReports([
+    ...deviceAlarmFaultReports(operationalDevices),
+    ...rowAlarmFaultReports(dashboardEvidenceRows),
+  ]), [dashboardEvidenceRows, operationalDevices]);
+  const activeAlarms = alarmFaultReports.length;
   const rawKpis = useMemo(() => ({
     activePower: latestRawMetric(dashboardEvidenceRows, ['actpow']),
     dailyEnergy: latestRawMetric(dashboardEvidenceRows, ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']),
@@ -3267,7 +3317,7 @@ function AppShell() {
       <div className="scada-content-scroll flex h-full min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} onSettings={() => setSettingsOpen(true)} now={now} weather={weatherState} siteName={plantSiteName} />
         
-        <main className="min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-6">
+        <main className="scada-main-content min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-6">
           {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
@@ -3337,13 +3387,13 @@ function AppShell() {
                 {resyncNotice && <span role="status" className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">{resyncNotice}</span>}
               </div>
             </section>
-            <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+              <div className="scada-dashboard-kpis grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
               <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : acPowerCard.subtext} formula={mode === 'demo' ? 'Σ demo inverter active-power values' : acPowerCard.formula} onClick={() => navigateTo('power')} help="The card shows exact source evidence whenever it is available. kW is shown only after source-provided scaling, units, and power semantics are approved." />
               <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : dailyEnergyCard.subtext} formula={mode === 'demo' ? 'Demo daily energy counter' : dailyEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact daily-energy source register if provided. It never creates energy by integrating unvalidated power records." />
               <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : totalEnergyCard.subtext} formula={mode === 'demo' ? 'Demo cumulative energy counter' : totalEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact raw cumulative-energy evidence when it is available. kWh appears only after approved scaling and units are supplied." />
               <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : specificYieldCard.subtext} formula={mode === 'demo' ? 'Demo daily energy ÷ installed capacity' : specificYieldCard.formula} onClick={() => navigateTo('power')} help="The card shows a source-provided raw specific-yield register if present. An engineering-specific yield is calculated only from verified daily energy and installed DC capacity." />
               <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${showingSavedRecord ? `Last Saved: ${lastSavedLabel}` : rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
-              <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpiValue(rawKpis.alarms)} unit={mode === 'demo' ? '' : rawKpiUnit(rawKpis.alarms)} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : `${rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')}${showingSavedRecord && rawKpis.alarms ? ` · Last Saved: ${lastSavedLabel}` : ''}`} onClick={() => navigateTo('alarms')} help="The raw alarm register is displayed exactly as received; alarm-code mapping is required for an active-alarm count." />
+              <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpis.alarms ? rawKpiValue(rawKpis.alarms) : activeAlarms ? activeAlarms.toString() : '—'} unit={mode === 'demo' ? '' : rawKpis.alarms ? rawKpiUnit(rawKpis.alarms) : activeAlarms ? 'reported' : ''} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms || activeAlarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarm or fault evidence needs review' : 'No active alarms reported') : rawKpis.alarms ? `${rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')}${showingSavedRecord ? ` · Last Saved: ${lastSavedLabel}` : ''}` : activeAlarms ? `${activeAlarms} source-reported alarm or fault register${activeAlarms === 1 ? '' : 's'}` : 'Awaiting alarm or fault register'} onClick={() => navigateTo('alarms')} help="Source-reported alarm and fault fields are shown exactly as received. A code is not treated as an active state unless the source explicitly says so." />
             </div>
             {mode === 'live' && <CalculationSummaryPanel calculations={calculations} rawRows={dashboardEvidenceRows} className="mt-4" />}
           </section>
@@ -3352,23 +3402,23 @@ function AppShell() {
             <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} savedSnapshot={eligibleSavedSnapshot} />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,1.2fr)_minmax(0,1.8fr)]">
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
               <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
             <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2">
-              <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} savedRows={showingSavedRecord ? savedSnapshotRows : []} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} />
+              <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} savedRows={showingSavedRecord ? savedSnapshotRows : []} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} onOpenAlarms={() => navigateTo('alarms')} />
             </div>
           </div>
           
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="scada-dashboard-analysis-grid grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               <div id="energy" data-section="energy" className="min-w-0 scroll-mt-6">
                 <EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={rawFallbacks.dailyEnergy} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} />
              </div>
-              <div id="power" data-section="power" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2">
+               <div id="power" data-section="power" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2 2xl:col-span-3">
                 <PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={rawFallbacks.acPower} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} />
              </div>
-              <div className="min-w-0 md:col-span-2 xl:col-span-3">
+               <div className="min-w-0 md:col-span-2 xl:col-span-3 2xl:col-span-4">
                  <PowerDistributionChart inverters={mode === 'demo' ? inverters : []} rawInverters={rawKpis.inverters} validatedFleet={validatedInverterFleet} mode={mode} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} onOpenInverter={(record) => setSelectedInverterId(sourceBackedInverterDevice(record, persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site').id)} />
             </div>
           </div>

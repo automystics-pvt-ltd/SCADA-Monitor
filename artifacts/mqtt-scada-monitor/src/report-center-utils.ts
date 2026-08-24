@@ -9,6 +9,8 @@ export type ReportRequestFilters = {
   preset: string;
   customFrom: string;
   customTo: string;
+  customFromTime?: string;
+  customToTime?: string;
 };
 
 function startOfLocalDay(date: Date) {
@@ -17,12 +19,16 @@ function startOfLocalDay(date: Date) {
   return result;
 }
 
-export function reportRange(filters: Pick<ReportRequestFilters, 'preset' | 'customFrom' | 'customTo'>, now = new Date()) {
+export function reportRange(filters: Pick<ReportRequestFilters, 'preset' | 'customFrom' | 'customTo' | 'customFromTime' | 'customToTime'>, now = new Date()) {
   const today = startOfLocalDay(now);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (filters.preset === 'custom' && filters.customFrom && filters.customTo) {
-    return { from: new Date(`${filters.customFrom}T00:00:00`).toISOString(), to: new Date(`${filters.customTo}T23:59:59.999`).toISOString() };
+    const startTime = filters.customFromTime || '00:00';
+    const endTime = filters.customToTime || '23:59';
+    const startSuffix = startTime.length === 5 ? ':00' : '';
+    const endSuffix = endTime.length === 5 ? ':59.999' : '';
+    return { from: new Date(`${filters.customFrom}T${startTime}${startSuffix}`).toISOString(), to: new Date(`${filters.customTo}T${endTime}${endSuffix}`).toISOString() };
   }
   if (filters.preset === 'yesterday') {
     const from = new Date(today);

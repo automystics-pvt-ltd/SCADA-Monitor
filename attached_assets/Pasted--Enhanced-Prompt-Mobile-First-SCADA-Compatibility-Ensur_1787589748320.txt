@@ -1,0 +1,37 @@
+### Enhanced Prompt — Mobile-First SCADA Compatibility
+
+Ensure the entire **Solar SCADA application is fully responsive across Mobile, Tablet, Laptop, Desktop, Large Monitors, and TV/Control-Room displays**, with **special and primary focus on mobile devices**.
+
+The mobile experience must be treated as a **first-class SCADA interface**, not simply a scaled-down desktop website. Optimize every screen for mobile usability while preserving the complete SCADA functionality and data accuracy.
+
+Ensure on mobile:
+
+* Clean, compact SCADA dashboard layout
+* Easy one-hand navigation
+* Professional collapsible/bottom navigation where appropriate
+* Touch-friendly controls and minimum comfortable touch targets
+* Responsive KPI cards
+* Readable electrical and telemetry values
+* Properly responsive charts and analytics
+* Mobile-optimized tables with intelligent horizontal scrolling or column prioritization
+* Compact and easy-to-use filters
+* Date/time selectors optimized for touch
+* Accessible inverter/device details
+* Clear Live / Latest Saved / Offline status
+* Professional alarm and fault visibility
+* Proper tooltips or tap-based information panels
+* No overlapping, clipping, cut-off text, or horizontal page overflow
+* No tiny unreadable fonts or unnecessarily oversized components
+* Proper Light/Dark mode rendering
+* Smooth touch interactions and subtle animations
+* Fast loading and efficient rendering on mobile networks/devices
+
+For **tablet, laptop, desktop, large monitors, and TV displays**, dynamically adapt the layout and information density to use the available screen space appropriately.
+
+Maintain the same **SCADA navigation, MQTT/Modbus telemetry, database logic, authentication, permissions, reports, alarms, analytics, and existing functionality** across every device.
+
+### Critical Requirement
+
+**Do not create a separate simplified mobile website.** Build one unified, responsive **professional Solar SCADA application** that intelligently adapts to every screen size, with **mobile usability given the highest priority**.
+
+**Do not modify, remove, or break any existing functionality while implementing these responsive improvements.**

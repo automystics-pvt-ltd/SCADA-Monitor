@@ -30,3 +30,9 @@ test('uses the custom calendar bounds supplied by the operator', () => {
   assert.equal(range.from, new Date('2026-08-01T00:00:00').toISOString());
   assert.equal(range.to, new Date('2026-08-03T23:59:59.999').toISOString());
 });
+
+test('uses optional custom time bounds without changing the selected dates', () => {
+  const range = reportRange({ ...filters, customFromTime: '06:30', customToTime: '18:15' }, new Date('2026-08-24T10:00:00Z'));
+  assert.equal(range.from, new Date('2026-08-01T06:30:00').toISOString());
+  assert.equal(range.to, new Date('2026-08-03T18:15:59.999').toISOString());
+});

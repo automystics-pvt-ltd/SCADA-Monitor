@@ -9,3 +9,4 @@
 - [Versioned SCADA snapshot identity](versioned-scada-snapshot-identity.md) — Keep new 15-minute snapshots idempotent without deleting legacy records.
 - [Live MQTT delivery ordering](live-mqtt-delivery-ordering.md) — Keep SSE identities contiguous and replay both durable and in-memory evidence during asynchronous archival.
 - [Fault guidance provenance](fault-guidance-provenance.md) — Scope code mappings to evidence, preserve raw faults, and never invent unknown-code reasons.
+- [Complete report evidence presentation](complete-report-evidence-presentation.md) — Page dense evidence in the UI, but keep selected-period payloads and all exports complete.

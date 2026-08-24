@@ -1,0 +1,33 @@
+### Enhanced Prompt — Universal Device Compatibility
+
+Ensure the entire **Solar SCADA application is fully responsive and professionally optimized for all device types and screen sizes**, including:
+
+**Mobile → Tablet → Laptop → Desktop → Large/4K Monitor → TV/Control-Room Display**
+
+The application must automatically adapt its **layout, navigation, containers, KPI cards, charts, tables, filters, typography, icons, spacing, and interactions** to the available screen size without affecting any existing SCADA functionality.
+
+Ensure:
+
+* No overlapping or cut-off content
+* No horizontal overflow or broken layouts
+* No text truncation where readability is required
+* Proper scaling of charts and visualizations
+* Responsive KPI/card layouts
+* Professional sidebar behavior on different screen sizes
+* Touch-friendly controls on mobile/tablet
+* Mouse/keyboard-friendly controls on desktop
+* Proper viewing distance and sizing for large TV/SCADA control-room displays
+* Full Light/Dark mode compatibility on every device
+* Consistent hover, active, focus, and touch interactions
+* Proper table responsiveness and scrolling
+* Filters automatically adapt to available space
+* Modals and dialogs remain fully visible
+* Charts remain readable without distortion
+* Header and navigation remain properly aligned
+* No component should disappear unexpectedly at any breakpoint
+
+For **large screens and TVs**, intelligently use the available space without simply enlarging everything. For **mobile devices**, intelligently reflow and prioritize critical SCADA information without making the interface feel like a separate mobile website.
+
+The application should provide a **consistent, professional Solar SCADA experience across every device**, with the same functionality, data accuracy, navigation, and operational behavior.
+
+**Most importantly: do not modify, remove, or break any existing functionality, MQTT/Modbus communication, database logic, authentication, permissions, or business logic while implementing responsive improvements.**

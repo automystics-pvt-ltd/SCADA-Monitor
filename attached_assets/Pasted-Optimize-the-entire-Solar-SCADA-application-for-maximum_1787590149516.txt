@@ -1,0 +1,51 @@
+Optimize the entire Solar SCADA application for maximum speed, smoothness, scalability, and reliability without changing, removing, or breaking any existing functionality, MQTT/Modbus communication, telemetry, database logic, authentication, permissions, or business logic.
+
+The application must feel fast, lightweight, responsive, and smooth even with continuous real-time SCADA telemetry and large historical datasets.
+
+Focus on:
+
+Lazy loading for screens, modules, charts, reports, tables, and non-critical components
+Code splitting and load only what is required for the current screen
+N+1 query prevention and optimized API/database queries
+Efficient MQTT/Modbus telemetry processing
+Avoid unnecessary API/database calls
+Prevent duplicate data fetching
+Efficient real-time state updates
+Update only the affected UI components instead of re-rendering the entire dashboard
+Debounce/throttle high-frequency events where appropriate
+Pagination, virtualization, and incremental loading for large tables/datasets
+Efficient chart rendering for large telemetry datasets
+Proper caching of reusable/non-changing data
+Background processing for non-critical operations
+Optimize images, SVGs, icons, fonts, and static assets
+Remove unnecessary dependencies and unused code
+Minimize JavaScript/CSS bundle size
+Prevent memory leaks from timers, subscriptions, listeners, WebSocket/MQTT connections, and chart instances
+Proper cleanup when navigating between screens
+Avoid UI blocking operations on the main thread
+Optimize initial application load and time-to-interactive
+Optimize mobile performance, especially on slower networks and lower-end devices
+Maintain smooth scrolling and interactions
+Ensure real-time telemetry does not freeze or slow down the UI
+Ensure reports and historical analytics do not block live SCADA monitoring
+SCADA-Specific Performance
+
+Live telemetry must remain continuous and reliable while the application performs background operations such as:
+
+Data processing → validation → backend saving → analytics → reporting
+
+Historical data loading must never interrupt or delay the Live SCADA monitoring experience.
+
+Use efficient incremental updates, batching, caching, pagination, virtualization, and background processing wherever appropriate.
+
+Critical Requirement
+
+The application should be:
+
+Fast → Lightweight → Smooth → Non-blocking → Scalable → Responsive → Memory-efficient → Production-ready
+
+Optimize performance without sacrificing data accuracy, telemetry reliability, UI functionality, or SCADA monitoring capabilities.
+
+Do not introduce performance optimizations that cause missing telemetry, delayed live values, incorrect records, duplicate records, stale data, or broken navigation.
+
+The final application should remain smooth and responsive even as the number of plants, inverters, devices, telemetry parameters, historical records, users, and reports increases significantly.

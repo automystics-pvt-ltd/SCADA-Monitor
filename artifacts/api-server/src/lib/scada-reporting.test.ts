@@ -47,6 +47,25 @@ test("keeps provenance and validated-only filters separate", () => {
   assert.equal(keepReportRecord({ ...record, quality: "raw" }, "electrical", filters), false);
 });
 
+test("scopes named operational report views to semantically appropriate evidence", () => {
+  const noFilters: ReportFilterSet = { devices: [], parameters: [], provenance: [], quality: "all", status: "all" };
+  const acPower = { ...record, parameter: "AC active power", displayLabel: "AC active power", measurementKind: "active-power" };
+  const mppt = { ...record, parameter: "MPPT 1 voltage", displayLabel: "MPPT 1 voltage" };
+  const string = { ...record, parameter: "String 1 current", displayLabel: "String 1 current" };
+  const temperature = { ...record, category: "environmental" as const, parameter: "Cabinet temperature", displayLabel: "Cabinet temperature" };
+  const frequency = { ...record, parameter: "Grid frequency", displayLabel: "Grid frequency" };
+
+  assert.equal(keepReportRecord(acPower, "ac-dc-power", noFilters), true);
+  assert.equal(keepReportRecord(acPower, "electrical-parameters", noFilters), false);
+  assert.equal(keepReportRecord(mppt, "mppt-monitoring", noFilters), true);
+  assert.equal(keepReportRecord(string, "string-monitoring", noFilters), true);
+  assert.equal(keepReportRecord(temperature, "temperature-monitoring", noFilters), true);
+  assert.equal(keepReportRecord(frequency, "power-factor-frequency", noFilters), true);
+  assert.equal(keepReportRecord({ ...record, provenance: "live" }, "live-data", noFilters), true);
+  assert.equal(keepReportRecord(record, "live-data", noFilters), false);
+  assert.equal(keepReportRecord(record, "historical-saved", noFilters), true);
+});
+
 test("uses receipt identity and value when source timestamps repeat", () => {
   const first = stableReportRecordId({ source: "archive", parameter: "AC power", address: "305040", observedAt: "2026-08-24T09:00:00.000Z", receivedAt: "2026-08-24T09:00:01.000Z", value: 12.4 });
   const second = stableReportRecordId({ source: "archive", parameter: "AC power", address: "305040", observedAt: "2026-08-24T09:00:00.000Z", receivedAt: "2026-08-24T09:00:02.000Z", value: 12.6 });

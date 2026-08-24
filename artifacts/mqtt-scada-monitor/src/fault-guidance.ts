@@ -18,6 +18,11 @@ export type FaultGuidance = {
   scope: string;
 };
 
+export type AlarmFaultEvidence = {
+  alarms: FaultEvidence[];
+  faults: FaultEvidence[];
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -60,6 +65,21 @@ function suggestionValues(value: unknown) {
   return text ? text.split(/\r?\n|(?<=\.)\s+(?=\d+\.)/).map((item) => item.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean) : [];
 }
 
+function valuesForKeys(record: Record<string, unknown>, keys: string[]) {
+  return keys.flatMap((key) => {
+    const value = record[key];
+    if (value === undefined || value === null) return [];
+    return Array.isArray(value) ? value : [value];
+  });
+}
+
+function uniqueEvidence(evidence: FaultEvidence[]) {
+  return Array.from(new Map(evidence.map((item) => [
+    `${item.code ?? ''}|${item.title}|${item.source}|${item.observedAt ?? ''}|${item.rawValue}`,
+    item,
+  ])).values());
+}
+
 export function normalizeFaults(value: unknown, prefix = 'fault'): FaultEvidence[] {
   if (value === null || value === undefined) return [];
   const items = Array.isArray(value) ? value : [value];
@@ -93,6 +113,44 @@ export function normalizeFaults(value: unknown, prefix = 'fault'): FaultEvidence
       reportedSuggestions: suggestionValues(item.suggestions ?? item.recommendations ?? item.recommendation ?? item.actions),
     };
   });
+}
+
+export function collectAlarmFaultEvidence(value: unknown): AlarmFaultEvidence {
+  if (!isRecord(value)) return { alarms: [], faults: [] };
+  const alarms = valuesForKeys(value, [
+    'alarms', 'alarm', 'alarmCode', 'alarm_code', 'alarmStatus', 'alarm_status', 'warnings', 'warning',
+  ]).flatMap((item) => normalizeFaults(item, 'alarm'));
+  const faults = valuesForKeys(value, [
+    'faults', 'fault', 'faultCode', 'fault_code', 'faultStatus', 'fault_status', 'errors', 'error', 'errorCode', 'error_code',
+  ]).flatMap((item) => normalizeFaults(item, 'fault'));
+  return { alarms: uniqueEvidence(alarms), faults: uniqueEvidence(faults) };
+}
+
+export function collectAlarmFaultEvidenceFromRows(value: unknown): AlarmFaultEvidence {
+  if (!Array.isArray(value)) return { alarms: [], faults: [] };
+  const alarms: FaultEvidence[] = [];
+  const faults: FaultEvidence[] = [];
+  for (const row of value) {
+    if (!isRecord(row)) continue;
+    const title = firstText(row, ['name', 'parameter', 'tag', 'registerName', 'register_name', 'label']);
+    if (!title || !/(alarm|fault|error|warning)/i.test(title)) continue;
+    const kind = /(fault|error)/i.test(title) ? 'fault' : 'alarm';
+    const raw = row.raw_data ?? row.rawValue ?? row.raw_value ?? row.data ?? row.value ?? row.currentValue ?? row.current_value;
+    const codeValue = /(code|id)/i.test(title) ? raw : row.code ?? row.faultCode ?? row.fault_code ?? row.alarmCode ?? row.alarm_code;
+    const evidence: FaultEvidence = {
+      id: `${kind}-row-${firstText(row, ['server_name', 'serverName', 'source', 'device', 'server']) ?? 'source'}-${title}-${firstText(row, ['date_iso_8601', 'timestamp', 'date', 'serverReceivedAt']) ?? 'time'}-${formatRawValue(raw)}`,
+      code: extractCode(codeValue) ?? (codeValue === undefined || codeValue === null ? null : textValue(codeValue) || null),
+      rawValue: formatRawValue(raw),
+      title,
+      source: firstText(row, ['server_name', 'serverName', 'source', 'device', 'deviceName', 'server']) ?? 'MQTT / Modbus source',
+      observedAt: firstText(row, ['date_iso_8601', 'observedAt', 'observed_at', 'timestamp', 'date', 'serverReceivedAt']) ?? null,
+      severity: firstText(row, ['severity', 'level'])?.toLowerCase() === 'warning' || kind === 'alarm' ? 'warning' : 'fault',
+      reportedReason: firstText(row, ['cause', 'faultCause', 'fault_cause', 'reason', 'description', 'message']),
+      reportedSuggestions: suggestionValues(row.suggestions ?? row.recommendations ?? row.recommendation ?? row.actions),
+    };
+    (kind === 'fault' ? faults : alarms).push(evidence);
+  }
+  return { alarms: uniqueEvidence(alarms), faults: uniqueEvidence(faults) };
 }
 
 const GENERIC_SUGGESTIONS = [
