@@ -3007,18 +3007,17 @@ function AppShell() {
             {mode === 'live' && <CalculationSummaryPanel calculations={calculations} rawRows={modbusRows} className="mt-4" />}
           </section>
           
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
-                <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} />
+          <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
+            <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
+              <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
-            <aside className="min-w-0 space-y-4">
-              <div id="inverters" data-section="inverters" className="scroll-mt-6">
-                  <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
-              </div>
-              <div id="alarms" data-section="alarms" className="scroll-mt-6">
-                  <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} />
-              </div>
-            </aside>
+            <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2">
+              <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} />
+            </div>
           </div>
           
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
