@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry } from './telemetry-provenance';
+import { latestRawMetric, rawInverterSignals, rawMetricContext, type RawTelemetryMetric } from './telemetry-kpis';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
@@ -2062,15 +2063,12 @@ function AppShell() {
     try {
       const payload = JSON.parse(raw) as JsonValue;
       setRawJson(payload);
-      if (!promotesOperationalTelemetry(replay)) return;
-      const receivedAtMs = receivedAt ? new Date(receivedAt).getTime() : NaN;
-      const observedAt = Number.isFinite(receivedAtMs) ? receivedAtMs : Date.now();
-      setLastTelemetryAt((current) => current === null || observedAt > current ? observedAt : current);
       const incomingRows = extractModbusRows(payload);
       if (incomingRows.length) {
         setModbusRows((current) => {
           const next = [...current];
-          for (const incoming of incomingRows) {
+          for (const row of incomingRows) {
+            const incoming = { ...row, provenance: replay ? 'replay' : 'live' };
             const existingIndex = next.findIndex((row) => modbusRowKey(row) === modbusRowKey(incoming));
             if (existingIndex >= 0) next[existingIndex] = incoming;
             else next.push(incoming);
@@ -2078,6 +2076,10 @@ function AppShell() {
           return next;
         });
       }
+      if (!promotesOperationalTelemetry(replay)) return;
+      const receivedAtMs = receivedAt ? new Date(receivedAt).getTime() : NaN;
+      const observedAt = Number.isFinite(receivedAtMs) ? receivedAtMs : Date.now();
+      setLastTelemetryAt((current) => current === null || observedAt > current ? observedAt : current);
       const discovered = extractDevices(payload);
       if (!discovered.length) throw new Error('not an object');
       setDevices((current) => discovered.reduce((next, telemetry, index) => {
@@ -2224,6 +2226,16 @@ function AppShell() {
   const totalInverters = inverters.length;
   const activeAlarms = useMemo(() => operationalDevices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0), 0), [operationalDevices]);
   const alarmTelemetryReported = useMemo(() => operationalDevices.some((device) => Array.isArray(device.telemetry.alarms)), [operationalDevices]);
+  const rawKpis = useMemo(() => ({
+    activePower: latestRawMetric(modbusRows, ['actpow']),
+    dailyEnergy: latestRawMetric(modbusRows, ['dailyeneregykwh']),
+    totalEnergy: latestRawMetric(modbusRows, ['totalenergy']),
+    specificYield: latestRawMetric(modbusRows, ['todayyield']),
+    alarms: latestRawMetric(modbusRows, ['alarm']),
+    inverters: rawInverterSignals(modbusRows),
+  }), [modbusRows]);
+  const rawKpiValue = (metric: RawTelemetryMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
+  const rawKpiUnit = (metric: RawTelemetryMetric | null) => metric ? 'raw' : '';
   const telemetryLabel = mode === 'demo'
     ? 'Demo telemetry'
     : !connected
@@ -2275,12 +2287,12 @@ function AppShell() {
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="ml-auto whitespace-nowrap text-xs font-semibold underline focus-ring">Retry connection</button></div>}
             <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={totalAcPower === null ? '—' : totalAcPower.toLocaleString(undefined, { maximumFractionDigits: 2 })} unit={totalAcPower === null ? '' : 'kW'} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={totalAcPower === null ? 'Data unavailable' : 'Reported active power'} onClick={() => navigateTo('power')} help="Open the realtime plant power trend and choose a time range." />
-              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : '—'} unit={mode === 'demo' ? 'MWh' : ''} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : 'Data unavailable'} onClick={() => navigateTo('energy')} help="Open energy analytics for daily, monthly, or yearly production." />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : '—'} unit={mode === 'demo' ? 'kWh' : ''} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : 'Data unavailable'} onClick={() => navigateTo('energy')} help="Open energy analytics and historical production views." />
-              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : '—'} unit={mode === 'demo' ? 'kWh/kWp' : ''} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : 'Data unavailable'} onClick={() => navigateTo('power')} help="Open performance metrics and realtime power monitoring." />
-              <KpiCard title="Inverters Online" value={electricalLiveState === 'fresh' && totalInverters ? `${onlineInverters}/${totalInverters}` : '—'} icon={Check} colorClass={electricalLiveState === 'fresh' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={electricalLiveState !== 'fresh' ? electricalLiveState === 'stale' ? 'Telemetry stale' : 'Data unavailable' : totalInverters ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : 'Awaiting inverter discovery'} onClick={() => navigateTo('inverters')} help="Open the inverter fleet and select an inverter for details." />
-              <KpiCard title="Active Alarms" value={electricalLiveState === 'fresh' && alarmTelemetryReported ? activeAlarms.toString() : '—'} icon={AlertTriangle} colorClass={electricalLiveState !== 'fresh' ? 'bg-amber-500/10 text-amber-400' : activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'} subtext={electricalLiveState !== 'fresh' ? electricalLiveState === 'stale' ? 'Telemetry stale' : 'Data unavailable' : alarmTelemetryReported ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : 'Data unavailable'} onClick={() => navigateTo('alarms')} help="Open the alarm and fault status for the plant." />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : rawKpiValue(rawKpis.activePower)} unit={mode === 'demo' ? 'kW' : rawKpiUnit(rawKpis.activePower)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo active power' : rawMetricContext(rawKpis.activePower, 'Awaiting active-power register')} onClick={() => navigateTo('power')} help="The broker value is displayed as raw evidence until its engineering scaling is approved." />
+              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : rawKpiValue(rawKpis.dailyEnergy)} unit={mode === 'demo' ? 'MWh' : rawKpiUnit(rawKpis.dailyEnergy)} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : rawMetricContext(rawKpis.dailyEnergy, 'Awaiting daily-energy register')} onClick={() => navigateTo('energy')} help="The broker value is displayed as raw evidence until its engineering scaling is approved." />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : rawKpiValue(rawKpis.totalEnergy)} unit={mode === 'demo' ? 'kWh' : rawKpiUnit(rawKpis.totalEnergy)} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : rawMetricContext(rawKpis.totalEnergy, 'Awaiting total-energy register')} onClick={() => navigateTo('energy')} help="The broker value is displayed as raw evidence until its engineering scaling is approved." />
+              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : rawKpiValue(rawKpis.specificYield)} unit={mode === 'demo' ? 'kWh/kWp' : rawKpiUnit(rawKpis.specificYield)} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : rawMetricContext(rawKpis.specificYield, 'Awaiting yield register')} onClick={() => navigateTo('power')} help="The broker value is displayed as raw evidence until its engineering scaling is approved." />
+              <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
+              <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpiValue(rawKpis.alarms)} unit={mode === 'demo' ? '' : rawKpiUnit(rawKpis.alarms)} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')} onClick={() => navigateTo('alarms')} help="The raw alarm register is displayed exactly as received; alarm-code mapping is required for an active-alarm count." />
             </div>
           </section>
           
