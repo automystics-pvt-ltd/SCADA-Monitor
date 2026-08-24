@@ -240,6 +240,19 @@ button:not(:disabled):active,
     color 180ms ease;
 }
 
+.scada-inverter-row {
+  cursor: pointer;
+}
+
+.scada-inverter-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.scada-inverter-row:active {
+  background-color: color-mix(in srgb, var(--scada-hover) 88%, var(--ring));
+}
+
 .scada-chart-surface .recharts-tooltip-wrapper {
   transition: transform 100ms ease-out;
 }
@@ -309,6 +322,19 @@ button:not(:disabled):active,
   .scada-table-row:hover .scada-status-indicator {
     transform: scale(1.3);
     opacity: 1;
+  }
+
+  .scada-inverter-row:hover td:first-child span,
+  .scada-inverter-row:focus-visible td:first-child span {
+    color: #93c5fd;
+  }
+
+  .scada-inverter-row:hover > td {
+    background: linear-gradient(90deg, rgba(96, 165, 250, .16), rgba(96, 165, 250, .06));
+  }
+
+  .scada-inverter-row:hover > td:first-child {
+    box-shadow: inset 4px 0 0 #60a5fa;
   }
 }
 
