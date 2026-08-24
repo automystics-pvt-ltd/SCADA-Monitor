@@ -1660,7 +1660,7 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }
   );
 }
 
-function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, onSaveSiteLocation }: {
+function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, locationAdmin, onSaveSiteLocation }: {
   open: boolean;
   onClose: () => void;
   mode: 'demo' | 'live';
@@ -1673,6 +1673,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   initialSite: string;
   siteLocations: Record<string, PlantLocation>;
   siteLocationError: string;
+  locationAdmin: boolean;
   onSaveSiteLocation: (siteName: string, latitude: number, longitude: number) => Promise<void>;
 }) {
   const [url, setUrl] = useState(() => localStorage.getItem('northline-broker-url') || DEFAULT_BROKER_URL);
@@ -1805,12 +1806,12 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                      <input inputMode="decimal" aria-label="Plant longitude" data-testid="input-plant-longitude" value={locationLongitude} onChange={(event) => setLocationLongitude(event.target.value)} placeholder="e.g. 72.8777" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none" />
                    </label>
                  </div>
-                  <p className="text-[10px] leading-5 text-slate-500">Only operators assigned to this plant can save changes.</p>
-                  <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Log in to update locations</a>
+                   <p className="text-[10px] leading-5 text-slate-500">Coordinates are stored centrally for this plant and automatically reused for weather and site context. Only designated administrators can save changes.</p>
+                   {!locationAdmin && <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Sign in as a location administrator</a>}
                  {locationError && <p role="alert" data-testid="alert-plant-location" className="text-xs text-rose-400">{locationError}</p>}
                  {!locationError && siteLocationError && <p role="alert" data-testid="alert-plant-location-load" className="text-xs text-rose-400">{siteLocationError}</p>}
                  {locationSaved && <p role="status" data-testid="status-plant-location-saved" className="text-xs text-emerald-400">{locationSaved}</p>}
-                 <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>
+                  <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving || !locationAdmin} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>
                </>
              ) : <p className="rounded-lg border border-dashed border-[#1e293b] px-3 py-4 text-xs text-slate-500">Connect to telemetry to discover plant/site names before adding a location.</p>}
            </div>
@@ -1924,6 +1925,7 @@ function AppShell() {
   const [weatherRefreshToken, setWeatherRefreshToken] = useState(0);
   const [siteLocations, setSiteLocations] = useState<Record<string, PlantLocation>>({});
   const [siteLocationError, setSiteLocationError] = useState('');
+  const [locationAdmin, setLocationAdmin] = useState(false);
   const streamRef = useRef<EventSource | null>(null);
 
   useEffect(() => { localStorage.setItem('northline-mode', mode); }, [mode]);
@@ -1946,6 +1948,21 @@ function AppShell() {
       }
     };
     void loadSiteLocations();
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    const loadLocationPermissions = async () => {
+      try {
+        const response = await fetch('/api/auth/user', { signal: controller.signal, cache: 'no-store' });
+        const payload = await response.json() as { canUpdatePlantLocations?: boolean };
+        if (!response.ok) throw new Error('Unable to load location permissions.');
+        setLocationAdmin(payload.canUpdatePlantLocations === true);
+      } catch {
+        if (!controller.signal.aborted) setLocationAdmin(false);
+      }
+    };
+    void loadLocationPermissions();
     return () => controller.abort();
   }, []);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
@@ -2299,7 +2316,7 @@ function AppShell() {
           
         </main>
       </div>
-       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} onSaveSiteLocation={saveSiteLocation} />
+       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} />
         {selectedInverter && <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} />}
       <Toaster />
     </div>

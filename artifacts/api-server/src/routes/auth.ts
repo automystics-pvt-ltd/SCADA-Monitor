@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import * as oidc from "openid-client";
 import { db, usersTable } from "@workspace/db";
 import { clearSession, createSession, getOidcConfig, getSessionId, SESSION_COOKIE, SESSION_TTL_MS, type AuthUser, type SessionData } from "../lib/auth";
+import { isPlantLocationAdministrator } from "../middlewares/plantLocationAuthorization";
 
 const router: IRouter = Router();
 const OIDC_COOKIE_TTL_MS = 10 * 60 * 1000;
@@ -40,7 +41,11 @@ async function upsertUser(claims: Record<string, unknown>): Promise<AuthUser> {
 }
 
 router.get("/auth/user", (req, res) => {
-  res.json({ user: req.isAuthenticated() ? req.user : null });
+  const user = req.isAuthenticated() ? req.user : null;
+  res.set("Cache-Control", "no-store").json({
+    user,
+    canUpdatePlantLocations: isPlantLocationAdministrator(user ?? undefined),
+  });
 });
 
 router.get("/login", async (req: Request, res: Response): Promise<void> => {

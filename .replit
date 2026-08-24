@@ -27,4 +27,4 @@ channel = "stable-25_05"
 [userenv.shared]
 MQTT_BROKER_URL = "mqtt://76.13.4.214"
 MQTT_TOPIC = "trn246/modbus"
-SCADA_LOCATION_OPERATOR_ACCESS = "{\"email:automystics.com@gmail.com\":[\"North Array\"],\"id:60765752,f\":[\"North Array\"],\"email:anand02.pm@gmail.com\":[\"North Array\"]}"
+SCADA_LOCATION_ADMIN_ACCESS = "[\"email:automystics.com@gmail.com\",\"id:60765752,f\",\"email:anand02.pm@gmail.com\"]"

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canUpdatePlantLocation } from "./plantLocationAuthorization";
+import { canUpdatePlantLocation, isPlantLocationAdministrator } from "./plantLocationAuthorization";
 
 const operator = {
   id: "operator-subject",
@@ -15,13 +15,18 @@ test("rejects unauthenticated and unassigned identities", () => {
   assert.equal(canUpdatePlantLocation(operator, "East Array", "{}"), false);
 });
 
-test("allows only configured sites for a configured operator", () => {
-  const access = JSON.stringify({ "email:operator@example.com": ["East Array"] });
+test("allows a configured administrator to update every site", () => {
+  const access = JSON.stringify(["email:operator@example.com"]);
   assert.equal(canUpdatePlantLocation(operator, "East Array", access), true);
-  assert.equal(canUpdatePlantLocation(operator, "West Array", access), false);
+  assert.equal(canUpdatePlantLocation(operator, "West Array", access), true);
 });
 
-test("allows a deliberately global subject assignment", () => {
-  const access = JSON.stringify({ "id:operator-subject": ["*"] });
-  assert.equal(canUpdatePlantLocation(operator, "Any Site", access), true);
+test("matches administrator email identities case-insensitively", () => {
+  const access = JSON.stringify(["email:OPERATOR@EXAMPLE.COM"]);
+  assert.equal(isPlantLocationAdministrator(operator, access), true);
+});
+
+test("fails closed for the old site-assignment format", () => {
+  const legacyAccess = JSON.stringify({ "id:operator-subject": ["*"] });
+  assert.equal(canUpdatePlantLocation(operator, "Any Site", legacyAccess), false);
 });

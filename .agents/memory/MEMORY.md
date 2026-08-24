@@ -1,3 +1,4 @@
 - [Weather location provenance](weather-location-provenance.md) — Select-site, fresh-coordinate, consent, and cache-labeling rules for live weather.
 - [Electrical telemetry validation](electrical-telemetry-validation.md) — Display engineering electrical values only after explicit scaling validation; otherwise preserve raw evidence.
 - [SCADA telemetry freshness](scada-telemetry-freshness.md) — Replay and cached telemetry may support traceability, but never reset current operational freshness or cross demo/live provenance.
+- [Plant location administration](plant-location-administration.md) — Coordinate writes are a global administrator action; site data remains centrally stored and generic.

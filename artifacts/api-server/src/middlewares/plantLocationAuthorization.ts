@@ -1,42 +1,50 @@
 import type { AuthUser } from "../lib/auth";
 
-type OperatorSiteAccess = Record<string, string[]>;
+function normalizeIdentity(identity: string) {
+  const trimmed = identity.trim();
+  return trimmed.toLowerCase().startsWith("email:")
+    ? `email:${trimmed.slice("email:".length).toLowerCase()}`
+    : trimmed;
+}
 
-function configuredAccess(rawAccess: string | undefined): OperatorSiteAccess {
-  if (!rawAccess) return {};
+function configuredAdministrators(rawAccess: string | undefined): Set<string> {
+  if (!rawAccess) return new Set();
   try {
     const parsed: unknown = JSON.parse(rawAccess);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed).flatMap(([identity, sites]) =>
-        Array.isArray(sites) && sites.every((site) => typeof site === "string")
-          ? [[identity, sites.map((site) => site.trim()).filter(Boolean)]]
-          : [],
-      ),
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed
+        .filter((identity): identity is string => typeof identity === "string")
+        .map(normalizeIdentity)
+        .filter(Boolean),
     );
   } catch {
-    return {};
+    return new Set();
   }
 }
 
 /**
- * SCADA_LOCATION_OPERATOR_ACCESS is a JSON object keyed by OIDC subject
- * (`id:<subject>`) or email (`email:<email>`). Each value lists permitted site
- * names; use "*" only for an operator deliberately trusted with every site.
+ * SCADA_LOCATION_ADMIN_ACCESS is a JSON array of OIDC identities:
+ * `id:<subject>` or `email:<email>`. Administrators can maintain coordinates
+ * for every discovered plant/site. An invalid or missing value fails closed.
  */
-export function canUpdatePlantLocation(
+export function isPlantLocationAdministrator(
   user: AuthUser | undefined,
-  siteName: string,
-  rawAccess = process.env.SCADA_LOCATION_OPERATOR_ACCESS,
+  rawAccess = process.env.SCADA_LOCATION_ADMIN_ACCESS,
 ) {
   if (!user) return false;
-  const access = configuredAccess(rawAccess);
   const identities = [
     `id:${user.id}`,
     ...(user.email ? [`email:${user.email.toLowerCase()}`] : []),
   ];
-  return identities.some((identity) => {
-    const sites = access[identity];
-    return sites?.includes("*") || sites?.includes(siteName);
-  });
+  const administrators = configuredAdministrators(rawAccess);
+  return identities.some((identity) => administrators.has(identity));
+}
+
+export function canUpdatePlantLocation(
+  user: AuthUser | undefined,
+  _siteName: string,
+  rawAccess = process.env.SCADA_LOCATION_ADMIN_ACCESS,
+) {
+  return isPlantLocationAdministrator(user, rawAccess);
 }
