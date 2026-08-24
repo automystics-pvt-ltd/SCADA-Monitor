@@ -1,0 +1,65 @@
+Create a completely separate Platform Admin login and backend administration portal for managing the Solar SCADA application. This Platform Admin portal must remain fully isolated from the existing SCADA user login and application experience.
+
+Do not modify, disturb, replace, or break the existing user authentication, login flow, roles, permissions, dashboard, MQTT/Modbus communication, telemetry, database logic, reports, or any existing SCADA functionality.
+
+The architecture should be:
+
+Platform Admin Login → Secure Admin Backend → Platform Configuration & Management
+
+and separately:
+
+SCADA User Login → Existing SCADA Application → Authorized Site/Data Access
+
+Platform Admin Only
+
+The Platform Admin should have centralized backend-level control to manage:
+
+Organizations
+Plants/Sites
+Site configuration
+Latitude/Longitude & timezone
+Devices/Inverters
+MQTT/Broker configuration
+Telemetry configuration
+Users
+Site access
+Roles & permissions
+Authentication settings
+Database records/configuration
+Saved SCADA data
+Alarms/Faults
+System health
+Audit logs
+Platform settings
+
+Platform Admin should be able to assign specific sites to specific users/organizations and ensure users can access only the sites they are authorized to access.
+
+Strict Isolation
+
+The Platform Admin portal must have:
+
+Separate login URL/entry point
+Separate authentication/session
+Secure backend authorization
+Platform-level privileges
+Independent admin navigation
+No Platform Admin controls exposed in the normal SCADA application
+No unnecessary changes to existing SCADA user interfaces
+
+Normal SCADA users should not see or access Platform Admin functionality.
+
+The Platform Admin should manage the platform from the backend administration portal, while the existing SCADA application continues operating exactly as it does today.
+
+Critical Requirement
+
+Build this as an additional, isolated administration layer—not as a modification of the existing SCADA login or application.
+
+Preserve all existing functionality and ensure:
+
+Platform Admin Backend → Controls Platform Configuration & Access
+
+while
+
+Existing SCADA Application → Continues Live Monitoring & Authorized User Operations
+
+No existing SCADA functionality, data flow, authentication behavior, MQTT/Modbus communication, telemetry processing, or user experience should be disrupted
