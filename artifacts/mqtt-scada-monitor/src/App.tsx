@@ -12,13 +12,12 @@ import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultG
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
-  Download, Droplets, Grid2X2, LayoutGrid, Link2, LocateFixed, MapPin, Menu, Play, PlugZap, Radio, RefreshCw, Search, Settings2,
+  Download, Droplets, Grid2X2, LayoutGrid, LocateFixed, MapPin, Menu, PlugZap, Radio, RefreshCw, Search, Settings2,
   Thermometer, Wind, Wifi, WifiOff, X, Zap, Sun, Moon, Bell, FileText, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import type * as Recharts from 'recharts';
 
 const queryClient = new QueryClient();
-const DEFAULT_BROKER_URL = 'mqtt://76.13.4.214';
 const DEFAULT_BROKER_TOPIC = 'trn246/modbus';
 
 const ChartPlaceholder = ({ children }: { children?: ReactNode }) => <>{children}</>;
@@ -232,33 +231,6 @@ function extractDevices(payload: JsonValue): Record<string, JsonValue>[] {
 
   return embeddedDevices.length ? embeddedDevices : [payload];
 }
-
-const initialDevices: Device[] = [
-  {
-    id: 'inv-01', name: 'Inverter 01', site: 'North Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 1800,
-    telemetry: { power: { active_kw: 4031.4, reactive_kvar: -4.2, efficiency: 97.8 }, dc_bus: { voltage_v: 812.6, current_a: 229.1 }, temperature: { cabinet_c: 25.0, heatsink_c: 44.1 }, alarms: [], firmware: 'v3.14.8' },
-  },
-  {
-    id: 'inv-02', name: 'Inverter 02', site: 'North Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 4100,
-    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 1.7, efficiency: 96.9 }, dc_bus: { voltage_v: 808.2, current_a: 214.8 }, temperature: { cabinet_c: 25.0, heatsink_c: 48.5 }, alarms: [], firmware: 'v3.14.8' },
-  },
-  {
-    id: 'inv-03', name: 'Inverter 03', site: 'North Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 4620,
-    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 0, efficiency: 97.2 }, dc_bus: { voltage_v: 760.8, current_a: 200.0 }, temperature: { cabinet_c: 25.0, heatsink_c: 36.4 }, alarms: [], firmware: 'v3.13.9' },
-  },
-  {
-    id: 'inv-04', name: 'Inverter 04', site: 'South Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 4620,
-    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 0, efficiency: 97.2 }, dc_bus: { voltage_v: 760.8, current_a: 200.0 }, temperature: { cabinet_c: 25.0, heatsink_c: 36.4 }, alarms: [], faults: [{ faultCode: 4, source: 'System information', timestamp: 'Demo stream' }], model: 'SG250HX-IN', firmware: 'v3.13.9' },
-  },
-  {
-    id: 'inv-05', name: 'Inverter 05', site: 'East Array', type: 'Power inverter', status: 'online', lastSeen: Date.now() - 3880,
-    telemetry: { power: { active_kw: 4031.4, reactive_kvar: 0, efficiency: 97.2 }, dc_bus: { voltage_v: 0, current_a: 0 }, temperature: { cabinet_c: 25.0, heatsink_c: 23.8 }, alarms: [], firmware: 'v3.14.6' },
-  },
-  {
-    id: 'met-01', name: 'Met Station 01', site: 'North Array', type: 'Weather sensor', status: 'online', lastSeen: Date.now() - 9200,
-    telemetry: { irradiance: { ghi_w_m2: 825.0, dni_w_m2: 801.2 }, ambient: { temperature_c: 32.0, humidity_pct: 41.8, wind_speed_ms: 3.7 }, panel: { temperature_c: 37.9 }, sample: { interval_s: 10, quality: 'good' } },
-  },
-];
 
 function numberFrom(device: Device, path: string[], fallback = 0) {
   let value: JsonValue = device.telemetry;
@@ -2559,13 +2531,11 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave }: {
   );
 }
 
-function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, locationAdmin, onSaveSiteLocation, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile }: {
+function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, locationAdmin, onSaveSiteLocation, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile }: {
   open: boolean;
   onClose: () => void;
-  mode: 'demo' | 'live';
-  setMode: (mode: 'demo' | 'live') => void;
   connected: boolean;
-  onConnect: (url?: string, topic?: string) => void;
+  onConnect: () => void;
   onDisconnect: () => void;
   error: string;
   sites: string[];
@@ -2578,8 +2548,6 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   calibrationProfileError: string;
   onSaveCalibrationProfile: (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => Promise<void>;
 }) {
-  const [url, setUrl] = useState(() => localStorage.getItem('northline-broker-url') || DEFAULT_BROKER_URL);
-  const [topic, setTopic] = useState(() => localStorage.getItem('northline-broker-topic') || DEFAULT_BROKER_TOPIC);
   const [locationSite, setLocationSite] = useState(initialSite);
   const [locationLatitude, setLocationLatitude] = useState('');
   const [locationLongitude, setLocationLongitude] = useState('');
@@ -2591,7 +2559,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
     () => sites.length ? sites : initialSite ? [initialSite] : [],
     [initialSite, sites],
   );
-  const handleConnect = () => { localStorage.setItem('northline-broker-url', url); localStorage.setItem('northline-broker-topic', topic); onConnect(url, topic); };
+  const handleConnect = () => onConnect();
   useEffect(() => {
     if (!locationSiteOptions.length) {
       setLocationSite('');
@@ -2662,27 +2630,10 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
         </div>
         
         <div className="scada-safe-drawer-content min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-6 scrollbar-thin sm:px-6">
-          <div className="bg-[#0b0f19] border border-[#1E293B] p-1.5 rounded-lg flex gap-1">
-             <button type="button" onClick={() => setMode('demo')} data-testid="button-mode-demo" className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors focus-ring ${mode === 'demo' ? 'bg-[#1e293b] text-blue-400' : 'text-slate-400 hover:text-slate-200'}`}><Play size={14} /> Demo Stream</button>
-             <button type="button" onClick={() => setMode('live')} data-testid="button-mode-live" className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors focus-ring ${mode === 'live' ? 'bg-[#1e293b] text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}><Wifi size={14} /> Live Broker</button>
-          </div>
-          
-          <div className="space-y-4">
-            <label className="block">
-               <span className="block text-xs font-bold text-slate-300 mb-2">Broker Endpoint</span>
-               <div className="relative">
-                 <Link2 size={15} className="absolute left-3 top-3.5 text-slate-500" />
-                  <input aria-label="Broker endpoint" data-testid="input-broker-endpoint" value={url} onChange={e => setUrl(e.target.value)} className="w-full bg-[#0b0f19] border border-[#1E293B] text-slate-200 text-xs py-3 pl-9 pr-3 rounded-lg focus:outline-none focus:border-blue-500 font-mono" />
-               </div>
-            </label>
-            <label className="block">
-               <span className="block text-xs font-bold text-slate-300 mb-2">Subscription Topic</span>
-               <div className="relative">
-                 <Radio size={15} className="absolute left-3 top-3.5 text-slate-500" />
-                  <input aria-label="Subscription topic" data-testid="input-broker-topic" value={topic} onChange={e => setTopic(e.target.value)} className="w-full bg-[#0b0f19] border border-[#1E293B] text-slate-200 text-xs py-3 pl-9 pr-3 rounded-lg focus:outline-none focus:border-blue-500 font-mono" />
-               </div>
-            </label>
-          </div>
+           <div className="rounded-lg border border-blue-500/20 bg-blue-500/[0.04] px-3 py-3 text-xs leading-5 text-blue-100/80">
+             <p className="font-semibold text-blue-300">Live broker connection</p>
+             <p className="mt-1">The MQTT endpoint and subscription are managed securely by the server. This dashboard only displays the broker telemetry it receives; browser settings cannot substitute or simulate plant data.</p>
+           </div>
 
            <div className="space-y-4 border-t border-[#1E293B] pt-5">
              <div>
@@ -2740,7 +2691,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
           {connected ? (
              <button type="button" onClick={onDisconnect} data-testid="button-disconnect-broker" className="w-full flex items-center justify-center gap-2 py-3 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 text-sm font-bold rounded-lg transition-colors focus-ring"><WifiOff size={16} /> Disconnect</button>
           ) : (
-             <button type="button" onClick={handleConnect} data-testid="button-connect-broker" className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-blue-500/20 transition-colors focus-ring"><PlugZap size={16} /> {mode === 'demo' ? 'Start Demo' : 'Connect to Broker'}</button>
+             <button type="button" onClick={handleConnect} data-testid="button-connect-broker" className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-blue-500/20 transition-colors focus-ring"><PlugZap size={16} /> Connect to Broker</button>
           )}
         </div>
       </section>
@@ -2752,8 +2703,10 @@ const InverterDetailPanel = lazy(() => import('@/components/inverter-detail-pane
 const ReportCenter = lazy(() => import('@/components/report-center'));
 
 function AppShell() {
-  const [mode, setMode] = useState<'demo' | 'live'>(() => (localStorage.getItem('northline-mode') as 'demo' | 'live') || 'live');
-  const [devices, setDevices] = useState<Device[]>(() => mode === 'demo' ? initialDevices : []);
+  // The monitor is intentionally live-only. The union keeps display components
+  // compatible with their existing non-operational state handling.
+  const [mode] = useState<'demo' | 'live'>('live');
+  const [devices, setDevices] = useState<Device[]>([]);
   const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem('solar-scada-theme') as ThemeMode) || 'dark');
   const [connected, setConnected] = useState(false);
   const [lastTelemetryAt, setLastTelemetryAt] = useState<number | null>(null);
@@ -2767,7 +2720,7 @@ function AppShell() {
   const [error, setError] = useState('');
   const [rawPayload, setRawPayload] = useState('Waiting for the first MQTT payload…');
   const [rawJson, setRawJson] = useState<JsonValue | null>(null);
-  const [rawPayloadSource, setRawPayloadSource] = useState<'waiting' | 'demo' | 'replay' | 'retained' | 'recovered' | 'live'>('waiting');
+  const [rawPayloadSource, setRawPayloadSource] = useState<'waiting' | 'replay' | 'retained' | 'recovered' | 'live'>('waiting');
   const [modbusRows, setModbusRows] = useState<ModbusRow[]>([]);
   const [sourceBackedInverterRecords, setSourceBackedInverterRecords] = useState<ValidatedInverterPowerRecord[]>([]);
   const [persistence, setPersistence] = useState<PersistenceStatus>({ intervalMinutes: 15, pendingMessages: 0 });
@@ -2778,7 +2731,7 @@ function AppShell() {
   const [resyncNotice, setResyncNotice] = useState('');
   const [savedKpiSnapshot, setSavedKpiSnapshot] = useState<SavedKpiSnapshot | null>(null);
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
-  const [activeSite, setActiveSite] = useState(() => initialDevices.find((device) => device.type.toLowerCase().includes('weather'))?.site ?? initialDevices[0]?.site ?? 'Plant site');
+  const [activeSite, setActiveSite] = useState('Plant site');
   const [weatherState, setWeatherState] = useState<WeatherState>({ status: 'unavailable', message: 'No configured coordinates are available for the selected plant/site.' });
   const [weatherRefreshToken, setWeatherRefreshToken] = useState(0);
   const [siteLocations, setSiteLocations] = useState<Record<string, PlantLocation>>({});
@@ -2790,7 +2743,6 @@ function AppShell() {
   const streamGenerationRef = useRef(0);
   const seenTelemetryEventsRef = useRef(new Map<string, true>());
 
-  useEffect(() => { localStorage.setItem('northline-mode', mode); }, [mode]);
   useEffect(() => {
     localStorage.setItem('solar-scada-theme', theme);
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -2914,64 +2866,6 @@ function AppShell() {
     };
   }, [weatherLocation?.latitude, weatherLocation?.longitude, weatherLocation?.source, weatherRefreshToken]);
 
-  // Demo Stream Generator
-  useEffect(() => {
-    if (!connected || mode !== 'demo') return;
-    const timer = window.setInterval(() => {
-      setDevices((current) => current.map((device) => {
-        if (device.status === 'offline') return device;
-        const currentKw = numberFrom(device, ['power', 'active_kw']);
-        const nextKw = device.id.startsWith('met') ? currentKw : Math.max(0, currentKw + (Math.random() - .48) * 5.5);
-        const telemetry = { ...device.telemetry, power: { ...(typeof device.telemetry.power === 'object' && device.telemetry.power !== null && !Array.isArray(device.telemetry.power) ? device.telemetry.power : {}), active_kw: Number(nextKw.toFixed(1)) } };
-        return { ...device, lastSeen: Date.now(), telemetry, status: 'online' };
-      }));
-      setNow(Date.now());
-      
-      // Also push some mock Modbus rows for demo
-      if (Math.random() > 0.5) {
-        setModbusRows(prev => {
-           const mockRow: ModbusRow = {
-             name: 'Phase A Voltage', addr: '40001', full_addr: '40001', data: 770 + Math.random() * 5, raw_data: 7700 + Math.floor(Math.random() * 50),
-             server_name: 'Inverter Demo', timestamp: Date.now()
-           };
-           const key = modbusRowKey(mockRow);
-           const next = [...prev.filter(r => modbusRowKey(r) !== key), mockRow];
-           return next.slice(-50); // keep recent 50
-        });
-      }
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [connected, mode]);
-
-  const changeMode = (next: 'demo' | 'live') => {
-    setMode(next);
-    setError('');
-    setConnected(next === 'demo');
-    setLastTelemetryAt(next === 'demo' ? Date.now() : null);
-    setDevices(next === 'demo' ? initialDevices : []);
-    setModbusRows([]);
-    setSourceBackedInverterRecords([]);
-    setCommunication(null);
-    setStreamPhase(next === 'demo' ? 'connected' : 'idle');
-    setRecoveredEventCount(0);
-    setDuplicateEventCount(0);
-    setResyncNotice('');
-    seenTelemetryEventsRef.current.clear();
-    setSelectedInverterId(null);
-    if (next === 'demo') {
-      const demoPayload = initialDevices[0].telemetry;
-      setRawPayload(JSON.stringify(demoPayload, null, 2));
-      setRawJson(demoPayload);
-      setRawPayloadSource('demo');
-      setRawTopic('northline/site/north-array/telemetry');
-    } else {
-      setRawPayload('Waiting for the first MQTT payload…');
-      setRawJson(null);
-      setRawPayloadSource('waiting');
-      setRawTopic(DEFAULT_BROKER_TOPIC);
-    }
-  };
-
   const ingestPayload = (raw: string, topic: string, receivedAt?: string, replay = false, recovered = false, retained = false, inverterRecords?: unknown[], eventId?: string, calibratedParameter?: unknown) => {
     const identity = telemetryDeliveryIdentity(eventId, topic, receivedAt, raw);
     if (!rememberTelemetryDelivery(seenTelemetryEventsRef.current, identity)) {
@@ -3040,7 +2934,7 @@ function AppShell() {
     return true;
   };
 
-  const connect = (_url?: string, requestedTopic?: string) => {
+  const connect = () => {
     setError('');
     if (mode === 'demo') {
       setConnected(true);
@@ -3061,7 +2955,6 @@ function AppShell() {
     setRecoveredEventCount(0);
     setDuplicateEventCount(0);
     setResyncNotice('');
-    if (requestedTopic) setRawTopic(requestedTopic);
     streamRef.current?.close();
     const generation = streamGenerationRef.current + 1;
     streamGenerationRef.current = generation;
@@ -3156,10 +3049,7 @@ function AppShell() {
       window.setTimeout(() => document.querySelector<HTMLElement>('#overview-heading, [data-testid="workspace-heading"]')?.focus(), 0);
     });
   };
-  const refreshTelemetry = () => {
-    if (mode === 'live') connect();
-    else setNow(Date.now());
-  };
+  const refreshTelemetry = () => connect();
   const refreshWeather = () => {
     if (weatherLocation) setWeatherRefreshToken((token) => token + 1);
     else setWeatherState({ status: 'unavailable', message: 'Weather data unavailable for this site: configure a verified plant location.' });
@@ -3663,7 +3553,7 @@ function AppShell() {
           </>}
         </main>
       </div>
-       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} />
+       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} />
         {selectedInverter && (
           <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1E293B] bg-[#090B13] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
             <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} siteName={selectedInverter.site} plantTimezone={persistence.timezone} mode={mode} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />

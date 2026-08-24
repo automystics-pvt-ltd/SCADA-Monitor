@@ -1,0 +1,127 @@
+### Enhanced Prompt — Reliable MQTT/SCADA Telemetry & Data Persistence
+
+Investigate and fix the **frequent MQTT disconnection/reconnection issue** without affecting any existing SCADA functionality. The server/device is reachable through ping and **live telemetry is continuously visible on the server**, so determine whether the apparent disconnection is caused by the **MQTT client, broker transport, heartbeat/keep-alive, timeout handling, reconnect logic, subscription management, frontend state handling, or device-side communication**, rather than assuming the physical device is offline.
+
+The primary requirement is **continuous, accurate, lossless SCADA telemetry**.
+
+#### MQTT / Live Telemetry
+
+* Maintain a stable MQTT connection with appropriate **keep-alive, heartbeat, timeout, reconnect, and session handling**.
+* Do not unnecessarily disconnect/reconnect when telemetry is still being received.
+* Do not mark the device as offline simply because a particular heartbeat/status event is delayed.
+* Determine device communication status based on **actual telemetry/message timestamps and communication health**.
+* Preserve MQTT subscriptions during reconnects and automatically restore them if a reconnect genuinely occurs.
+* Prevent duplicate subscriptions, duplicate messages, and duplicate processing after reconnect.
+* Ensure no telemetry is silently dropped during temporary broker/client interruptions.
+* Buffer/queue incoming telemetry where required and process it reliably.
+* Maintain accurate **message timestamps and data freshness**.
+* Clearly distinguish:
+
+  * **Live telemetry available**
+  * **Telemetry temporarily delayed**
+  * **MQTT transport reconnecting**
+  * **Device genuinely offline**
+* If the server is still receiving valid telemetry, the application must **not incorrectly show “Disconnected”**.
+
+#### Important Diagnostic Requirement
+
+Since the device can be pinged and live data is visible on the server, perform a complete investigation across:
+
+**Device → Network → MQTT Broker → MQTT Connection → Subscription → Backend Processing → Database → Frontend Live State**
+
+Identify the actual blocker before changing the device configuration.
+
+Do not make arbitrary device-side changes if the device is already transmitting correctly. If the issue is caused by the application/broker/client layer, fix it there. If device-side configuration is genuinely responsible, clearly identify the specific configuration that needs correction.
+
+#### 15-Minute Historical Saving
+
+Maintain the previously defined saving functionality exactly:
+
+**Every 15 minutes from 6:00 AM to 6:00 PM**
+
+Save a validated SCADA snapshot to the backend at:
+
+**06:00 → 06:15 → 06:30 → … → 17:45 → 18:00**
+
+The live telemetry stream must remain active continuously while these historical snapshots are being saved.
+
+Each saved record must contain genuine, validated information including:
+
+* Plant/Site
+* Inverter/Device
+* Timestamp
+* Parameter
+* Actual Value
+* Unit
+* Data Quality
+* Source
+* Communication status
+
+Prevent:
+
+* Duplicate records
+* Missing scheduled records
+* Incorrect timestamps
+* Invalid scaling
+* Corrupted values
+* False/fallback values
+* Unreliable telemetry being stored as valid data
+
+If a scheduled snapshot cannot be validated, **do not fabricate a value**. Mark the record appropriately and preserve the last valid saved record for dashboard display.
+
+#### Dashboard Data Behavior
+
+The Dashboard should prioritize:
+
+**Valid Live Telemetry → Latest Valid Saved Record → No Data Only If No Valid Record Exists**
+
+If live telemetry temporarily stops, continue displaying the **latest valid saved record from the backend** with its actual timestamp.
+
+Do not show:
+
+> “No Data”
+> “Data Unavailable”
+> “Awaiting Data”
+
+when a valid previous saved record exists.
+
+Clearly indicate:
+
+**Live Data** or **Latest Saved Data**
+
+and show the corresponding timestamp so the user knows exactly what they are viewing.
+
+#### SCADA Reports
+
+Any user with appropriate access must be able to view the saved historical SCADA records through the **Reports** module.
+
+Reports must support comprehensive filtering by:
+
+* Plant/Site
+* Device/Inverter
+* Date
+* Time
+* Parameter
+* Electrical category
+* Energy category
+* MPPT
+* String
+* Alarm/Fault
+* Data Quality
+* Saved record period
+
+Support:
+
+**PDF | Excel | CSV | JSON**
+
+Reports must use **only genuine records persisted in the backend** and must show the exact timestamps and Actual Values.
+
+### Critical Objective
+
+The final architecture must provide:
+
+**Stable MQTT Connection → Continuous Telemetry → Reliable Processing → Accurate Validation → 15-Minute Saved Snapshots → Backend Historical Data → Dashboard Latest Saved Record → Filterable SCADA Reports**
+
+The application must operate as a **reliable production-grade Solar SCADA system**, with **no unnecessary MQTT disconnections, no silent telemetry loss, no inaccurate records, and no interruption to live monitoring or scheduled data persistence**.
+
+**Do not change or break existing functionality. Fix the underlying reliability/performance issue while preserving the current SCADA architecture and all previously implemented requirements.**
