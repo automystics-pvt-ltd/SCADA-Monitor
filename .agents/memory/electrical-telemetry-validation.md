@@ -14,3 +14,9 @@ A current source-tag value with `live` provenance may drive a clearly labeled vi
 **Why:** A moving stream can accurately communicate receipt of a fresh broker message without claiming its raw number is a scaled power value or that the device is operationally online.
 
 **How to apply:** Keep the device status and raw/scaling-required labels unchanged; distinguish the animation as a `Live raw telemetry stream`, not validated power flow.
+
+For a dashboard flow visual, never animate a mixed raw aggregate when any of its contributors are not live. Select one fresh live source tag for the visual lane and identify that exact register; leave the aggregate KPI and its evidence summary unchanged.
+
+**Why:** A mixed aggregate can contain retained or replayed values, so animating it would wrongly imply the complete plant total is current.
+
+**How to apply:** Use the selected live source tag only for the illustrative stream and label it `raw / scaling required`; use validated calculations for plant-level power claims.

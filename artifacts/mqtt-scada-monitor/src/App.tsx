@@ -7,6 +7,7 @@ import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
+import { DashboardPowerFlow } from './components/dashboard-power-flow';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
@@ -624,12 +625,17 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
 
 function NavItem({ icon: Icon, label, active, hasArrow, onClick, collapsed }: any) {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} data-testid={`nav-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} title={`Open ${label}`} className={`scada-nav-item flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-[13px] transition-all focus-ring font-medium tracking-wide ${collapsed ? 'md:justify-center' : ''} ${active ? 'bg-[#2563EB]/10 text-[#2563EB] shadow-[inset_3px_0_0_#2563EB]' : 'text-slate-400 hover:text-slate-200 hover:bg-[#1E293B]/50'}`}>
-      <div className={`flex items-center gap-3 ${collapsed ? 'md:gap-0' : ''}`}>
-        <Icon size={18} className={`scada-nav-icon ${active ? 'text-[#2563EB]' : ''}`} />
-        <span className={collapsed ? 'md:hidden' : ''}>{label}</span>
-      </div>
-      {hasArrow && <ChevronRight size={14} className={`scada-nav-arrow text-slate-500 ${collapsed ? 'md:hidden' : ''}`} />}
+    <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} data-testid={`nav-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} title={`Open ${label}`} className={`scada-nav-item ${collapsed ? 'scada-nav-item--collapsed' : ''} w-full rounded-lg px-3 py-2.5 text-[13px] transition-all focus-ring font-medium tracking-wide ${active ? 'bg-[#2563EB]/10 text-[#2563EB] shadow-[inset_3px_0_0_#2563EB]' : 'text-slate-400 hover:text-slate-200 hover:bg-[#1E293B]/50'}`}>
+      <span className="scada-nav-content">
+        <span className="scada-nav-icon-wrap">
+          <Icon size={18} className={`scada-nav-icon ${active ? 'text-[#2563EB]' : ''}`} />
+        </span>
+        <span className="scada-nav-label">{label}</span>
+      </span>
+      <span className={`scada-nav-arrow-slot ${collapsed ? 'md:hidden' : ''}`}>
+        {hasArrow && <ChevronRight size={14} className="scada-nav-arrow text-slate-500" />}
+      </span>
+      <span aria-hidden="true" className={`scada-nav-status-dot ${active ? 'scada-nav-status-dot--active' : ''}`} />
     </button>
   );
 }
@@ -3262,6 +3268,48 @@ function AppShell() {
   const dailyEnergyCard = calculationCard(calculations.dailyEnergy, rawFallbacks.dailyEnergy);
   const totalEnergyCard = calculationCard(calculations.totalEnergy, rawFallbacks.totalEnergy);
   const specificYieldCard = calculationCard(calculations.specificYield, rawFallbacks.specificYield);
+  const dashboardFlowReading = useMemo(() => {
+    if (mode === 'demo') {
+      return {
+        value: totalAcPower,
+        unit: 'kW',
+        quality: totalAcPower === null ? 'unavailable' as const : 'reported' as const,
+        status: totalAcPower === null ? 'offline' as const : 'online' as const,
+        sourceLabel: 'Demo inverter aggregate',
+      };
+    }
+    if (calculations.acPower.quality === 'verified') {
+      const live = calculations.acPower.provenance === 'live' && electricalLiveState === 'fresh';
+      return {
+        value: calculations.acPower.value,
+        unit: calculations.acPower.unit ?? '',
+        quality: calculations.acPower.value === null ? 'unavailable' as const : 'reported' as const,
+        provenance: calculations.acPower.provenance === 'live' ? 'live' as const : calculations.acPower.provenance === 'replay' ? 'replay' as const : undefined,
+        status: live ? 'online' as const : 'stale' as const,
+        sourceLabel: live ? 'Validated live calculation' : 'Validated saved calculation',
+      };
+    }
+    const liveRawInput = rawFallbacks.acPower.inputs.find((input) => input.provenance === 'live');
+    if (liveRawInput) {
+      return {
+        value: liveRawInput.value,
+        unit: 'raw',
+        quality: 'raw' as const,
+        provenance: 'live' as const,
+        status: 'stale' as const,
+        sourceLabel: `Live ${liveRawInput.parameter} register · ${liveRawInput.address}`,
+      };
+    }
+    const liveInputs = rawFallbacks.acPower.inputs.length > 0 && rawFallbacks.acPower.inputs.every((input) => input.provenance === 'live');
+    return {
+      value: rawFallbacks.acPower.value,
+      unit: rawFallbacks.acPower.unit,
+      quality: rawFallbacks.acPower.value === null ? 'unavailable' as const : 'raw' as const,
+      provenance: liveInputs ? 'live' as const : rawFallbacks.acPower.inputs[0]?.provenance,
+      status: liveInputs ? 'stale' as const : 'offline' as const,
+      sourceLabel: rawFallbacks.acPower.method,
+    };
+  }, [calculations.acPower, electricalLiveState, mode, rawFallbacks.acPower, totalAcPower]);
   const deviceCommunication = mode === 'demo'
     ? 'live'
     : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');
@@ -3389,6 +3437,7 @@ function AppShell() {
                 {resyncNotice && <span role="status" className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">{resyncNotice}</span>}
               </div>
             </section>
+            <DashboardPowerFlow {...dashboardFlowReading} mode={mode} />
               <div className="scada-dashboard-kpis grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
               <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : acPowerCard.subtext} formula={mode === 'demo' ? 'Σ demo inverter active-power values' : acPowerCard.formula} onClick={() => navigateTo('power')} help="The card shows exact source evidence whenever it is available. kW is shown only after source-provided scaling, units, and power semantics are approved." />
               <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : dailyEnergyCard.subtext} formula={mode === 'demo' ? 'Demo daily energy counter' : dailyEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact daily-energy source register if provided. It never creates energy by integrating unvalidated power records." />

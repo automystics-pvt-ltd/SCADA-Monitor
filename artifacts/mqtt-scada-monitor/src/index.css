@@ -251,6 +251,167 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .85);
 }
 
+/* Dashboard energy lane: a provenance-aware visual layer, not decorative
+   telemetry. Its animation is enabled only when the rendered value is live. */
+.scada-dashboard-flow {
+  --dashboard-flow-node: #0F1322;
+  --dashboard-flow-inverter: #090B13;
+  --dashboard-flow-stroke: #334155;
+  --dashboard-flow-grid-stroke: #475569;
+  --dashboard-flow-idle: #1E293B;
+  --dashboard-flow-label: #94A3B8;
+  --dashboard-flow-muted: #64748B;
+  border-color: var(--scada-border);
+  background:
+    radial-gradient(circle at 48% 34%, rgba(0, 229, 255, .09), transparent 23%),
+    radial-gradient(circle at 22% 0%, rgba(255, 92, 0, .11), transparent 34%),
+    var(--scada-surface);
+}
+.scada-dashboard-flow-grid {
+  opacity: .18;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--dashboard-flow-label) 28%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--dashboard-flow-label) 28%, transparent) 1px, transparent 1px);
+  background-size: 25px 25px;
+}
+.scada-dashboard-flow-glow {
+  background: linear-gradient(90deg, transparent 15%, rgba(0, 229, 255, .04) 48%, transparent 82%);
+  mix-blend-mode: screen;
+}
+.dashboard-flow-path {
+  animation: inverter-flow 1s linear infinite;
+  filter: drop-shadow(0 0 4px rgba(0, 229, 255, .6));
+}
+.dashboard-flow-path-delayed { animation-delay: -.5s; }
+.scada-dashboard-flow-state {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: .45rem;
+  border: 1px solid var(--scada-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--scada-surface-raised) 92%, transparent);
+  color: var(--scada-muted);
+  padding: .42rem .68rem;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.scada-dashboard-flow-state-dot {
+  width: .45rem;
+  height: .45rem;
+  flex: none;
+  border-radius: 999px;
+  background: #64748B;
+}
+.scada-dashboard-flow-state--active .scada-dashboard-flow-state-dot {
+  background: #00F2A6;
+  box-shadow: 0 0 9px rgba(0, 242, 166, .55);
+  animation: pulse-soft 1.5s ease-in-out infinite;
+}
+.scada-dashboard-flow-state--raw .scada-dashboard-flow-state-dot {
+  background: #F59E0B;
+  box-shadow: 0 0 9px rgba(245, 158, 11, .45);
+  animation: pulse-soft 1.5s ease-in-out infinite;
+}
+.scada-dashboard-flow-reading {
+  min-width: 0;
+  border-top: 1px solid color-mix(in srgb, var(--scada-border) 88%, transparent);
+  padding-top: .55rem;
+}
+.scada-dashboard-flow-label-grid {
+  margin-top: .15rem;
+  border-top: 1px solid color-mix(in srgb, var(--scada-border) 88%, transparent);
+  padding-top: .55rem;
+}
+.scada-dashboard-flow-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: .45rem;
+  color: var(--dashboard-flow-label);
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.scada-dashboard-flow-label-mark {
+  width: .45rem;
+  height: .45rem;
+  flex: 0 0 .45rem;
+  border-radius: 2px;
+  background: var(--dashboard-flow-stroke);
+}
+.scada-dashboard-flow-label-mark--solar { background: #FF5C00; box-shadow: 0 0 8px rgba(255, 92, 0, .35); }
+.scada-dashboard-flow-label-mark--inverter { background: #00E5FF; box-shadow: 0 0 8px rgba(0, 229, 255, .35); }
+.scada-dashboard-flow-label-mark--grid { background: #94A3B8; }
+.scada-dashboard-flow-label-mark--load { background: #F59E0B; }
+@media (min-width: 640px) {
+  .scada-dashboard-flow-label-grid {
+    display: block;
+    height: 27px;
+  }
+  .scada-dashboard-flow-label {
+    position: absolute;
+    top: .55rem;
+    white-space: nowrap;
+  }
+  .scada-dashboard-flow-label--solar { left: 15%; }
+  .scada-dashboard-flow-label--load { left: 29%; }
+  .scada-dashboard-flow-label--inverter { left: 47%; }
+  .scada-dashboard-flow-label--grid { left: 75%; }
+}
+.scada-dashboard-flow-reading span,
+.scada-dashboard-flow-reading small {
+  display: block;
+  overflow: hidden;
+  color: var(--scada-muted);
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.scada-dashboard-flow-reading strong {
+  display: block;
+  margin-top: .18rem;
+  font-family: var(--app-font-mono);
+  font-size: clamp(.95rem, 2vw, 1.35rem);
+  line-height: 1.2;
+}
+.scada-dashboard-flow-reading small {
+  margin-top: .18rem;
+  font-size: .55rem;
+  letter-spacing: .07em;
+  text-transform: none;
+}
+.light .scada-dashboard-flow {
+  --dashboard-flow-node: #FFFFFF;
+  --dashboard-flow-inverter: #F8FAFC;
+  --dashboard-flow-stroke: #64748B;
+  --dashboard-flow-grid-stroke: #94A3B8;
+  --dashboard-flow-idle: #CBD5E1;
+  --dashboard-flow-label: #475569;
+  --dashboard-flow-muted: #64748B;
+  background:
+    radial-gradient(circle at 48% 34%, rgba(0, 229, 255, .10), transparent 23%),
+    radial-gradient(circle at 22% 0%, rgba(249, 115, 22, .11), transparent 34%),
+    var(--scada-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), var(--scada-shadow);
+}
+
+@media (max-width: 479px) {
+  .scada-dashboard-flow-state {
+    font-size: .54rem;
+    letter-spacing: .07em;
+  }
+}
+
 /* Report Center uses the shared SCADA tokens in both operator themes. */
 .scada-report-center {
   color: var(--scada-text);
@@ -425,10 +586,59 @@ button:not(:disabled):active,
   background: linear-gradient(90deg, var(--scada-border), transparent);
 }
 .scada-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-height: 43px;
   border: 1px solid transparent;
   color: var(--scada-muted);
   transform: translateX(0);
+}
+.scada-nav-content {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+}
+.scada-nav-icon-wrap {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, transform 200ms ease;
+}
+.scada-nav-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  line-height: 1.25;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-nav-arrow-slot {
+  display: grid;
+  width: 20px;
+  height: 28px;
+  flex: 0 0 20px;
+  place-items: center;
+}
+.scada-nav-status-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: transparent;
+}
+.scada-nav-status-dot--active {
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
 }
 .scada-nav-item:hover {
   border-color: color-mix(in srgb, var(--scada-border) 74%, var(--scada-muted));
@@ -443,24 +653,6 @@ button:not(:disabled):active,
     var(--scada-accent-soft);
   color: var(--scada-accent);
   box-shadow: inset 3px 0 0 var(--scada-accent), 0 6px 16px color-mix(in srgb, var(--scada-accent) 8%, transparent);
-}
-.scada-nav-item[aria-current="page"]::after {
-  content: "";
-  width: 5px;
-  height: 5px;
-  margin-right: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 8px currentColor;
-}
-.scada-nav-icon-wrap {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, transform 200ms ease;
 }
 .scada-nav-item:hover .scada-nav-icon-wrap {
   border-color: color-mix(in srgb, var(--scada-border) 80%, var(--scada-muted));
@@ -480,6 +672,17 @@ button:not(:disabled):active,
 .scada-nav-item:hover .scada-nav-arrow {
   color: var(--scada-accent);
   transform: translateX(2px);
+}
+@media (min-width: 768px) {
+  .scada-nav-item--collapsed .scada-nav-content {
+    flex: 0 0 auto;
+    justify-content: center;
+  }
+  .scada-nav-item--collapsed .scada-nav-label,
+  .scada-nav-item--collapsed .scada-nav-arrow-slot,
+  .scada-nav-item--collapsed .scada-nav-status-dot {
+    display: none;
+  }
 }
 .scada-sidebar-powered {
   max-width: 220px;
@@ -704,6 +907,12 @@ button:not(:disabled):active,
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: .01ms !important;
+  }
+
+  .scada-dashboard-flow .dashboard-flow-path,
+  .scada-dashboard-flow .scada-flow-live-beacon,
+  .scada-dashboard-flow .scada-dashboard-flow-state-dot {
+    animation-play-state: paused !important;
   }
 
   .scada-interactive-card:hover,
