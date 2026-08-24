@@ -1,0 +1,23 @@
+### Enhanced Prompt
+
+Display the **actual Plant/Site Latitude, Longitude, precise location name, and Weather Timezone** on the Dashboard, with all information derived strictly from the **Latitude and Longitude configured for that Plant/Site**.
+
+These location details should be **configured only once during the initial Plant/Site setup in Settings**. After the initial configuration:
+
+* Store the configured **Latitude and Longitude** as the site's permanent location reference.
+* Automatically derive the **precise location name** and **Weather Timezone** from those coordinates.
+* Display the configured **Latitude, Longitude, Location Name, and Weather Timezone** on the Dashboard.
+* Use the same configured coordinates as the source for **all live weather and environmental data**.
+* Do **not** use the user's browser location, IP location, GPS location, or device location.
+* Do not ask the user to repeatedly configure location information on the Dashboard.
+* Dashboard users should have **view-only access** to these details unless they have the appropriate administrative permissions.
+* Only authorized Platform/Site Administrators should be able to modify the configured location from **Settings → Plant/Site Configuration**.
+* If the coordinates are changed by an authorized administrator, automatically refresh the location name, timezone, weather data, and related environmental information throughout the application.
+* Clearly show **Last Updated / Location Source** where appropriate.
+* If valid coordinates are unavailable, do not display an assumed location or timezone; show **“Location Not Configured”** or **“Location Data Unavailable.”**
+
+### Required Flow
+
+**Initial Site Setup → Enter Latitude & Longitude → Validate Coordinates → Resolve Location Name → Resolve Weather Timezone → Save Site Configuration → Dashboard Displays Location → Weather Uses Same Coordinates**
+
+The Dashboard should always represent the **actual configured Plant/Site location**, ensuring that all location and environmental information is accurate, consistent, and traceable.

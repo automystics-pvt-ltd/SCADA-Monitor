@@ -313,6 +313,17 @@ button:not(:disabled):active,
 .scada-theme.light [class~="text-slate-300"] { color: var(--scada-text) !important; }
 .scada-theme.light [class~="text-slate-400"],
 .scada-theme.light [class~="text-slate-500"] { color: var(--scada-muted) !important; }
+.scada-theme.light [class~="text-emerald-400"] { color: #047857 !important; }
+.scada-theme.light [class~="text-blue-300"],
+.scada-theme.light [class~="text-blue-400"] { color: #1d4ed8 !important; }
+.scada-theme.light [class~="text-amber-300"],
+.scada-theme.light [class~="text-amber-400"] { color: #a16207 !important; }
+.scada-theme.light [class~="text-rose-300"],
+.scada-theme.light [class~="text-rose-400"] { color: #be123c !important; }
+.scada-theme.light select option { background: var(--scada-surface); color: var(--scada-text); }
+.scada-theme.light .scada-table-row:hover { background-color: #eff6ff !important; }
+.scada-theme.light .scada-interactive-card::after,
+.scada-theme.light .scada-chart-surface::after { background: linear-gradient(135deg, rgba(255,255,255,.92), transparent 48%); }
 .scada-theme.light .scrollbar-thin::-webkit-scrollbar-thumb { background: #c0cbda; }
 
 @media (max-width: 640px) {

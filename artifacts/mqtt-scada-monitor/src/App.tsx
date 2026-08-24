@@ -4,7 +4,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
-import { promotesOperationalTelemetry } from './telemetry-provenance';
+import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type SavedSnapshotMetric } from './telemetry-kpis';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
@@ -44,12 +44,48 @@ type PersistenceStatus = {
   lastSnapshotStatus?: 'saved' | 'missing' | 'incomplete';
   error?: string;
 };
+type CommunicationHealth = {
+  brokerTransport: 'connected' | 'disconnected';
+  deviceCommunication: 'live' | 'stale' | 'interrupted' | 'awaiting-first-data';
+  lastReceivedAt?: string;
+  dataFrequencySeconds?: number;
+  freshnessAgeMs?: number;
+  staleAfterMs?: number;
+  interruptedAfterMs?: number;
+  receivedMessageCount: number;
+  lastReceivedSequence?: number;
+  confirmedDeliveryGap?: {
+    detectedAt: string;
+    reason: string;
+    startSequence?: number;
+    endSequence?: number;
+    source: 'sse' | 'persistence';
+  };
+  activeInterruption?: {
+    startedAt: string;
+    reason: string;
+    lastSequence?: number;
+  };
+  lastInterruption?: {
+    startedAt: string;
+    endedAt: string;
+    durationMs: number;
+    reason: string;
+    startSequence?: number;
+    endSequence?: number;
+  };
+  persistenceBacklog?: number;
+  persistenceError?: string;
+  replayWindow?: { oldestSequence?: number; newestSequence?: number; capacity: number };
+};
+type StreamPhase = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed';
 type ThemeMode = 'light' | 'dark';
 type WeatherLocation = {
   latitude: number;
   longitude: number;
   label: string;
   source: 'Configured plant location';
+  updatedAt?: string;
 };
 type PlantLocation = {
   siteName: string;
@@ -121,6 +157,7 @@ function findWeatherLocation(siteName: string, siteLocations: Record<string, Pla
       longitude: configuredLocation.longitude,
       label: `${siteName} · configured plant location`,
       source: 'Configured plant location',
+      updatedAt: configuredLocation.updatedAt,
     };
   }
 
@@ -233,6 +270,30 @@ function formatCurrentTimeInTimezone(now: number, timezone: string | null | unde
   } catch {
     return 'Location data unavailable';
   }
+}
+
+function formatElapsed(ms: number | undefined) {
+  if (ms === undefined || !Number.isFinite(ms)) return '—';
+  if (ms < 1_000) return '<1s';
+  if (ms < 60_000) return `${Math.floor(ms / 1_000)}s`;
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ${Math.floor(ms % 60_000 / 1_000)}s`;
+  return `${Math.floor(ms / 3_600_000)}h ${Math.floor(ms % 3_600_000 / 60_000)}m`;
+}
+
+function communicationLabel(state: CommunicationHealth['deviceCommunication'] | undefined) {
+  switch (state) {
+    case 'live': return 'Live';
+    case 'stale': return 'Stale';
+    case 'interrupted': return 'Interrupted';
+    default: return 'Awaiting first data';
+  }
+}
+
+function communicationTone(state: CommunicationHealth['deviceCommunication'] | undefined): 'success' | 'warning' | 'destructive' | 'neutral' {
+  if (state === 'live') return 'success';
+  if (state === 'stale') return 'warning';
+  if (state === 'interrupted') return 'destructive';
+  return 'neutral';
 }
 
 function flattenJson(value: JsonValue, path = ''): Array<{ path: string; value: string; type: string }> {
@@ -570,7 +631,7 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1 2xl:hidden">
-        <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme-mobile" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring">{theme === 'dark' ? <Moon size={17} /> : <Sun size={17} />}</button>
+        <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring">{theme === 'dark' ? <Moon size={17} /> : <Sun size={17} />}</button>
         <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications-compact" title="Open alarms and notifications" onClick={onNotifications} className="relative hidden h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring md:flex"><Bell size={17} /><span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-rose-500" /></button>
         <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry-mobile" title="Refresh telemetry" onClick={onRefresh} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring"><RefreshCw size={17} /></button>
         <button type="button" aria-label="Export live telemetry as CSV" data-testid="button-export-telemetry-compact" title="Export live telemetry as CSV" onClick={onExport} className="hidden h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-[#1e293b] hover:text-slate-100 focus-ring md:flex"><Download size={17} /></button>
@@ -606,7 +667,7 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
         </div>
         
         <div className="flex items-center gap-3 border-l border-[#1e293b] pl-6 ml-2">
-          <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors focus-ring">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
+          <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme-wide" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors focus-ring">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
           <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications" title="Open alarms and notifications" onClick={onNotifications} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-200 hover:bg-[#1e293b] transition-colors relative focus-ring">
             <Bell size={16} />
             <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-rose-500" />
@@ -908,11 +969,11 @@ function electricalKind(row: ModbusRow): ElectricalKind | null {
   if (!name) return null;
   if (name.includes('powerfactor') || name === 'pf') return 'powerFactor';
   if (name.includes('frequency') || name === 'hz') return 'frequency';
-  if (name.includes('activepower') || name.includes('realpower') || name === 'kw' || name.includes('kwoutput')) return 'activePower';
+  if (name.includes('activepower') || name.includes('realpower') || name === 'kw' || name.includes('kwoutput') || name === 'actpow' || name.includes('activekw')) return 'activePower';
   if (name.includes('current')) {
-    if (name.includes('phasea') || name.includes('linea') || name.includes('ia')) return 'ia';
-    if (name.includes('phaseb') || name.includes('lineb') || name.includes('ib')) return 'ib';
-    if (name.includes('phasec') || name.includes('linec') || name.includes('ic')) return 'ic';
+    if (name.includes('phasea') || name.includes('linea') || name.startsWith('a') || name.includes('ia')) return 'ia';
+    if (name.includes('phaseb') || name.includes('lineb') || name.startsWith('b') || name.includes('ib')) return 'ib';
+    if (name.includes('phasec') || name.includes('linec') || name.startsWith('c') || name.includes('ic')) return 'ic';
     return 'other';
   }
   if (name.includes('voltage')) {
@@ -973,6 +1034,9 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
   const [historyRows, setHistoryRows] = useState<ModbusRow[]>([]);
   const [historyState, setHistoryState] = useState<{ loading: boolean; error: string }>({ loading: false, error: '' });
   const [reloadHistory, setReloadHistory] = useState(0);
+  const [parameterQuery, setParameterQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | ElectricalEvidence['status']>('all');
+  const [kindFilter, setKindFilter] = useState<'all' | ElectricalKind>('all');
   const isHistorical = appliedRange.preset !== 'live';
 
   useEffect(() => {
@@ -1000,15 +1064,21 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
     return () => controller.abort();
   }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory]);
 
-  const sourceRows = mode === 'live' ? (isHistorical ? historyRows : liveState === 'fresh' ? rows : []) : [];
+  // Raw evidence remains inspectable across replay/stale states. Only explicitly
+  // validated, fresh telemetry is eligible for engineering cards and charts.
+  const sourceRows = mode === 'live' ? (isHistorical ? historyRows : rows) : [];
   const discoveries = useMemo(() => sourceRows.map(electricalEvidence).filter(Boolean) as ElectricalEvidence[], [sourceRows]);
-  const validated = useMemo(() => discoveries.filter((item) => item.status === 'Validated'), [discoveries]);
+  const validated = useMemo(() => discoveries.filter((item) => item.status === 'Validated' && (isHistorical || liveState === 'fresh')), [discoveries, isHistorical, liveState]);
   const phaseVoltage = useMemo(() => latestEvidence(validated, ['vab', 'vbc', 'vca', 'va', 'vb', 'vc']), [validated]);
   const phaseCurrent = useMemo(() => latestEvidence(validated, ['ia', 'ib', 'ic']), [validated]);
   const activePower = useMemo(() => latestEvidence(validated, ['activePower'])[0], [validated]);
   const powerFactor = useMemo(() => latestEvidence(validated, ['powerFactor'])[0], [validated]);
   const frequency = useMemo(() => latestEvidence(validated, ['frequency'])[0], [validated]);
-  const traceRows = useMemo(() => [...discoveries].sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)), [discoveries]);
+  const traceRows = useMemo(() => [...discoveries]
+    .filter((item) => !parameterQuery.trim() || `${item.label} ${item.source} ${item.address}`.toLowerCase().includes(parameterQuery.trim().toLowerCase()))
+    .filter((item) => statusFilter === 'all' || item.status === statusFilter)
+    .filter((item) => kindFilter === 'all' || item.kind === kindFilter)
+    .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)), [discoveries, kindFilter, parameterQuery, statusFilter]);
   const voltageBalance = useMemo(() => {
     if (phaseVoltage.length < 2) return null;
     const values = phaseVoltage.map((item) => item.value).filter((value): value is number => value !== null);
@@ -1055,7 +1125,18 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
         </div>
         {draftRange.preset !== 'live' && <div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Start<input type="datetime-local" value={draftRange.from} onChange={(event) => setDraftRange((range) => ({ ...range, from: event.target.value, preset: 'custom' }))} data-testid="input-electrical-start-time" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" /></label><label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">End<input type="datetime-local" value={draftRange.to} onChange={(event) => setDraftRange((range) => ({ ...range, to: event.target.value, preset: 'custom' }))} data-testid="input-electrical-end-time" className="mt-1 block w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-2.5 py-2 text-xs text-slate-200 focus-ring" /></label></div>}
         <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" onClick={applyRange} data-testid="button-apply-electrical-range" className="rounded-md bg-blue-500 px-3 py-2 text-xs font-bold text-white hover:bg-blue-400 focus-ring">Apply</button><button type="button" onClick={() => { const range = electricalPresetRange('live'); setDraftRange(range); setAppliedRange(range); }} data-testid="button-reset-electrical-range" className="rounded-md px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring">Reset</button><button type="button" onClick={() => setReloadHistory((key) => key + 1)} disabled={!isHistorical || historyState.loading} data-testid="button-refresh-electrical-history" className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50 focus-ring"><RefreshCw size={13} className={historyState.loading ? 'animate-spin' : ''} />Refresh</button>{historyState.error && <span role="alert" data-testid="status-electrical-history-error" className="text-xs text-amber-300">{historyState.error}</span>}</div>
-      </div>
+       </div>
+       {mode === 'live' && <div className="relative z-10 mb-4 rounded-xl border border-[#1e293b] bg-[#0f1423] p-3" data-testid="electrical-parameter-filters">
+         <div className="flex flex-wrap items-center justify-between gap-3">
+           <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Parameter filters</p><p className="mt-1 text-[11px] text-slate-400">Search source-backed values without changing the selected time window.</p></div>
+           <button type="button" onClick={() => { setParameterQuery(''); setStatusFilter('all'); setKindFilter('all'); }} className="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring">Clear filters</button>
+         </div>
+         <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
+           <label className="relative block"><span className="sr-only">Search parameters</span><Search size={14} className="pointer-events-none absolute left-3 top-3 text-slate-500" /><input value={parameterQuery} onChange={(event) => setParameterQuery(event.target.value)} placeholder="Search parameter, source, or address" data-testid="input-electrical-parameter-search" className="w-full rounded-md border border-[#1e293b] bg-[#0b0f19] py-2.5 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-600 focus-ring" /></label>
+           <label className="block"><span className="sr-only">Parameter type</span><select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)} data-testid="select-electrical-kind-filter" className="w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-3 py-2.5 text-xs text-slate-200 focus-ring"><option value="all">All parameter types</option>{Object.entries(electricalKindLabels).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
+           <label className="block"><span className="sr-only">Data status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} data-testid="select-electrical-status-filter" className="w-full rounded-md border border-[#1e293b] bg-[#0b0f19] px-3 py-2.5 text-xs text-slate-200 focus-ring"><option value="all">All data statuses</option><option value="Validated">Validated</option><option value="Raw / Scaling Required">Raw / Scaling Required</option><option value="Data Unavailable">Data unavailable</option></select></label>
+         </div>
+       </div>}
 
       {mode !== 'live' ? <div className="relative z-10 flex min-h-48 flex-1 flex-col items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/5 px-6 text-center"><AlertCircle size={26} className="mb-3 text-amber-400" /><h4 className="text-sm font-bold text-amber-200">Operational electrical analytics are unavailable in Demo mode</h4><p className="mt-2 max-w-lg text-xs leading-5 text-amber-100/70">Switch to Live Broker mode to inspect source-backed Modbus values, scaling validation, and persisted electrical history.</p></div> : <div className="relative z-10 space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1077,8 +1158,10 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
   );
 }
 
-function InverterOverviewTable({ devices, onOpenInverter, onViewAll }: { devices: Device[]; onOpenInverter: (device: Device) => void; onViewAll: () => void }) {
+function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { devices: Device[]; rows: ModbusRow[]; onOpenInverter: (device: Device) => void; onViewAll?: () => void }) {
   const inverters = devices.filter(d => d.type === 'Power inverter');
+  const rawPower = rows.map((row) => electricalKind(row) === 'activePower' ? Number(row.data) : NaN).find(Number.isFinite);
+  const hasUnmappedPowerEvidence = !inverters.length && rawPower !== undefined;
   return (
     <div className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
@@ -1086,7 +1169,7 @@ function InverterOverviewTable({ devices, onOpenInverter, onViewAll }: { devices
           <Layers3 size={16} className="text-slate-400" />
           <h3 className="text-sm font-bold text-slate-200">Inverter Overview</h3>
         </div>
-        <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-xs text-slate-400 hover:text-slate-200 focus-ring rounded">View all</button>
+        {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-xs text-slate-400 hover:text-slate-200 focus-ring rounded">View all</button>}
       </div>
       
       <div className="flex-1 overflow-auto scrollbar-thin pr-1">
@@ -1100,26 +1183,26 @@ function InverterOverviewTable({ devices, onOpenInverter, onViewAll }: { devices
             </tr>
           </thead>
           <tbody className="divide-y divide-[#1e293b]/50">
-            {inverters.length ? inverters.map(inv => (
-              <tr key={inv.id} onClick={() => onOpenInverter(inv)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpenInverter(inv); }} tabIndex={0} data-testid={`row-inverter-${inv.id}`} title={`Open detailed monitoring for ${inv.name}`} className="scada-table-row cursor-pointer hover:bg-[#1e293b]/30 focus:bg-[#1e293b]/30 focus:outline-none">
-                <td className="py-2.5 text-[11px] font-medium text-slate-300">{inv.name.replace('Inverter ', 'INV')}</td>
+              {inverters.length ? inverters.map(inv => (
+               <tr key={inv.id} data-testid={`row-inverter-${inv.id}`} className="scada-table-row hover:bg-[#1e293b]/30">
+                 <td className="py-2.5 text-[11px] font-medium text-slate-300"><button type="button" onClick={() => onOpenInverter(inv)} className="rounded text-left hover:text-blue-300 focus-ring" title={`Open detailed monitoring for ${inv.name}`}>{inv.name.replace('Inverter ', 'INV')}</button></td>
                 <td className="py-2.5">
                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${inv.status === 'online' ? 'bg-emerald-500/10 text-emerald-400' : inv.status === 'offline' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400'}`}>
                     <span className={`scada-status-indicator w-1 h-1 rounded-full ${inv.status === 'online' ? 'bg-emerald-400 pulse-soft' : inv.status === 'offline' ? 'bg-rose-400' : 'bg-amber-400'}`} />
                     {inv.status}
                   </span>
                 </td>
-                <td className="py-2.5 text-[11px] text-slate-300">{Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : 'Data unavailable'}</td>
-                <td className="py-2.5 text-[11px] text-slate-300 text-right">{Number.isFinite(numberFrom(inv, ['temperature', 'cabinet_c'], NaN)) ? `${numberFrom(inv, ['temperature', 'cabinet_c'])}°C` : 'Data unavailable'}</td>
+                 <td className="py-2.5 text-[11px] text-slate-300">{Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : 'Data unavailable'}</td>
+                 <td className="py-2.5 text-[11px] text-slate-300 text-right">{Number.isFinite(numberFrom(inv, ['temperature', 'cabinet_c'], NaN)) ? `${numberFrom(inv, ['temperature', 'cabinet_c'])}°C` : 'Data unavailable'}</td>
               </tr>
-            )) : <tr><td colSpan={4} className="py-8 text-center text-xs text-slate-500">No inverter telemetry has been discovered yet.</td></tr>}
+             )) : hasUnmappedPowerEvidence ? <tr data-testid="row-unmapped-inverter-evidence"><td className="py-2.5 text-[11px] font-medium text-slate-300">Unmapped active-power register</td><td className="py-2.5"><span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-400">Unmapped</span></td><td className="py-2.5 text-[11px] text-slate-300">{rawPower.toLocaleString()} raw</td><td className="py-2.5 text-right text-[11px] text-slate-500">Data unavailable</td></tr> : <tr><td colSpan={4} className="py-8 text-center text-xs text-slate-500">No mapped inverter telemetry has been discovered yet.</td></tr>}
           </tbody>
         </table>
       </div>
       
       <div className="pt-3 mt-2 border-t border-[#1e293b] flex justify-between items-center text-[10px] text-slate-400">
         <span className="uppercase tracking-wider font-semibold">Total Today</span>
-        <span className="font-bold text-slate-200">{inverters.length ? `${inverters.filter((inverter) => inverter.status === 'online').length} online • ${inverters.filter((inverter) => inverter.status === 'stale').length} stale` : 'Data unavailable'}</span>
+          <span className="font-bold text-slate-200">{inverters.length ? `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting • device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}</span>
       </div>
     </div>
   );
@@ -1157,6 +1240,72 @@ function EnergySummaryChart({ mode }: { mode: 'demo' | 'live' }) {
       </div>
     </div>
   );
+}
+
+function WorkspaceHeader({ eyebrow, title, description, action, onBack }: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  action?: ReactNode;
+  onBack: () => void;
+}) {
+  return (
+    <div className="mb-6 flex flex-col gap-4 border-b border-[#1e293b] pb-5 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0">
+        <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 hover:text-slate-200 focus-ring">← Back to overview</button>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-400">{eyebrow}</p>
+        <h1 tabIndex={-1} data-testid="workspace-heading" className="mt-1 text-2xl font-bold tracking-tight text-slate-100 focus:outline-none">{title}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{description}</p>
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now }: {
+  section: string;
+  devices: Device[];
+  rows: ModbusRow[];
+  mode: 'demo' | 'live';
+  liveState: 'fresh' | 'stale' | 'unavailable';
+  persistence: PersistenceStatus;
+  rawPayload: string;
+  rawJson: JsonValue | null;
+  rawTopic: string;
+  rawPayloadSource: 'waiting' | 'demo' | 'replay' | 'recovered' | 'live';
+  onCopy: (value: string) => void;
+  onOpenInverter: (device: Device) => void;
+  onBack: () => void;
+  onRefreshWeather: () => void;
+  onSiteChange: (site: string) => void;
+  siteName: string;
+  sites: string[];
+  weather: WeatherState;
+  now: number;
+}) {
+  const commonAction = <span className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400">{liveState === 'fresh' ? 'Live source connected' : mode === 'demo' ? 'Demo source' : 'Awaiting fresh source data'}</span>;
+  if (section === 'inverters') return (
+    <div data-testid="screen-inverters">
+      <WorkspaceHeader eyebrow="Asset monitoring" title="Inverter fleet" description="Inspect the health, reporting state, and source-backed output of every inverter connected to this plant." action={commonAction} onBack={onBack} />
+      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+        {[
+          ['Mapped assets', devices.filter((device) => device.type === 'Power inverter').length || '—', 'Explicitly identified inverter assets'],
+          ['Mapped reporting', devices.filter((device) => device.type === 'Power inverter' && device.status === 'online').length || '—', 'Only validated device status is counted'],
+          ['Telemetry rows', rows.length.toLocaleString(), 'Raw Modbus parameters available'],
+        ].map(([label, value, detail]) => <div key={label} className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#111827] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p><p className="mt-2 text-xl font-bold text-slate-100">{value}</p><p className="mt-1 text-[10px] text-slate-500">{detail}</p></div>)}
+      </div>
+      <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
+        <InverterOverviewTable devices={devices} rows={rows} onOpenInverter={onOpenInverter} />
+        <div className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#111827] p-5"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Operator guidance</p><h2 className="mt-2 text-lg font-bold text-slate-100">Source-aware fleet status</h2><p className="mt-2 text-sm leading-6 text-slate-400">Live Modbus registers are displayed exactly as received. Engineering output and health transitions become authoritative only when the source provides validated device mapping.</p><div className="mt-5 space-y-2 text-xs text-slate-400"><div className="flex items-center justify-between rounded-lg bg-[#0b0f19] p-3"><span>Current source evidence</span><strong className={liveState === 'fresh' ? 'text-emerald-400' : 'text-amber-400'}>{liveState === 'fresh' ? 'Fresh telemetry' : liveState === 'stale' ? 'Telemetry stale' : 'Not yet available'}</strong></div><div className="flex items-center justify-between rounded-lg bg-[#0b0f19] p-3"><span>Device mapping</span><strong className={devices.some((device) => device.type === 'Power inverter') ? 'text-emerald-400' : 'text-amber-400'}>{devices.some((device) => device.type === 'Power inverter') ? 'Mapped assets available' : 'Mapping required'}</strong></div></div></div>
+      </div>
+    </div>
+  );
+  if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Search, sort, filter, and export the latest Modbus telemetry while preserving raw values, timestamps, and source provenance." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
+  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} /><PowerTrendChart currentKw={null} mode={mode} /></div><div className="mt-5"><PowerDistributionChart inverters={devices.filter((device) => device.type === 'Power inverter')} mode={mode} /></div></div>;
+  if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
+  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><SidePanels devices={devices} rows={rows} liveState={liveState} /><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
+  if (section === 'raw-data') return <div data-testid="screen-reports"><WorkspaceHeader eyebrow="Reporting" title="Reports & raw evidence" description="Create a client-ready view of the telemetry record with the original payload, filters, timestamps, and export controls." action={<span className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300">Traceable evidence</span>} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
+  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart currentKw={null} mode={mode} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} /></div></div>;
 }
 
 function PowerTrendChart({ currentKw, mode }: { currentKw: number | null; mode: 'demo' | 'live' }) {
@@ -1276,20 +1425,19 @@ function EnvironmentMetric({ icon: Icon, label, value, tone, detail }: { icon: t
   );
 }
 
-function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onSiteChange, onConfigureLocation }: {
+function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onSiteChange }: {
   siteName: string;
   sites: string[];
   weather: WeatherState;
   now: number;
   onRefresh: () => void;
   onSiteChange: (site: string) => void;
-  onConfigureLocation: () => void;
 }) {
   const current = weather.data?.current;
   const resolvedLocation = weather.data?.location;
   const configuredCoordinates = weather.location;
   const isLoading = weather.status === 'loading';
-  const locationLabel = resolvedLocation?.locationName ?? (configuredCoordinates ? 'Resolving configured coordinates…' : 'Location data unavailable');
+  const locationLabel = resolvedLocation?.locationName ?? (configuredCoordinates ? 'Resolving configured coordinates…' : 'Location not configured');
   const observationAt = weather.data?.freshness.observationTime?.replace('T', ' ') ?? 'Data unavailable';
   const receivedAt = weather.data?.freshness.retrievedAt ? new Date(weather.data.freshness.retrievedAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC') : 'Data unavailable';
   const sourceLabel = weather.data ? `${weather.data.source} · ${resolvedLocation?.coordinateSource ?? 'Location data unavailable'}` : configuredCoordinates?.source ?? 'Location data unavailable';
@@ -1307,6 +1455,9 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
   const timezoneLabel = resolvedLocation?.timezone ?? 'Location data unavailable';
   const utcOffsetLabel = resolvedLocation?.utcOffset ?? 'Location data unavailable';
   const localDateTime = formatCurrentTimeInTimezone(now, resolvedLocation?.timezone);
+  const locationUpdatedAt = configuredCoordinates?.updatedAt
+    ? new Date(configuredCoordinates.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : 'Not available';
 
   return (
     <section id="environment" data-section="environment" className="scada-interactive-card scroll-mt-6 overflow-hidden rounded-xl border border-[#1e293b] bg-[#111827]">
@@ -1325,10 +1476,10 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
             </div>
           </div>
           <div className="grid w-full grid-cols-1 gap-2 text-[10px] min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:w-auto">
-            <span className="min-w-0 truncate rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Configured site/device weather provenance: ${sourceLabel}`}>Source: {sourceLabel}</span>
+             <span data-testid="weather-location-source" className="min-w-0 truncate rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Configured site/device weather provenance: ${sourceLabel}`}>Location source: {sourceLabel}</span>
             <span className="min-w-0 truncate rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Weather provider observation timestamp: ${observationAt}`}>Observed: {observationAt}</span>
+             <span data-testid="weather-location-updated" className="min-w-0 truncate rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title="Last time the configured plant coordinates were saved">Location updated: {locationUpdatedAt}</span>
             <span className={`min-w-0 truncate rounded-lg border border-[#1e293b] px-2.5 py-1.5 ${weather.data?.freshness.cacheStatus === 'cached' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`} title="Data freshness state">{freshnessLabel}</span>
-            <button type="button" onClick={onConfigureLocation} data-testid="button-configure-plant-location" title="Configure verified coordinates for the selected plant" className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/5 px-2.5 py-1.5 font-semibold text-blue-300 hover:bg-blue-500/10 focus-ring"><Settings2 size={13} /> Configure location</button>
             <button type="button" onClick={onRefresh} data-testid="button-refresh-weather" title="Refresh weather for the selected configured site" className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#1e293b] px-2.5 py-1.5 font-semibold text-slate-300 hover:bg-[#1e293b] focus-ring"><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} /> Refresh</button>
           </div>
         </div>
@@ -1338,7 +1489,7 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
       <div className="grid gap-4 p-4 sm:p-5 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="grid gap-3 sm:grid-cols-2">
              <div className="rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4 sm:col-span-2">
-               <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Configured coordinate identity</p><p className="mt-1 text-base font-bold text-slate-100">{locationLabel}</p><p className="mt-1 text-xs text-slate-400">Plant/site: {siteName} · Coordinate source: {configuredCoordinates?.source ?? 'Location data unavailable'}</p></div><MapPin size={18} className="text-orange-400" /></div>
+               <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Configured coordinate identity</p><p className="mt-1 text-base font-bold text-slate-100">{locationLabel}</p><p className="mt-1 text-xs text-slate-400">Plant/site: {siteName} · Coordinate source: {configuredCoordinates?.source ?? 'Location data unavailable'}</p><p className="mt-1 text-[10px] text-slate-500">Last updated: {locationUpdatedAt}</p></div><MapPin size={18} className="text-orange-400" /></div>
             <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
               <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Latitude</span><span data-testid="weather-location-latitude" className="mt-1 block font-mono font-semibold text-slate-200">{coordinateLatitude === undefined ? 'Location data unavailable' : coordinateLatitude.toFixed(6)}</span></div>
               <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Longitude</span><span data-testid="weather-location-longitude" className="mt-1 block font-mono font-semibold text-slate-200">{coordinateLongitude === undefined ? 'Location data unavailable' : coordinateLongitude.toFixed(6)}</span></div>
@@ -1646,10 +1797,10 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   );
 }
 
-function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }: { rawPayload: string; rawJson: JsonValue | null; topic: string; source: 'waiting' | 'demo' | 'replay' | 'live'; onCopy: (value: string) => void }) {
+function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }: { rawPayload: string; rawJson: JsonValue | null; topic: string; source: 'waiting' | 'demo' | 'replay' | 'recovered' | 'live'; onCopy: (value: string) => void }) {
   const rows = rawJson ? flattenJson(rawJson) : [];
-  const sourceLabel = source === 'replay' ? 'Replay evidence' : source === 'demo' ? 'Demo payload' : source === 'live' ? 'Live payload' : 'Awaiting payload';
-  const sourceTone = source === 'live' ? 'success' : source === 'demo' || source === 'replay' ? 'warning' : 'neutral';
+  const sourceLabel = source === 'replay' ? 'Initial replay evidence' : source === 'recovered' ? 'Recovered delivery evidence' : source === 'demo' ? 'Demo payload' : source === 'live' ? 'Live payload' : 'Awaiting payload';
+  const sourceTone = source === 'live' || source === 'recovered' ? 'success' : source === 'demo' || source === 'replay' ? 'warning' : 'neutral';
   return (
     <section id="raw-data" data-section="raw-data" className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden mt-6">
       <div className="flex flex-col justify-between gap-3 border-b border-[#1e293b] p-5 sm:flex-row sm:items-center">
@@ -1830,30 +1981,34 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                  <MapPin size={16} className="text-orange-400" />
                </div>
              </div>
-             {sites.length ? (
+              {sites.length ? (
                <>
+                  <div data-testid="plant-location-access" className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-[11px] leading-5 ${locationAdmin ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300' : 'border-slate-500/20 bg-slate-500/5 text-slate-400'}`}>
+                    <MapPin size={14} className="mt-0.5 shrink-0" />
+                    <span>{locationAdmin ? 'You can validate and update plant coordinates for the selected site.' : 'View-only access. Only an authorized Platform/Site Administrator can modify these coordinates.'}</span>
+                  </div>
                  <label className="block">
                    <span className="mb-2 block text-xs font-bold text-slate-300">Plant/site</span>
-                   <select value={locationSite} onChange={(event) => setLocationSite(event.target.value)} data-testid="select-plant-location-site" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none">
+                    <select value={locationSite} onChange={(event) => setLocationSite(event.target.value)} disabled={!locationAdmin} data-testid="select-plant-location-site" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60">
                      {sites.map((site) => <option key={site} value={site}>{site}</option>)}
                    </select>
                  </label>
                  <div className="grid grid-cols-2 gap-3">
                    <label className="block">
                      <span className="mb-2 block text-xs font-bold text-slate-300">Latitude</span>
-                     <input inputMode="decimal" aria-label="Plant latitude" data-testid="input-plant-latitude" value={locationLatitude} onChange={(event) => setLocationLatitude(event.target.value)} placeholder="e.g. 19.0760" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none" />
+                      <input inputMode="decimal" aria-label="Plant latitude" data-testid="input-plant-latitude" value={locationLatitude} onChange={(event) => setLocationLatitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 19.0760" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
                    </label>
                    <label className="block">
                      <span className="mb-2 block text-xs font-bold text-slate-300">Longitude</span>
-                     <input inputMode="decimal" aria-label="Plant longitude" data-testid="input-plant-longitude" value={locationLongitude} onChange={(event) => setLocationLongitude(event.target.value)} placeholder="e.g. 72.8777" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none" />
+                      <input inputMode="decimal" aria-label="Plant longitude" data-testid="input-plant-longitude" value={locationLongitude} onChange={(event) => setLocationLongitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 72.8777" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
                    </label>
                  </div>
-                  <p className="text-[10px] leading-5 text-slate-500">Only operators assigned to this plant can save changes.</p>
-                  <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Log in to update locations</a>
+                   <p className="text-[10px] leading-5 text-slate-500">Coordinates are range-validated before saving, then used to refresh the resolved place name, timezone, and weather data.</p>
+                   {!locationAdmin && <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Log in to request location access</a>}
                  {locationError && <p role="alert" data-testid="alert-plant-location" className="text-xs text-rose-400">{locationError}</p>}
                  {!locationError && siteLocationError && <p role="alert" data-testid="alert-plant-location-load" className="text-xs text-rose-400">{siteLocationError}</p>}
                  {locationSaved && <p role="status" data-testid="status-plant-location-saved" className="text-xs text-emerald-400">{locationSaved}</p>}
-                 <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>
+                  {locationAdmin && <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>}
                </>
              ) : <p className="rounded-lg border border-dashed border-[#1e293b] px-3 py-4 text-xs text-slate-500">Connect to telemetry to discover plant/site names before adding a location.</p>}
            </div>
@@ -1895,9 +2050,14 @@ function AppShell() {
   const [error, setError] = useState('');
   const [rawPayload, setRawPayload] = useState('Waiting for the first MQTT payload…');
   const [rawJson, setRawJson] = useState<JsonValue | null>(null);
-  const [rawPayloadSource, setRawPayloadSource] = useState<'waiting' | 'demo' | 'replay' | 'live'>('waiting');
+  const [rawPayloadSource, setRawPayloadSource] = useState<'waiting' | 'demo' | 'replay' | 'recovered' | 'live'>('waiting');
   const [modbusRows, setModbusRows] = useState<ModbusRow[]>([]);
   const [persistence, setPersistence] = useState<PersistenceStatus>({ intervalMinutes: 15, pendingMessages: 0 });
+  const [communication, setCommunication] = useState<CommunicationHealth | null>(null);
+  const [streamPhase, setStreamPhase] = useState<StreamPhase>('idle');
+  const [recoveredEventCount, setRecoveredEventCount] = useState(0);
+  const [duplicateEventCount, setDuplicateEventCount] = useState(0);
+  const [resyncNotice, setResyncNotice] = useState('');
   const [savedKpiSnapshot, setSavedKpiSnapshot] = useState<SavedKpiSnapshot | null>(null);
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
   const [activeSite, setActiveSite] = useState(() => initialDevices.find((device) => device.type.toLowerCase().includes('weather'))?.site ?? initialDevices[0]?.site ?? 'Plant site');
@@ -1907,6 +2067,8 @@ function AppShell() {
   const [siteLocationError, setSiteLocationError] = useState('');
   const [locationAdmin, setLocationAdmin] = useState(false);
   const streamRef = useRef<EventSource | null>(null);
+  const streamGenerationRef = useRef(0);
+  const seenTelemetryEventsRef = useRef(new Map<string, true>());
 
   useEffect(() => { localStorage.setItem('northline-mode', mode); }, [mode]);
   useEffect(() => {
@@ -2042,6 +2204,12 @@ function AppShell() {
     setLastTelemetryAt(next === 'demo' ? Date.now() : null);
     setDevices(next === 'demo' ? initialDevices : []);
     setModbusRows([]);
+    setCommunication(null);
+    setStreamPhase(next === 'demo' ? 'connected' : 'idle');
+    setRecoveredEventCount(0);
+    setDuplicateEventCount(0);
+    setResyncNotice('');
+    seenTelemetryEventsRef.current.clear();
     setSavedKpiSnapshot(null);
     setSelectedInverterId(null);
     if (next === 'demo') {
@@ -2058,10 +2226,16 @@ function AppShell() {
     }
   };
 
-  const ingestPayload = (raw: string, topic: string, receivedAt?: string, replay = false) => {
+  const ingestPayload = (raw: string, topic: string, receivedAt?: string, replay = false, recovered = false, eventId?: string) => {
+    const identity = telemetryDeliveryIdentity(eventId, topic, receivedAt, raw);
+    if (!rememberTelemetryDelivery(seenTelemetryEventsRef.current, identity)) {
+      setDuplicateEventCount((count) => count + 1);
+      return false;
+    }
+    const provenance: TelemetryProvenance = replay ? 'replay' : recovered ? 'recovered' : 'live';
     setRawPayload(raw);
     setRawTopic(topic);
-    setRawPayloadSource(replay ? 'replay' : 'live');
+    setRawPayloadSource(provenance);
     try {
       const payload = JSON.parse(raw) as JsonValue;
       setRawJson(payload);
@@ -2070,10 +2244,13 @@ function AppShell() {
         setModbusRows((current) => {
           const next = [...current];
           for (const row of incomingRows) {
-            const incoming = { ...row, provenance: replay ? 'replay' : 'live' };
+            const incoming = { ...row, provenance, serverReceivedAt: receivedAt ?? new Date().toISOString() };
             const existingIndex = next.findIndex((row) => modbusRowKey(row) === modbusRowKey(incoming));
-            if (existingIndex >= 0) next[existingIndex] = incoming;
-            else next.push(incoming);
+            if (existingIndex >= 0) {
+              if (shouldReplaceTelemetryRow(next[existingIndex]!, incoming)) next[existingIndex] = incoming;
+            } else {
+              next.push(incoming);
+            }
           }
           return next;
         });
@@ -2103,6 +2280,7 @@ function AppShell() {
       setRawJson(null);
       if (!replay) setError('A broker message arrived, but its payload was not valid JSON. The raw payload is still shown below.');
     }
+    return true;
   };
 
   const connect = (_url?: string, requestedTopic?: string) => {
@@ -2120,29 +2298,72 @@ function AppShell() {
     setRawPayload('Waiting for the first MQTT payload…');
     setRawJson(null);
     setRawPayloadSource('waiting');
+    setCommunication(null);
+    setStreamPhase('connecting');
+    setRecoveredEventCount(0);
+    setDuplicateEventCount(0);
+    setResyncNotice('');
     if (requestedTopic) setRawTopic(requestedTopic);
     streamRef.current?.close();
+    const generation = streamGenerationRef.current + 1;
+    streamGenerationRef.current = generation;
     const stream = new EventSource('/api/mqtt/stream');
     streamRef.current = stream;
+    stream.onopen = () => {
+      if (generation !== streamGenerationRef.current) return;
+      setStreamPhase('connected');
+    };
     stream.addEventListener('status', (event) => {
-      const status = JSON.parse((event as MessageEvent).data) as { connected: boolean; error?: string; persistence?: PersistenceStatus };
-      setConnected(status.connected);
-      if (status.persistence) setPersistence(status.persistence);
-      if (status.connected) setError('');
-      else if (status.error === 'connack timeout') setError('The MQTT broker is not responding to the connection handshake. The dashboard will retry automatically.');
-      else setError('MQTT broker is reconnecting. Raw data will appear as soon as the subscription is restored.');
+      if (generation !== streamGenerationRef.current) return;
+      try {
+        const status = JSON.parse((event as MessageEvent).data) as { connected: boolean; error?: string; persistence?: PersistenceStatus; communication?: CommunicationHealth };
+        setConnected(status.connected);
+        if (status.persistence) setPersistence(status.persistence);
+        if (status.communication) setCommunication(status.communication);
+        if (status.connected) setError('');
+        else if (status.error === 'connack timeout') setError('The MQTT broker is not responding to the connection handshake. The dashboard will retry automatically.');
+        else setError('MQTT broker transport is reconnecting. Device freshness is tracked separately below.');
+      } catch {
+        setError('The telemetry status stream sent an unreadable update. The connection will recover automatically.');
+      }
     });
     stream.addEventListener('message', (event) => {
-      const message = JSON.parse((event as MessageEvent).data) as { topic: string; payload: string; receivedAt?: string; replay?: boolean };
-      ingestPayload(message.payload, message.topic, message.receivedAt, message.replay);
-      if (!message.replay) setConnected(true);
+      if (generation !== streamGenerationRef.current) return;
+      try {
+        const message = JSON.parse((event as MessageEvent).data) as { topic: string; payload: string; receivedAt?: string; replay?: boolean; recovered?: boolean };
+        if (typeof message.topic !== 'string' || typeof message.payload !== 'string') return;
+        const accepted = ingestPayload(message.payload, message.topic, message.receivedAt, message.replay === true, message.recovered === true, (event as MessageEvent).lastEventId || undefined);
+        if (accepted && message.recovered) setRecoveredEventCount((count) => count + 1);
+      } catch {
+        setError('The telemetry stream sent an unreadable message frame. New frames will continue to be processed.');
+      }
     });
     stream.addEventListener('snapshot', (event) => {
-      const snapshot = parseSavedKpiSnapshot(JSON.parse((event as MessageEvent).data));
-      if (!snapshot || snapshot.saveStatus !== 'saved') return;
-      setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
+      if (generation !== streamGenerationRef.current) return;
+      try {
+        const snapshot = parseSavedKpiSnapshot(JSON.parse((event as MessageEvent).data));
+        if (!snapshot || snapshot.saveStatus !== 'saved') return;
+        setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
+      } catch {
+        setError('The saved snapshot stream sent an unreadable update. Existing KPI evidence is retained.');
+      }
     });
-    stream.onerror = () => setConnected(false);
+    stream.addEventListener('resync', (event) => {
+      if (generation !== streamGenerationRef.current) return;
+      try {
+        const resync = JSON.parse((event as MessageEvent).data) as { reason?: string };
+        setResyncNotice(resync.reason ?? 'A stream recovery range was unavailable; the raw inspector was resynchronized from available evidence.');
+      } catch {
+        setResyncNotice('A stream recovery range was unavailable; the raw inspector was resynchronized from available evidence.');
+      }
+    });
+    stream.addEventListener('heartbeat', () => {
+      if (generation === streamGenerationRef.current) setStreamPhase('connected');
+    });
+    stream.onerror = () => {
+      if (generation !== streamGenerationRef.current) return;
+      setStreamPhase('reconnecting');
+    };
     setSettingsOpen(false);
   };
 
@@ -2150,15 +2371,19 @@ function AppShell() {
     if (mode !== 'live') return;
     connect();
     return () => {
+      streamGenerationRef.current += 1;
       streamRef.current?.close();
       streamRef.current = null;
+      setStreamPhase('closed');
     };
   }, [mode]);
 
   const disconnect = () => {
+    streamGenerationRef.current += 1;
     streamRef.current?.close();
     streamRef.current = null;
     setConnected(false);
+    setStreamPhase('closed');
   };
 
   const handleCopy = (text: string) => {
@@ -2166,7 +2391,10 @@ function AppShell() {
   };
   const navigateTo = (section: string) => {
     setActiveSection(section);
-    window.requestAnimationFrame(() => document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    window.requestAnimationFrame(() => {
+      document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.setTimeout(() => document.querySelector<HTMLElement>('#overview-heading, [data-testid="workspace-heading"]')?.focus(), 0);
+    });
   };
   const refreshTelemetry = () => {
     if (mode === 'live') connect();
@@ -2258,31 +2486,22 @@ function AppShell() {
     const observedAt = metric.sourceTimestamp ? ` · source ${formatInPlantTimezone(metric.sourceTimestamp, savedKpiSnapshot.timezone)}` : '';
     return `Saved ${scheduledAt} · captured ${capturedAt}${observedAt} · raw ${metric.parameter} · register ${metric.address} · scaling required`;
   };
+  const deviceCommunication = mode === 'demo'
+    ? 'live'
+    : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');
   const telemetryLabel = mode === 'demo'
     ? 'Demo telemetry'
-    : !connected
-      ? 'Reconnecting telemetry'
-      : telemetryAge === null
-        ? 'Connected · awaiting payload'
-        : telemetryAge > DEVICE_STALE_MAX_AGE_MS
-          ? 'Telemetry unavailable'
-          : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS
-            ? 'Telemetry stale'
-            : 'Receiving live telemetry';
+    : `${communicationLabel(deviceCommunication)} device telemetry${connected ? '' : ' · broker reconnecting'}`;
   const connectionBadgeLabel = mode === 'demo'
     ? 'DEMO'
-    : !connected
-      ? 'RECONNECTING'
-      : telemetryAge === null
-        ? 'WAITING'
-        : telemetryAge > DEVICE_STALE_MAX_AGE_MS
-          ? 'OFFLINE'
-          : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS
-            ? 'STALE'
-            : 'LIVE';
-  const telemetryStatusTone = mode === 'demo' || (connected && electricalLiveState === 'fresh')
+    : deviceCommunication === 'awaiting-first-data'
+      ? 'WAITING'
+      : deviceCommunication === 'interrupted'
+        ? 'INTERRUPTED'
+        : deviceCommunication.toUpperCase();
+  const telemetryStatusTone = mode === 'demo' || (deviceCommunication === 'live' && connected)
     ? { container: 'border-emerald-500/25 bg-emerald-500/5 text-emerald-400', dot: 'bg-emerald-400 pulse-soft' }
-    : !connected || telemetryAge === null || electricalLiveState === 'stale'
+    : deviceCommunication === 'stale' || deviceCommunication === 'awaiting-first-data' || !connected
       ? { container: 'border-amber-500/25 bg-amber-500/5 text-amber-400', dot: 'bg-amber-400' }
       : { container: 'border-rose-500/25 bg-rose-500/5 text-rose-400', dot: 'bg-rose-400' };
 
@@ -2295,11 +2514,13 @@ function AppShell() {
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} now={now} weather={weatherState} siteName={plantSiteName} />
         
         <main className="min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden p-3 sm:p-6">
+          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={operationalDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
+          {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div title="Current line frequency from the latest telemetry source.">
-                <p className="text-xs font-medium text-slate-500">Dashboard <span className="px-1 text-slate-400">/</span> <span className="text-slate-300">{activeSection === 'overview' ? 'Plant Overview' : activeSection.replace(/-/g, ' ')}</span></p>
-                <h1 className="mt-1 text-lg font-bold text-slate-100">Plant operations at a glance</h1>
+                <p className="text-xs font-medium text-slate-500">Dashboard <span className="px-1 text-slate-400">/</span> <span className="text-slate-300">Plant Overview</span></p>
+                <h1 id="overview-heading" tabIndex={-1} className="mt-1 text-lg font-bold text-slate-100 focus:outline-none">Plant operations at a glance</h1>
               </div>
               <div role="status" data-testid="status-telemetry-connection" className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${telemetryStatusTone.container}`}>
                 <span className={`h-2 w-2 rounded-full ${telemetryStatusTone.dot}`} />
@@ -2308,6 +2529,51 @@ function AppShell() {
               </div>
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="ml-auto whitespace-nowrap text-xs font-semibold underline focus-ring">Retry connection</button></div>}
+            <section data-testid="panel-live-communication" aria-label="Live communication health" className="mb-4 rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Live communication</p>
+                  <h2 className="mt-1 text-sm font-bold text-slate-100">Telemetry heartbeat & delivery evidence</h2>
+                </div>
+                <CustomBadge tone={communicationTone(deviceCommunication)}>{communicationLabel(deviceCommunication)}</CustomBadge>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Broker transport</p>
+                  <p className={`mt-1 text-xs font-bold ${connected ? 'text-emerald-400' : 'text-amber-400'}`}>{connected ? 'Connected' : 'Disconnected'}</p>
+                </div>
+                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Device communication</p>
+                  <p className={`mt-1 text-xs font-bold ${deviceCommunication === 'live' ? 'text-emerald-400' : deviceCommunication === 'interrupted' ? 'text-rose-400' : 'text-amber-400'}`}>{communicationLabel(deviceCommunication)}</p>
+                </div>
+                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last received</p>
+                  <p className="mt-1 text-xs font-bold text-slate-200">{formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}</p>
+                </div>
+                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Data frequency</p>
+                  <p className="mt-1 text-xs font-bold text-slate-200">{communication?.dataFrequencySeconds === undefined ? 'Learning cadence' : communication.dataFrequencySeconds < 0.01 ? '<0.01s median' : `${communication.dataFrequencySeconds}s median`}</p>
+                </div>
+                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Data freshness</p>
+                  <p className="mt-1 text-xs font-bold text-slate-200">{formatElapsed(communication?.freshnessAgeMs ?? telemetryAge ?? undefined)}</p>
+                </div>
+                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Received messages</p>
+                  <p className="mt-1 text-xs font-bold text-slate-200">{communication?.receivedMessageCount?.toLocaleString() ?? '0'}</p>
+                  {communication?.lastReceivedSequence !== undefined && <p className="mt-0.5 text-[10px] text-slate-500">seq {communication.lastReceivedSequence}</p>}
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded-md border border-[#1e293b] bg-[#0b0f19]/60 px-2 py-1 text-slate-400">SSE: <strong className="text-slate-200">{streamPhase}</strong></span>
+                {recoveredEventCount > 0 && <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-blue-300">Recovered {recoveredEventCount} delivery event{recoveredEventCount === 1 ? '' : 's'}</span>}
+                {duplicateEventCount > 0 && <span className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">Suppressed {duplicateEventCount} duplicate{duplicateEventCount === 1 ? '' : 's'}</span>}
+                {communication?.confirmedDeliveryGap && <span role="status" className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">Confirmed {communication.confirmedDeliveryGap.source} gap · {communication.confirmedDeliveryGap.reason}</span>}
+                {communication?.activeInterruption && <span role="status" className="rounded-md border border-rose-500/25 bg-rose-500/10 px-2 py-1 text-rose-300">Interruption since {formatInPlantTimezone(communication.activeInterruption.startedAt, persistence.timezone)} · {communication.activeInterruption.reason}</span>}
+                {communication?.lastInterruption && !communication.activeInterruption && <span className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">Last recovery: {formatElapsed(communication.lastInterruption.durationMs)} interruption</span>}
+                {resyncNotice && <span role="status" className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">{resyncNotice}</span>}
+              </div>
+            </section>
             <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
               <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : savedKpiValue(savedKpiSnapshot?.metrics.activePower ?? null)} unit={mode === 'demo' ? 'kW' : savedKpiUnit(savedKpiSnapshot?.metrics.activePower ?? null)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo active power' : savedKpiContext(savedKpiSnapshot?.metrics.activePower ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('power')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
               <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : savedKpiValue(savedKpiSnapshot?.metrics.dailyEnergy ?? null)} unit={mode === 'demo' ? 'MWh' : savedKpiUnit(savedKpiSnapshot?.metrics.dailyEnergy ?? null)} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : savedKpiContext(savedKpiSnapshot?.metrics.dailyEnergy ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('energy')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
@@ -2323,7 +2589,7 @@ function AppShell() {
                 <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} />
             </div>
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
-                <InverterOverviewTable devices={operationalDevices} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
+                <InverterOverviewTable devices={operationalDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
           </div>
           
@@ -2342,12 +2608,13 @@ function AppShell() {
              </div>
           </div>
 
-           <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} onRefresh={refreshWeather} onSiteChange={changeActiveSite} onConfigureLocation={openLocationSettings} />
+           <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} onRefresh={refreshWeather} onSiteChange={changeActiveSite} />
 
           <DetailedLiveDataTable rows={modbusRows} persistence={persistence} />
 
           <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={handleCopy} />
           
+          </>}
         </main>
       </div>
        <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} />
