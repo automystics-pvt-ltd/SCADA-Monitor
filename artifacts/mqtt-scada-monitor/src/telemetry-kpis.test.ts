@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
-import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, selectVerifiedCalculation } from "./verified-kpis.ts";
+import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation } from "./verified-kpis.ts";
 
 test("selects the newest named raw register and keeps replay provenance", () => {
   const metric = latestRawMetric([
@@ -219,6 +219,31 @@ test("uses only an approved plant calibration profile to scale raw live register
   assert.equal(kpis.specificYield.value, 3.6);
   assert.equal(kpis.acPower.profileVersion, profile.version);
   assert.equal(kpis.acPower.inputs[0]?.address, "305031");
+});
+
+test("shows draft calibration math without making it a verified KPI", () => {
+  const source = {
+    role: "acPower" as const,
+    sourceName: "ana",
+    parameter: "actpow",
+    address: "305031",
+    unit: "W" as const,
+    multiplier: 0.1,
+    counterRole: "instantaneous-power" as const,
+    scalingConfirmed: true as const,
+  };
+  const preview = calibrationPreviewCalculation(430000, source);
+
+  assert.equal(preview.scaled, 43000);
+  assert.equal(preview.normalizedValue, 43);
+  assert.equal(preview.target, "kW");
+  assert.match(preview.formula, /430000 × 0.1 W/);
+
+  const kpis = calculateVerifiedScadaKpis([
+    { name: "actpow", data: 430000, full_addr: "305031", server_name: "ana", timestamp: 1_000 },
+  ], { calibrationProfile: null, asOf: 1_100, maximumAgeMs: 1_000 });
+  assert.equal(kpis.acPower.quality, "awaiting-validation");
+  assert.equal(kpis.acPower.value, null);
 });
 
 test("withholds engineering KPIs when the plant has no approved calibration profile", () => {

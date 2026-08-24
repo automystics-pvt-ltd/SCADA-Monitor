@@ -1478,6 +1478,147 @@ router.get("/mqtt/calibration-profile", async (req, res): Promise<void> => {
   }
 });
 
+function calibrationPreviewText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function calibrationPreviewNumber(value: unknown) {
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function calibrationPreviewRole(value: unknown): CalibrationRole | undefined {
+  return value === "acPower" || value === "dailyEnergy" || value === "totalEnergy" ? value : undefined;
+}
+
+function calibrationPreviewUnit(value: unknown): CalibrationEngineeringUnit | undefined {
+  return value === "W" || value === "kW" || value === "MW" || value === "Wh" || value === "kWh" || value === "MWh" ? value : undefined;
+}
+
+function calibrationPreviewCounterRole(value: unknown): CalibrationCounterRole | undefined {
+  return value === "instantaneous-power" || value === "daily-counter" || value === "cumulative-counter" ? value : undefined;
+}
+
+function previewParameterSource(parameter: Record<string, unknown>) {
+  return String(parameter.server_name ?? parameter.source ?? parameter.device ?? parameter.server ?? "").trim();
+}
+
+function previewParameterName(parameter: Record<string, unknown>) {
+  return String(parameter.name ?? parameter.parameter ?? parameter.tag ?? "").trim();
+}
+
+function previewParameterAddress(parameter: Record<string, unknown>) {
+  return String(parameter.full_addr ?? parameter.address ?? parameter.register ?? parameter.addr ?? "").replace(/\D/g, "");
+}
+
+function previewNormalized(value: unknown) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function previewRawValue(parameter: Record<string, unknown>) {
+  const candidate = parameter.raw_data ?? parameter.rawValue ?? parameter.raw_value ?? parameter.source_raw_value ?? parameter.data ?? parameter.value;
+  return calibrationPreviewNumber(candidate);
+}
+
+function calibrationPreviewSource(value: unknown): CalibrationSource | null {
+  if (!isRecord(value)) return null;
+  const role = calibrationPreviewRole(value.role);
+  const sourceName = calibrationPreviewText(value.sourceName);
+  const parameter = calibrationPreviewText(value.parameter);
+  const address = calibrationPreviewText(value.address);
+  const unit = calibrationPreviewUnit(value.unit);
+  const multiplier = calibrationPreviewNumber(value.multiplier);
+  const counterRole = calibrationPreviewCounterRole(value.counterRole);
+  const roleCounterRole = role === "acPower" ? "instantaneous-power" : role === "dailyEnergy" ? "daily-counter" : role === "totalEnergy" ? "cumulative-counter" : undefined;
+  const expectedPowerUnit = role === "acPower" && unit !== undefined && ["W", "kW", "MW"].includes(unit);
+  const expectedEnergyUnit = role !== "acPower" && unit !== undefined && ["Wh", "kWh", "MWh"].includes(unit);
+  if (!role || !sourceName || !parameter || !address || !unit || !multiplier || multiplier <= 0 || !counterRole || counterRole !== roleCounterRole || (!expectedPowerUnit && !expectedEnergyUnit)) return null;
+  return { role, sourceName, parameter, address, unit, multiplier, counterRole, scalingConfirmed: true };
+}
+
+function previewFreshnessWindowMs() {
+  return heartbeatWindows(medianCadenceMs(observedIntervalsMs)).staleAfterMs;
+}
+
+function previewCurrentMessage(message: StoredMessage, nowMs: number) {
+  if (message.delivery !== "immediate") return false;
+  const receivedAtMs = Date.parse(message.receivedAt);
+  const maximumAgeMs = previewFreshnessWindowMs();
+  if (!Number.isFinite(receivedAtMs) || receivedAtMs > nowMs || receivedAtMs < nowMs - maximumAgeMs) return false;
+  const sourceAtMs = sourceTimestampMilliseconds(message.sourceTimestamp);
+  return sourceAtMs === undefined || (sourceAtMs <= nowMs && sourceAtMs >= nowMs - maximumAgeMs);
+}
+
+function previewEvidence(message: StoredMessage) {
+  const candidate = message.parameter ?? parameterFromPayload(message.payload);
+  const rawValue = candidate ? previewRawValue(candidate) : undefined;
+  if (!candidate || rawValue === undefined) return undefined;
+  return {
+    sourceName: previewParameterSource(candidate),
+    parameter: previewParameterName(candidate),
+    address: previewParameterAddress(candidate),
+    rawValue,
+    observedAt: message.sourceTimestamp ?? undefined,
+    receivedAt: message.receivedAt,
+    sequence: message.sequence,
+    delivery: message.delivery,
+  };
+}
+
+function previewMapping(source: CalibrationSource, index: number, nowMs: number) {
+  const matchingMessages = messageHistory
+    .filter((message) => {
+      const candidate = message.parameter ?? parameterFromPayload(message.payload);
+      return candidate !== undefined
+        && previewNormalized(previewParameterSource(candidate)) === previewNormalized(source.sourceName)
+        && previewNormalized(previewParameterName(candidate)) === previewNormalized(source.parameter)
+        && previewParameterAddress(candidate) === source.address.replace(/\D/g, "");
+    })
+    .sort((left, right) => Date.parse(right.receivedAt) - Date.parse(left.receivedAt));
+  const current = matchingMessages.find((message) => previewCurrentMessage(message, nowMs));
+  if (current) {
+    const evidence = previewEvidence(current);
+    if (evidence) return { index, status: "matched" as const, evidence };
+    return { index, status: "not-found" as const, reason: "A current matching broker message did not contain a numeric raw register value." };
+  }
+  const immediate = matchingMessages.find((message) => message.delivery === "immediate");
+  if (immediate) return { index, status: "stale" as const, reason: "A matching live delivery exists, but its receipt or source observation is outside the current freshness window." };
+  const retained = matchingMessages.find((message) => message.delivery === "retained");
+  if (retained) return { index, status: "retained" as const, reason: "The only matching evidence is retained by the broker, not a current live delivery." };
+  return { index, status: "not-found" as const, reason: "No broker evidence currently matches this source, parameter, and register address." };
+}
+
+router.post("/mqtt/calibration-preview", (req, res): void => {
+  const siteName = parseSiteName(req.body?.siteName) || configuredMqttPlantSite;
+  const requestedSources = req.body?.sources;
+  if (siteName.length > 160 || !Array.isArray(requestedSources) || requestedSources.length > 100) {
+    res.status(400).json({ message: "A valid plant/site name and up to 100 draft source mappings are required." });
+    return;
+  }
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ message: "Operator sign-in is required to verify calibration mappings against live broker evidence." });
+    return;
+  }
+  if (!canUpdatePlantLocation(req.user, siteName)) {
+    res.status(403).json({ message: "Your operator account is not authorized to verify calibration mappings for this plant." });
+    return;
+  }
+  const nowMs = Date.now();
+  const mappings = requestedSources.map((value: unknown, index: number) => {
+    const source = calibrationPreviewSource(value);
+    return source
+      ? previewMapping(source, index, nowMs)
+      : { index, status: "invalid" as const, reason: "Complete the source, parameter, address, compatible unit, counter role, and positive multiplier before verifying." };
+  });
+
+  res.set("Cache-Control", "no-store").json({
+    siteName,
+    checkedAt: new Date().toISOString(),
+    mappings,
+    sourceStatus: latestMessage ? "broker evidence available" : "awaiting broker evidence",
+  });
+});
+
 router.put("/mqtt/calibration-profile/:siteName", async (req, res): Promise<void> => {
   const siteName = parseSiteName(req.params.siteName);
   const installedDcCapacityKwp = typeof req.body?.installedDcCapacityKwp === "number" ? req.body.installedDcCapacityKwp : Number(req.body?.installedDcCapacityKwp);
@@ -1492,6 +1633,14 @@ router.put("/mqtt/calibration-profile/:siteName", async (req, res): Promise<void
   }
   if (!canUpdatePlantLocation(req.user, siteName)) {
     res.status(403).json({ message: "Your operator account is not authorized to approve this plant calibration profile." });
+    return;
+  }
+  const verification = sources.map((source, index) => previewMapping(source, index, Date.now()));
+  if (verification.some((mapping) => mapping.status !== "matched")) {
+    res.status(409).json({
+      message: "Approval is held until every source mapping has a current live broker match. Refresh verification and resolve the flagged mapping(s).",
+      mappings: verification,
+    });
     return;
   }
   const approvedAt = new Date();

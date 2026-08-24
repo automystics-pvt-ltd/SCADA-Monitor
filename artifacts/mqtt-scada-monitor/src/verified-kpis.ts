@@ -337,7 +337,7 @@ function profileSourceName(row: TelemetryKpiRow) {
   return String(row.server_name ?? row.source ?? row.device ?? row.server ?? "").trim();
 }
 
-function calibrationUnitValue(value: number, source: PlantCalibrationSource, target: "kW" | "kWh") {
+export function calibrationUnitValue(value: number, source: PlantCalibrationSource, target: "kW" | "kWh") {
   const normalizedUnit = source.unit.toLowerCase();
   const scaled = value * source.multiplier;
   if (target === "kW") {
@@ -350,6 +350,16 @@ function calibrationUnitValue(value: number, source: PlantCalibrationSource, tar
   if (normalizedUnit === "mwh") return scaled * 1000;
   if (normalizedUnit === "kwh") return scaled;
   return null;
+}
+
+export function calibrationPreviewCalculation(value: number | null, source: PlantCalibrationSource) {
+  const target = source.role === "acPower" ? "kW" : "kWh";
+  const scaled = value === null ? null : value * source.multiplier;
+  const normalizedValue = value === null ? null : calibrationUnitValue(value, source, target);
+  const formula = value === null
+    ? `raw value × ${source.multiplier} → ${source.unit}`
+    : `${value} × ${source.multiplier} ${source.unit} → ${normalizedValue === null ? "unavailable" : `${normalizedValue} ${target}`}`;
+  return { target, scaled, normalizedValue, formula };
 }
 
 function profileSourceMatches(row: TelemetryKpiRow, source: PlantCalibrationSource) {

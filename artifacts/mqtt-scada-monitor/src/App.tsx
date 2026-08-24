@@ -6,7 +6,7 @@ import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
-import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
+import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import {
@@ -111,6 +111,26 @@ type PlantLocation = {
   latitude: number;
   longitude: number;
   updatedAt?: string;
+};
+type CalibrationPreviewResponse = {
+  siteName: string;
+  checkedAt: string;
+  sourceStatus: string;
+  mappings: Array<{
+    index: number;
+    status: 'matched' | 'stale' | 'retained' | 'not-found' | 'invalid';
+    reason?: string;
+    evidence?: {
+      sourceName: string;
+      parameter: string;
+      address: string;
+      rawValue: number;
+      observedAt?: string;
+      receivedAt: string;
+      sequence: number;
+      delivery: 'immediate' | 'retained';
+    };
+  }>;
 };
 type WeatherData = {
   available: boolean;
@@ -2429,28 +2449,53 @@ function emptyCalibrationSources(): PlantCalibrationSource[] {
   ];
 }
 
-function CalibrationProfileEditor({ siteName, profile, canManage, onSave }: {
+function CalibrationProfileEditor({ siteName, profile, canManage, onSave, onPreview }: {
   siteName: string;
   profile: PlantCalibrationProfile | null;
   canManage: boolean;
   onSave: (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => Promise<void>;
+  onPreview: (siteName: string, sources: PlantCalibrationSource[]) => Promise<CalibrationPreviewResponse>;
 }) {
   const [capacity, setCapacity] = useState('');
   const [sources, setSources] = useState<PlantCalibrationSource[]>(emptyCalibrationSources);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
   const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState<CalibrationPreviewResponse | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   useEffect(() => {
     setCapacity(profile ? String(profile.installedDcCapacityKwp) : '');
     setSources(profile?.sources.length ? profile.sources : emptyCalibrationSources());
     setError('');
     setSaved('');
+    setPreview(null);
   }, [profile, siteName]);
+  useEffect(() => { setPreview(null); }, [capacity]);
   const updateSource = (index: number, patch: Partial<PlantCalibrationSource>) => {
     setSources((current) => current.map((source, sourceIndex) => sourceIndex === index ? { ...source, ...patch } : source));
+    setPreview(null);
   };
-  const addSource = () => setSources((current) => [...current, { role: 'acPower', sourceName: '', parameter: '', address: '', unit: 'kW', multiplier: 1, counterRole: 'instantaneous-power', scalingConfirmed: true }]);
-  const removeSource = (index: number) => setSources((current) => current.length > 1 ? current.filter((_, sourceIndex) => sourceIndex !== index) : current);
+  const addSource = () => {
+    setSources((current) => [...current, { role: 'acPower', sourceName: '', parameter: '', address: '', unit: 'kW', multiplier: 1, counterRole: 'instantaneous-power', scalingConfirmed: true }]);
+    setPreview(null);
+  };
+  const removeSource = (index: number) => {
+    setSources((current) => current.length > 1 ? current.filter((_, sourceIndex) => sourceIndex !== index) : current);
+    setPreview(null);
+  };
+  const verify = async () => {
+    if (!canManage) return;
+    setError('');
+    setSaved('');
+    setPreviewing(true);
+    try {
+      setPreview(await onPreview(siteName, sources));
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : 'Unable to verify the draft mappings against broker evidence.');
+    } finally {
+      setPreviewing(false);
+    }
+  };
   const save = async () => {
     const installedDcCapacityKwp = Number(capacity);
     const requiredRoles: PlantCalibrationSource['role'][] = ['acPower', 'dailyEnergy', 'totalEnergy'];
@@ -2464,6 +2509,14 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave }: {
     }
     if (sources.some((source) => !source.sourceName.trim() || !source.parameter.trim() || !source.address.trim() || !Number.isFinite(source.multiplier) || source.multiplier <= 0)) {
       setError('Each source mapping needs a source name, parameter, register address, and positive scaling multiplier.');
+      return;
+    }
+    if (!preview) {
+      setError('Verify every draft mapping against current live broker evidence before approving this profile.');
+      return;
+    }
+    if (preview.mappings.length !== sources.length || preview.mappings.some((mapping) => mapping.status !== 'matched')) {
+      setError('Approval is held until every source mapping has a current live broker match. Refresh verification after resolving the flagged mapping(s).');
       return;
     }
     setError('');
@@ -2523,6 +2576,40 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave }: {
         </div>)}
       </div>
       {canManage && <button type="button" onClick={addSource} data-testid="button-add-calibration-source" className="w-full rounded-lg border border-dashed border-[#334155] px-3 py-2 text-[11px] font-semibold text-slate-400 hover:border-blue-500/50 hover:text-blue-300 focus-ring">Add another approved source</button>}
+      <div data-testid="calibration-preview-panel" className="rounded-lg border border-blue-500/20 bg-blue-500/[0.04] p-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-blue-200">Live register verification</h4>
+            <p className="mt-1 text-[10px] leading-5 text-slate-400">{canManage ? 'Read-only check against current broker evidence. It never changes the active profile or dashboard KPIs.' : 'Live raw broker evidence is restricted to authorized administrators.'}</p>
+          </div>
+          <button type="button" onClick={() => void verify()} disabled={!canManage || previewing} data-testid="button-verify-calibration" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-blue-500/30 bg-blue-600/15 px-3 py-2 text-[10px] font-bold text-blue-200 transition-colors hover:bg-blue-600/25 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><RefreshCw size={13} className={previewing ? 'animate-spin' : ''} /> {previewing ? 'Checking…' : canManage ? 'Verify current registers' : 'Administrator access required'}</button>
+        </div>
+        {preview && <p className="mt-3 border-t border-blue-500/10 pt-2 text-[10px] text-slate-500">Checked {new Date(preview.checkedAt).toLocaleString()} · {preview.sourceStatus}. Results are evidence only until this profile is approved.</p>}
+      </div>
+      {preview && <div className="space-y-2" data-testid="calibration-preview-results">
+        {sources.map((source, index) => {
+          const result = preview.mappings.find((mapping) => mapping.index === index);
+          const calculation = calibrationPreviewCalculation(result?.evidence?.rawValue ?? null, source);
+          const status = result?.status ?? 'invalid';
+          const statusLabel = status === 'matched' ? 'Current match' : status === 'stale' ? 'Stale · not current' : status === 'retained' ? 'Retained · not current' : status === 'not-found' ? 'No current match' : 'Needs details';
+          const statusTone = status === 'matched' ? 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300' : status === 'retained' || status === 'stale' ? 'border-amber-500/25 bg-amber-500/[0.06] text-amber-300' : 'border-rose-500/25 bg-rose-500/[0.06] text-rose-300';
+          return <div key={`preview-${index}`} className={`rounded-lg border p-3 ${statusTone}`} data-testid={`calibration-preview-result-${index}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider">{roleLabel[source.role]} · {statusLabel}</span>
+              {result?.evidence && <span className="font-mono text-[10px] text-slate-400">raw {result.evidence.rawValue}</span>}
+            </div>
+            <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-[10px] text-slate-400 min-[420px]:grid-cols-2">
+              <span>Source: <strong className="font-mono font-medium text-slate-300">{source.sourceName || '—'}</strong></span>
+              <span>Parameter: <strong className="font-mono font-medium text-slate-300">{source.parameter || '—'}</strong></span>
+              <span>Address: <strong className="font-mono font-medium text-slate-300">{source.address || '—'}</strong></span>
+              <span>Normalized: <strong className="font-mono font-medium text-slate-200">{calculation.normalizedValue === null ? '—' : `${calculation.normalizedValue} ${calculation.target}`}</strong></span>
+            </div>
+            <p className="mt-2 font-mono text-[10px] text-slate-300">Formula: {calculation.formula}</p>
+            {result?.evidence?.receivedAt && <p className="mt-1 text-[9px] text-slate-500">Received {new Date(result.evidence.receivedAt).toLocaleString()}{result.evidence.observedAt ? ` · source time ${new Date(result.evidence.observedAt).toLocaleString()}` : ''}</p>}
+            {result?.reason && <p className="mt-1 text-[10px] text-current/80">{result.reason}</p>}
+          </div>;
+        })}
+      </div>}
       {!canManage && <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Sign in as an authorized administrator to approve calibration</a>}
       {error && <p role="alert" data-testid="alert-plant-calibration" className="text-xs text-rose-400">{error}</p>}
       {saved && <p role="status" data-testid="status-plant-calibration-saved" className="text-xs text-emerald-400">{saved}</p>}
@@ -2531,7 +2618,7 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave }: {
   );
 }
 
-function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, locationAdmin, onSaveSiteLocation, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile }: {
+function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, locationAdmin, onSaveSiteLocation, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile, onPreviewCalibrationProfile }: {
   open: boolean;
   onClose: () => void;
   connected: boolean;
@@ -2547,6 +2634,7 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error,
   calibrationProfile: PlantCalibrationProfile | null;
   calibrationProfileError: string;
   onSaveCalibrationProfile: (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => Promise<void>;
+  onPreviewCalibrationProfile: (siteName: string, sources: PlantCalibrationSource[]) => Promise<CalibrationPreviewResponse>;
 }) {
   const [locationSite, setLocationSite] = useState(initialSite);
   const [locationLatitude, setLocationLatitude] = useState('');
@@ -2676,7 +2764,7 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error,
                </>
               ) : <p className="rounded-lg border border-dashed border-[#1E293B] px-3 py-4 text-xs text-slate-500">A plant/site name is required before coordinates can be configured.</p>}
            </div>
-             <CalibrationProfileEditor siteName={initialSite} profile={calibrationProfile} canManage={locationAdmin} onSave={onSaveCalibrationProfile} />
+              <CalibrationProfileEditor siteName={initialSite} profile={calibrationProfile} canManage={locationAdmin} onSave={onSaveCalibrationProfile} onPreview={onPreviewCalibrationProfile} />
              {calibrationProfileError && <p role="alert" data-testid="alert-plant-calibration-load" className="text-xs text-rose-400">{calibrationProfileError}</p>}
           
           {error && (
@@ -3079,6 +3167,16 @@ function AppShell() {
     if (!response.ok || !payload.profile) throw new Error(payload.message ?? 'Unable to save the plant calibration profile.');
     if (payload.profile.siteName === plantSiteName) setCalibrationProfile(payload.profile);
     setCalibrationProfileError('');
+  };
+  const previewCalibrationProfile = async (siteName: string, sources: PlantCalibrationSource[]): Promise<CalibrationPreviewResponse> => {
+    const response = await fetch('/api/mqtt/calibration-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteName, sources }),
+    });
+    const payload = await response.json() as CalibrationPreviewResponse & { message?: string };
+    if (!response.ok || !Array.isArray(payload.mappings)) throw new Error(payload.message ?? 'Unable to verify calibration mappings against live broker evidence.');
+    return payload;
   };
   const openLocationSettings = () => {
     setMobileNav(false);
@@ -3553,7 +3651,7 @@ function AppShell() {
           </>}
         </main>
       </div>
-       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} />
+       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} onPreviewCalibrationProfile={previewCalibrationProfile} />
         {selectedInverter && (
           <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1E293B] bg-[#090B13] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
             <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} siteName={selectedInverter.site} plantTimezone={persistence.timezone} mode={mode} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />
