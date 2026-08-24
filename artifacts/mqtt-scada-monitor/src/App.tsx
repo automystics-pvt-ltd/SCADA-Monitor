@@ -165,9 +165,35 @@ function findWeatherLocation(siteName: string, siteLocations: Record<string, Pla
 }
 
 function extractModbusRows(payload: JsonValue): ModbusRow[] {
-  if (!isRecord(payload)) return [];
-  const source = isRecord(payload.Automystics) ? payload.Automystics : payload;
-  return source.name !== undefined || source.data !== undefined ? [source] : [];
+  const rows: ModbusRow[] = [];
+  const visited = new Set<unknown>();
+  const appendRow = (candidate: Record<string, JsonValue>) => {
+    const name = candidate.name ?? candidate.parameter ?? candidate.tag ?? candidate.registerName;
+    const data = candidate.data ?? candidate.value ?? candidate.currentValue ?? candidate.current_value;
+    if (name === undefined || data === undefined) return;
+    rows.push({
+      ...candidate,
+      name: String(name),
+      data,
+      raw_data: candidate.raw_data ?? candidate.rawValue ?? candidate.raw_value ?? data,
+      full_addr: candidate.full_addr ?? candidate.address ?? candidate.register ?? candidate.addr,
+      server_name: candidate.server_name ?? candidate.source ?? candidate.device ?? candidate.server,
+    });
+  };
+  const visit = (value: JsonValue, depth = 0) => {
+    if (depth > 6 || typeof value !== 'object' || value === null || visited.has(value)) return;
+    visited.add(value);
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, depth + 1));
+      return;
+    }
+    appendRow(value);
+    Object.values(value).forEach((child) => {
+      if (typeof child === 'object' && child !== null) visit(child, depth + 1);
+    });
+  };
+  visit(payload);
+  return rows;
 }
 
 function modbusRowKey(row: ModbusRow) {
@@ -609,6 +635,10 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
   const weatherUpdated = weather.data?.freshness.retrievedAt ? new Date(weather.data.freshness.retrievedAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
   const weatherLocationLabel = weather.data?.location.locationName ?? (weather.location ? 'Resolving configured coordinates…' : 'Location data unavailable');
   const weatherProvenance = weather.data ? `${weather.data.source} · ${weatherLocationLabel}` : 'Source unavailable';
+  const weatherCoordinates = weather.data?.location ?? weather.location;
+  const weatherCoordinateLabel = weatherCoordinates
+    ? `${weatherCoordinates.latitude.toFixed(5)}°, ${weatherCoordinates.longitude.toFixed(5)}°`
+    : 'Coordinates not configured';
   const observationTime = weather.data?.freshness.observationTime?.replace('T', ' ') ?? 'Data unavailable';
   const receivedTime = weatherUpdated ?? 'Data unavailable';
   const weatherCacheStatus = weather.data?.freshness.cacheStatus === 'fresh' ? 'Fresh response' : weather.data?.freshness.cacheStatus === 'cached' ? 'Cached ≤ 4 min' : 'Data unavailable';
@@ -638,8 +668,9 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
       </div>
       <div className="order-3 flex w-full min-w-0 items-center gap-2 overflow-x-auto border-t border-[#1e293b]/70 pt-2 no-scrollbar 2xl:hidden" aria-label="Plant status summary">
         <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><CloudSun size={12} className="text-slate-400" />{temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}</span>
-        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><Zap size={12} className="text-slate-400" />{irradiance === null || irradiance === undefined ? 'Irradiance unavailable' : `${irradiance.toFixed(0)} W/m²`}</span>
+        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><Zap size={12} className="text-slate-400" />{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span>
         <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><MapPin size={12} className="text-slate-400" />{weatherProvenance}</span>
+        <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300" title="Verified configured plant coordinates"><LocateFixed size={12} className="text-slate-400" />{weatherCoordinateLabel}</span>
         <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><RefreshCw size={12} className="text-slate-400" />{weather.data ? weatherCacheStatus : 'Weather data unavailable'}</span>
         <span className="scada-status-chip flex shrink-0 items-center gap-1.5 rounded-full border border-[#1e293b] bg-[#111827] px-2.5 py-1 text-[10px] text-slate-300"><Activity size={12} className="text-slate-400" />{mode === 'live' ? 'SSE stream' : 'Demo stream'}</span>
       </div>
@@ -651,11 +682,15 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
         </div>
         <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300">
           <Zap size={14} className="text-slate-400" />
-          <span>{irradiance === null || irradiance === undefined ? 'Irradiance unavailable' : `${irradiance.toFixed(0)} W/m²`}</span>
+          <span>{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span>
         </div>
         <div className="scada-status-chip flex max-w-[180px] items-center gap-2 truncate px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300 xl:max-w-[240px]" title={weatherProvenance} aria-label={`Weather source and location: ${weatherProvenance}`}>
           <MapPin size={14} className="shrink-0 text-slate-400" />
           <span className="truncate">{weatherProvenance}</span>
+        </div>
+        <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300" title="Verified configured plant coordinates">
+          <LocateFixed size={14} className="shrink-0 text-slate-400" />
+          <span>{weatherCoordinateLabel}</span>
         </div>
         <div className="scada-status-chip flex max-w-[210px] items-center gap-2 truncate px-3 py-1.5 rounded-full bg-[#111827] border border-[#1e293b] text-xs text-slate-300" title={weatherMetadata} aria-label={`Weather timing and cache status: ${weatherMetadata}`}>
           <RefreshCw size={14} className="text-slate-400" />
@@ -1074,6 +1109,9 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
   const activePower = useMemo(() => latestEvidence(validated, ['activePower'])[0], [validated]);
   const powerFactor = useMemo(() => latestEvidence(validated, ['powerFactor'])[0], [validated]);
   const frequency = useMemo(() => latestEvidence(validated, ['frequency'])[0], [validated]);
+  const rawActivePower = useMemo(() => latestEvidence(discoveries, ['activePower'])[0], [discoveries]);
+  const rawPowerFactor = useMemo(() => latestEvidence(discoveries, ['powerFactor'])[0], [discoveries]);
+  const rawFrequency = useMemo(() => latestEvidence(discoveries, ['frequency'])[0], [discoveries]);
   const traceRows = useMemo(() => [...discoveries]
     .filter((item) => !parameterQuery.trim() || `${item.label} ${item.source} ${item.address}`.toLowerCase().includes(parameterQuery.trim().toLowerCase()))
     .filter((item) => statusFilter === 'all' || item.status === statusFilter)
@@ -1141,13 +1179,15 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
       {mode !== 'live' ? <div className="relative z-10 flex min-h-48 flex-1 flex-col items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/5 px-6 text-center"><AlertCircle size={26} className="mb-3 text-amber-400" /><h4 className="text-sm font-bold text-amber-200">Operational electrical analytics are unavailable in Demo mode</h4><p className="mt-2 max-w-lg text-xs leading-5 text-amber-100/70">Switch to Live Broker mode to inspect source-backed Modbus values, scaling validation, and persisted electrical history.</p></div> : <div className="relative z-10 space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {([
-            { title: 'Active power', evidence: activePower, context: 'Power' },
-            { title: 'Power factor', evidence: powerFactor, context: 'Factor' },
-            { title: 'Frequency', evidence: frequency, context: 'Hz' },
+            { title: 'Active power', evidence: activePower, rawEvidence: rawActivePower, context: 'Power' },
+            { title: 'Power factor', evidence: powerFactor, rawEvidence: rawPowerFactor, context: 'Factor' },
+            { title: 'Frequency', evidence: frequency, rawEvidence: rawFrequency, context: 'Hz' },
             { title: 'Phase balance', calculated: voltageBalance === null ? undefined : { value: voltageBalance, unit: '%' }, context: 'Calculated from validated phase values' },
-          ] as Array<{ title: string; evidence?: ElectricalEvidence; calculated?: { value: number; unit: string }; context: string }>).map(({ title, evidence, calculated, context }) => {
-            const value = evidence ? formatElectricalValue(evidence.value, evidence.unit) : calculated ? `${calculated.value.toFixed(2)} ${calculated.unit}` : 'Data unavailable';
-            return <div key={title} className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" data-testid={`card-electrical-${title.toLowerCase().replace(/\s+/g, '-')}`} title={evidence ? `${evidence.label}\nSource: ${evidence.source}\nAddress: ${evidence.address}\nTimestamp: ${evidence.timestampLabel}\nRaw: ${evidence.rawValue}\nQuality: ${evidence.quality}` : `${title} requires validated electrical telemetry.`}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 truncate text-base font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'font-mono text-slate-100'}`}>{value}</p><p className="mt-1 truncate text-[10px] text-slate-500">{evidence ? `${evidence.status} · ${evidence.source}` : calculated ? 'Calculated only from validated phase values' : context}</p></div>;
+          ] as Array<{ title: string; evidence?: ElectricalEvidence; rawEvidence?: ElectricalEvidence; calculated?: { value: number; unit: string }; context: string }>).map(({ title, evidence, rawEvidence, calculated, context }) => {
+            const displayedEvidence = evidence ?? rawEvidence;
+            const rawOnly = !evidence && Boolean(rawEvidence);
+            const value = evidence ? formatElectricalValue(evidence.value, evidence.unit) : rawEvidence ? `${rawEvidence.rawValue} raw` : calculated ? `${calculated.value.toFixed(2)} ${calculated.unit}` : 'Data unavailable';
+            return <div key={title} className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" data-testid={`card-electrical-${title.toLowerCase().replace(/\s+/g, '-')}`} title={displayedEvidence ? `${displayedEvidence.label}\nSource: ${displayedEvidence.source}\nAddress: ${displayedEvidence.address}\nTimestamp: ${displayedEvidence.timestampLabel}\nRaw: ${displayedEvidence.rawValue}\nQuality: ${displayedEvidence.quality}` : `${title} requires validated electrical telemetry.`}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 truncate text-base font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'font-mono text-slate-100'}`}>{value}</p><p className="mt-1 truncate text-[10px] text-slate-500">{evidence ? `${evidence.status} · ${evidence.source}` : rawOnly ? `Raw input · ${rawEvidence!.source} · scaling required` : calculated ? 'Calculated only from validated phase values' : context}</p></div>;
           })}
         </div>
         <div className="grid gap-4 xl:grid-cols-2"><Comparison title="Phase Voltage Comparison" data={phaseVoltage} unit={phaseVoltage[0]?.unit || 'V'} testId="chart-phase-voltage-comparison" /><Comparison title="Phase Current Comparison" data={phaseCurrent} unit={phaseCurrent[0]?.unit || 'A'} testId="chart-phase-current-comparison" /></div>
@@ -1161,6 +1201,7 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
 function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { devices: Device[]; rows: ModbusRow[]; onOpenInverter: (device: Device) => void; onViewAll?: () => void }) {
   const inverters = devices.filter(d => d.type === 'Power inverter');
   const rawPower = rows.map((row) => electricalKind(row) === 'activePower' ? Number(row.data) : NaN).find(Number.isFinite);
+  const sourceInverters = rawInverterSignals(rows);
   const hasUnmappedPowerEvidence = !inverters.length && rawPower !== undefined;
   return (
     <div className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
@@ -1195,7 +1236,14 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
                  <td className="py-2.5 text-[11px] text-slate-300">{Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : 'Data unavailable'}</td>
                  <td className="py-2.5 text-[11px] text-slate-300 text-right">{Number.isFinite(numberFrom(inv, ['temperature', 'cabinet_c'], NaN)) ? `${numberFrom(inv, ['temperature', 'cabinet_c'])}°C` : 'Data unavailable'}</td>
               </tr>
-             )) : hasUnmappedPowerEvidence ? <tr data-testid="row-unmapped-inverter-evidence"><td className="py-2.5 text-[11px] font-medium text-slate-300">Unmapped active-power register</td><td className="py-2.5"><span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-400">Unmapped</span></td><td className="py-2.5 text-[11px] text-slate-300">{rawPower.toLocaleString()} raw</td><td className="py-2.5 text-right text-[11px] text-slate-500">Data unavailable</td></tr> : <tr><td colSpan={4} className="py-8 text-center text-xs text-slate-500">No mapped inverter telemetry has been discovered yet.</td></tr>}
+              )) : sourceInverters.length ? sourceInverters.map((signal) => (
+                <tr key={signal.parameter} data-testid={`row-source-inverter-${signal.parameter}`} className="scada-table-row hover:bg-[#1e293b]/30">
+                  <td className="py-2.5 text-[11px] font-medium text-slate-300">{signal.parameter.toUpperCase()}</td>
+                  <td className="py-2.5"><span className="inline-flex rounded-full bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-blue-300">Source tag</span></td>
+                  <td className="py-2.5 text-[11px] text-slate-300">{signal.value.toLocaleString()} raw</td>
+                  <td className="py-2.5 text-right text-[11px] text-slate-500">Not reported</td>
+                </tr>
+              )) : hasUnmappedPowerEvidence ? <tr data-testid="row-unmapped-inverter-evidence"><td className="py-2.5 text-[11px] font-medium text-slate-300">Unmapped active-power register</td><td className="py-2.5"><span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-400">Unmapped</span></td><td className="py-2.5 text-[11px] text-slate-300">{rawPower.toLocaleString()} raw</td><td className="py-2.5 text-right text-[11px] text-slate-500">Not reported</td></tr> : <tr><td colSpan={4} className="py-8 text-center text-xs text-slate-500">No inverter source tags have been discovered yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1516,7 +1564,7 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
         <EnvironmentMetric icon={Wind} label="Wind speed" value={weatherMetricValue(current?.windSpeedMs, 'm/s')} tone="text-blue-400" detail={metricDetail('Wind speed')} />
         <EnvironmentMetric icon={LocateFixed} label="Wind direction" value={windDirection(current?.windDirectionDeg) ?? 'Data unavailable'} tone="text-indigo-400" detail={metricDetail('Wind direction')} />
         <EnvironmentMetric icon={Droplets} label="Humidity" value={weatherMetricValue(current?.humidityPct, '%', 0)} tone="text-cyan-400" detail={metricDetail('Humidity')} />
-        <EnvironmentMetric icon={Sun} label="Solar irradiance" value={weatherMetricValue(current?.irradianceWm2, 'W/m²', 0)} tone="text-orange-400" detail={metricDetail('Solar irradiance')} />
+        <EnvironmentMetric icon={Sun} label="Solar irradiance" value={current?.irradianceWm2 === null || current?.irradianceWm2 === undefined ? 'Not reported by provider' : weatherMetricValue(current.irradianceWm2, 'W/m²', 0)} tone="text-orange-400" detail={metricDetail('Solar irradiance')} />
         <EnvironmentMetric icon={CloudSun} label="Cloud cover" value={weatherMetricValue(current?.cloudCoverPct, '%', 0)} tone="text-slate-400" detail={metricDetail('Cloud cover')} />
         <EnvironmentMetric icon={CloudRain} label="Precipitation" value={weatherMetricValue(current?.precipitationMm, 'mm')} tone="text-sky-400" detail={metricDetail('Precipitation')} />
         <EnvironmentMetric icon={MapPin} label="Weather timezone" value={timezoneLabel} tone="text-emerald-400" detail={metricDetail('Weather timezone')} />
@@ -1878,14 +1926,18 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   const [locationSaved, setLocationSaved] = useState('');
   const [locationSaving, setLocationSaving] = useState(false);
   const dialogRef = useModalAccessibility(onClose, open);
+  const locationSiteOptions = useMemo(
+    () => sites.length ? sites : initialSite ? [initialSite] : [],
+    [initialSite, sites],
+  );
   const handleConnect = () => { localStorage.setItem('northline-broker-url', url); localStorage.setItem('northline-broker-topic', topic); onConnect(url, topic); };
   useEffect(() => {
-    if (!sites.length) {
+    if (!locationSiteOptions.length) {
       setLocationSite('');
       return;
     }
-    setLocationSite((current) => sites.includes(current) ? current : sites.includes(initialSite) ? initialSite : sites[0]);
-  }, [initialSite, sites]);
+    setLocationSite((current) => locationSiteOptions.includes(current) ? current : locationSiteOptions.includes(initialSite) ? initialSite : locationSiteOptions[0]);
+  }, [initialSite, locationSiteOptions]);
   useEffect(() => {
     const saved = locationSite ? siteLocations[locationSite] : undefined;
     setLocationLatitude(saved ? String(saved.latitude) : '');
@@ -1981,7 +2033,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                  <MapPin size={16} className="text-orange-400" />
                </div>
              </div>
-              {sites.length ? (
+               {locationSiteOptions.length ? (
                <>
                   <div data-testid="plant-location-access" className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-[11px] leading-5 ${locationAdmin ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300' : 'border-slate-500/20 bg-slate-500/5 text-slate-400'}`}>
                     <MapPin size={14} className="mt-0.5 shrink-0" />
@@ -1989,8 +2041,8 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                   </div>
                  <label className="block">
                    <span className="mb-2 block text-xs font-bold text-slate-300">Plant/site</span>
-                    <select value={locationSite} onChange={(event) => setLocationSite(event.target.value)} disabled={!locationAdmin} data-testid="select-plant-location-site" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60">
-                     {sites.map((site) => <option key={site} value={site}>{site}</option>)}
+                     <select value={locationSite} onChange={(event) => setLocationSite(event.target.value)} disabled={!locationAdmin} data-testid="select-plant-location-site" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60">
+                      {locationSiteOptions.map((site) => <option key={site} value={site}>{site}</option>)}
                    </select>
                  </label>
                  <div className="grid grid-cols-2 gap-3">
@@ -2004,13 +2056,13 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                    </label>
                  </div>
                    <p className="text-[10px] leading-5 text-slate-500">Coordinates are range-validated before saving, then used to refresh the resolved place name, timezone, and weather data.</p>
-                   {!locationAdmin && <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Log in to request location access</a>}
+                    {!locationAdmin && <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Sign in as an authorized location administrator to edit and save</a>}
                  {locationError && <p role="alert" data-testid="alert-plant-location" className="text-xs text-rose-400">{locationError}</p>}
                  {!locationError && siteLocationError && <p role="alert" data-testid="alert-plant-location-load" className="text-xs text-rose-400">{siteLocationError}</p>}
                  {locationSaved && <p role="status" data-testid="status-plant-location-saved" className="text-xs text-emerald-400">{locationSaved}</p>}
                   {locationAdmin && <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>}
                </>
-             ) : <p className="rounded-lg border border-dashed border-[#1e293b] px-3 py-4 text-xs text-slate-500">Connect to telemetry to discover plant/site names before adding a location.</p>}
+              ) : <p className="rounded-lg border border-dashed border-[#1e293b] px-3 py-4 text-xs text-slate-500">A plant/site name is required before coordinates can be configured.</p>}
            </div>
           
           {error && (
@@ -2130,7 +2182,13 @@ function AppShell() {
     return () => controller.abort();
   }, []);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
-  const availableSites = useMemo(() => Array.from(new Set(devices.map((device) => device.site).filter(Boolean))).sort(), [devices]);
+  const availableSites = useMemo(
+    () => Array.from(new Set([
+      ...devices.map((device) => device.site).filter(Boolean),
+      ...Object.keys(siteLocations),
+    ])).sort(),
+    [devices, siteLocations],
+  );
   useEffect(() => {
     if (availableSites.length && !availableSites.includes(activeSite)) setActiveSite(availableSites[0]);
   }, [activeSite, availableSites]);
@@ -2444,11 +2502,15 @@ function AppShell() {
   const telemetryAge = lastTelemetryAt === null ? null : now - lastTelemetryAt;
   const electricalLiveState: 'fresh' | 'stale' | 'unavailable' = mode === 'demo'
     ? 'fresh'
-    : telemetryAge === null || telemetryAge > DEVICE_STALE_MAX_AGE_MS
-      ? 'unavailable'
-      : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS
+    : communication?.deviceCommunication === 'live'
+      ? 'fresh'
+      : communication?.deviceCommunication === 'stale'
         ? 'stale'
-        : 'fresh';
+        : telemetryAge === null || telemetryAge > DEVICE_STALE_MAX_AGE_MS
+          ? 'unavailable'
+          : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS
+            ? 'stale'
+            : 'fresh';
   const operationalDevices = useMemo(() => devices.map((device) => ({ ...device, status: statusAt(device, now, mode) })), [devices, mode, now]);
   const inverters = useMemo(() => operationalDevices.filter(d => d.type === 'Power inverter'), [operationalDevices]);
   const onlinePowerReadings = useMemo(() => electricalLiveState === 'fresh' ? inverters.filter((device) => device.status === 'online').map((device) => {

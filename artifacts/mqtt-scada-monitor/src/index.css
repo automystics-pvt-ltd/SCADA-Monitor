@@ -297,29 +297,42 @@ button:not(:disabled):active,
 
 /* The existing telemetry screens use a compact set of surface utilities. These
    overrides keep every surface, table, drawer, and chart container in sync in light mode. */
-.scada-theme.light[class~="bg-[#0b0f19]"],
-.scada-theme.light [class~="bg-[#0b0f19]"] { background-color: var(--scada-bg) !important; }
-.scada-theme.light[class~="bg-[#111827]"],
-.scada-theme.light [class~="bg-[#111827]"] { background-color: var(--scada-surface) !important; }
-.scada-theme.light[class~="bg-[#0f1423]"],
-.scada-theme.light [class~="bg-[#0f1423]"] { background-color: var(--scada-surface-raised) !important; }
-.scada-theme.light[class~="bg-[#1e293b]"],
-.scada-theme.light [class~="bg-[#1e293b]"] { background-color: var(--scada-hover) !important; }
+.scada-theme.light[class*="bg-[#0b0f19]"],
+.scada-theme.light [class*="bg-[#0b0f19]"] { background-color: var(--scada-bg) !important; }
+.scada-theme.light[class*="bg-[#111827]"],
+.scada-theme.light [class*="bg-[#111827]"] { background-color: var(--scada-surface) !important; }
+.scada-theme.light[class*="bg-[#0f1423]"],
+.scada-theme.light [class*="bg-[#0f1423]"] { background-color: var(--scada-surface-raised) !important; }
+.scada-theme.light[class*="bg-[#1e293b]"],
+.scada-theme.light [class*="bg-[#1e293b]"] { background-color: var(--scada-hover) !important; }
 .scada-theme.light [class*="border-[#1e293b]"],
 .scada-theme.light [class*="border-[#334155]"] { border-color: var(--scada-border) !important; }
 .scada-theme.light [class*="divide-[#1e293b]"] > :not(:last-child) { border-color: var(--scada-border) !important; }
+.scada-theme.light [class~="text-slate-50"],
 .scada-theme.light [class~="text-slate-100"],
 .scada-theme.light [class~="text-slate-200"],
 .scada-theme.light [class~="text-slate-300"] { color: var(--scada-text) !important; }
 .scada-theme.light [class~="text-slate-400"],
 .scada-theme.light [class~="text-slate-500"] { color: var(--scada-muted) !important; }
+.scada-theme.light [class~="text-slate-600"] { color: #45556e !important; }
+.scada-theme.light [class~="text-slate-700"],
+.scada-theme.light [class~="text-slate-800"],
+.scada-theme.light [class~="text-slate-900"] { color: var(--scada-text) !important; }
 .scada-theme.light [class~="text-emerald-400"] { color: #047857 !important; }
+.scada-theme.light [class~="text-emerald-300"] { color: #047857 !important; }
 .scada-theme.light [class~="text-blue-300"],
-.scada-theme.light [class~="text-blue-400"] { color: #1d4ed8 !important; }
+.scada-theme.light [class~="text-blue-400"],
+.scada-theme.light [class~="text-blue-200"] { color: #1d4ed8 !important; }
 .scada-theme.light [class~="text-amber-300"],
-.scada-theme.light [class~="text-amber-400"] { color: #a16207 !important; }
+.scada-theme.light [class~="text-amber-400"],
+.scada-theme.light [class~="text-amber-200"] { color: #92400e !important; }
 .scada-theme.light [class~="text-rose-300"],
-.scada-theme.light [class~="text-rose-400"] { color: #be123c !important; }
+.scada-theme.light [class~="text-rose-400"],
+.scada-theme.light [class~="text-rose-200"] { color: #be123c !important; }
+.scada-theme.light [class~="text-purple-300"],
+.scada-theme.light [class~="text-purple-400"] { color: #6d28d9 !important; }
+.scada-theme.light [class*="bg-slate-800"],
+.scada-theme.light [class*="bg-slate-900"] { background-color: var(--scada-surface-raised) !important; }
 .scada-theme.light select option { background: var(--scada-surface); color: var(--scada-text); }
 .scada-theme.light .scada-table-row:hover { background-color: #eff6ff !important; }
 .scada-theme.light .scada-interactive-card::after,
