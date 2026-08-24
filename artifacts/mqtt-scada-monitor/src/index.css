@@ -61,6 +61,7 @@
   --ring: #3b82f6;
 
   --scada-bg: #f4f7fb;
+  --scada-sidebar: #e8eef7;
   --scada-surface: #ffffff;
   --scada-surface-raised: #f8fafc;
   --scada-border: #dbe3ef;
@@ -94,6 +95,7 @@
   --border: #1e293b;
   --input: #1e293b;
   --scada-bg: #0b0f19;
+  --scada-sidebar: #0b0f19;
   --scada-surface: #111827;
   --scada-surface-raised: #0f1423;
   --scada-border: #1e293b;
@@ -124,10 +126,42 @@
   0%, 100% { opacity: .45; transform: scale(.85); }
   50% { opacity: 1; transform: scale(1); }
 }
+@keyframes inverter-flow {
+  to { stroke-dashoffset: -34; }
+}
 
 .animate-rise-in { animation: rise-in .45s ease-out both; }
 .pulse-soft { animation: pulse-soft 2.2s ease-in-out infinite; }
+.inverter-flow-path { animation: inverter-flow 1.35s linear infinite; }
+.inverter-flow-path-delayed { animation-delay: -.68s; }
 .mono { font-family: var(--app-font-mono); }
+
+.scada-sidebar-accent-image,
+.scada-sidebar-accent-wash {
+  pointer-events: none;
+}
+.scada-sidebar-accent-image {
+  opacity: .12;
+  filter: grayscale(100%) contrast(1.05) saturate(.7);
+  mix-blend-mode: screen;
+}
+.scada-sidebar-accent-wash {
+  background: linear-gradient(180deg, var(--scada-sidebar) 0%, color-mix(in srgb, var(--scada-sidebar) 62%, transparent) 42%, var(--scada-sidebar) 100%);
+}
+.light .scada-sidebar-accent-image {
+  opacity: .1;
+  mix-blend-mode: multiply;
+  filter: grayscale(100%) contrast(.95) brightness(1.12);
+}
+.light .scada-sidebar-accent-wash {
+  background: linear-gradient(180deg, var(--scada-sidebar) 0%, color-mix(in srgb, var(--scada-sidebar) 68%, transparent) 42%, var(--scada-sidebar) 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .scada-sidebar-accent,
+  .scada-sidebar-accent-image {
+    transition: none;
+  }
+}
 
 .focus-ring:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }

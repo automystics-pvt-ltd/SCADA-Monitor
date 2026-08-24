@@ -28,6 +28,14 @@ type Device = {
   status: DeviceStatus;
   lastSeen: number;
   telemetry: Record<string, JsonValue>;
+  sourceEvidence?: {
+    parameter: string;
+    value: number;
+    address: string;
+    provenance: 'live' | 'replay';
+    sourceName?: string;
+    observedAt?: string;
+  };
 };
 type ModbusRow = Record<string, JsonValue>;
 type PersistenceStatus = {
@@ -495,6 +503,14 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
           </nav>
         </div>
       </div>
+       <div aria-hidden="true" className={`scada-sidebar-accent relative h-28 shrink-0 overflow-hidden border-t border-[#1e293b] transition-[height,opacity] duration-300 ${collapsed ? 'md:h-0 md:border-t-0 md:opacity-0' : ''}`}>
+         <img src="/assets/solar-array-accent.webp" alt="" loading="lazy" decoding="async" fetchPriority="low" className="scada-sidebar-accent-image absolute inset-0 h-full w-full object-cover object-[center_68%]" />
+         <div className="scada-sidebar-accent-wash absolute inset-0" />
+         <div className="relative z-10 flex h-full flex-col justify-end px-5 pb-4">
+           <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">Solar plant network</p>
+           <p className="mt-1 text-xs font-semibold text-slate-200">Northline operations</p>
+         </div>
+       </div>
     </aside>
   );
 }
@@ -1224,17 +1240,17 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
             </tr>
           </thead>
           <tbody className="divide-y divide-[#1e293b]/50">
-              {inverters.length ? inverters.map(inv => (
+               {inverters.length ? inverters.map(inv => (
                <tr key={inv.id} data-testid={`row-inverter-${inv.id}`} className="scada-table-row hover:bg-[#1e293b]/30">
-                 <td className="py-2.5 text-[11px] font-medium text-slate-300"><button type="button" onClick={() => onOpenInverter(inv)} className="rounded text-left hover:text-blue-300 focus-ring" title={`Open detailed monitoring for ${inv.name}`}>{inv.name.replace('Inverter ', 'INV')}</button></td>
+                  <td className="py-2.5 text-[11px] font-medium text-slate-300"><button type="button" onClick={() => onOpenInverter(inv)} className="rounded text-left hover:text-blue-300 focus-ring" title={`Open detailed monitoring for ${inv.name}`}>{inv.sourceEvidence ? inv.name : inv.name.replace('Inverter ', 'INV')}</button></td>
                 <td className="py-2.5">
-                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${inv.status === 'online' ? 'bg-emerald-500/10 text-emerald-400' : inv.status === 'offline' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                    <span className={`scada-status-indicator w-1 h-1 rounded-full ${inv.status === 'online' ? 'bg-emerald-400 pulse-soft' : inv.status === 'offline' ? 'bg-rose-400' : 'bg-amber-400'}`} />
-                    {inv.status}
-                  </span>
+                   {inv.sourceEvidence ? <span className="inline-flex rounded-full bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold uppercase text-blue-300">Source tag</span> : <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${inv.status === 'online' ? 'bg-emerald-500/10 text-emerald-400' : inv.status === 'offline' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                     <span className={`scada-status-indicator w-1 h-1 rounded-full ${inv.status === 'online' ? 'bg-emerald-400 pulse-soft' : inv.status === 'offline' ? 'bg-rose-400' : 'bg-amber-400'}`} />
+                     {inv.status}
+                   </span>}
                 </td>
-                 <td className="py-2.5 text-[11px] text-slate-300">{Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : 'Data unavailable'}</td>
-                 <td className="py-2.5 text-[11px] text-slate-300 text-right">{Number.isFinite(numberFrom(inv, ['temperature', 'cabinet_c'], NaN)) ? `${numberFrom(inv, ['temperature', 'cabinet_c'])}°C` : 'Data unavailable'}</td>
+                  <td className="py-2.5 text-[11px] text-slate-300">{inv.sourceEvidence ? `${inv.sourceEvidence.value.toLocaleString()} raw` : Number.isFinite(numberFrom(inv, ['power', 'active_kw'], NaN)) ? `${numberFrom(inv, ['power', 'active_kw']).toLocaleString()} kW` : 'Data unavailable'}</td>
+                  <td className="py-2.5 text-[11px] text-slate-300 text-right">{inv.sourceEvidence ? 'Not reported' : Number.isFinite(numberFrom(inv, ['temperature', 'cabinet_c'], NaN)) ? `${numberFrom(inv, ['temperature', 'cabinet_c'])}°C` : 'Data unavailable'}</td>
               </tr>
               )) : sourceInverters.length ? sourceInverters.map((signal) => (
                 <tr key={signal.parameter} data-testid={`row-source-inverter-${signal.parameter}`} className="scada-table-row hover:bg-[#1e293b]/30">
@@ -1250,7 +1266,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
       
       <div className="pt-3 mt-2 border-t border-[#1e293b] flex justify-between items-center text-[10px] text-slate-400">
         <span className="uppercase tracking-wider font-semibold">Total Today</span>
-          <span className="font-bold text-slate-200">{inverters.length ? `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting • device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}</span>
+          <span className="font-bold text-slate-200">{inverters.length ? inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source tag${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}</span>
       </div>
     </div>
   );
@@ -2512,13 +2528,52 @@ function AppShell() {
             ? 'stale'
             : 'fresh';
   const operationalDevices = useMemo(() => devices.map((device) => ({ ...device, status: statusAt(device, now, mode) })), [devices, mode, now]);
+  const sourceTagInverters = useMemo(() => {
+    const latestBySource = new Map<string, Device>();
+    for (const row of modbusRows) {
+      const signal = rawInverterSignals([row])[0];
+      if (!signal) continue;
+      const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'Unspecified MQTT source');
+      const sourceTime = row.date_iso_8601 ?? row.timestamp ?? row.date;
+      const numericTime = typeof sourceTime === 'number' ? sourceTime : Number(sourceTime);
+      const parsedTime = Number.isFinite(numericTime)
+        ? new Date(numericTime < 1_000_000_000_000 ? numericTime * 1000 : numericTime).getTime()
+        : Date.parse(String(sourceTime ?? ''));
+      const observedAt = telemetryDateTime(row).full;
+      const sourceKey = `${sourceName}|${signal.parameter.toLowerCase()}|${signal.address.toLowerCase()}`;
+      const candidate: Device = {
+        id: `source-${encodeURIComponent(sourceKey)}`,
+        name: signal.parameter.toUpperCase(),
+        site: plantSiteName || 'Discovered site',
+        type: 'Power inverter',
+        status: 'stale',
+        lastSeen: Number.isFinite(parsedTime) ? parsedTime : now,
+        telemetry: {
+          source_tag: {
+            parameter: signal.parameter,
+            value: signal.value,
+            address: signal.address,
+            source_name: sourceName,
+            observed_at: observedAt,
+            provenance: signal.provenance,
+          },
+          raw_modbus_row: row,
+        },
+        sourceEvidence: { ...signal, sourceName, observedAt },
+      };
+      const current = latestBySource.get(sourceKey);
+      if (!current || candidate.lastSeen >= current.lastSeen) latestBySource.set(sourceKey, candidate);
+    }
+    return [...latestBySource.values()];
+  }, [modbusRows, now, plantSiteName]);
+  const inverterDisplayDevices = useMemo(() => [...operationalDevices, ...sourceTagInverters], [operationalDevices, sourceTagInverters]);
   const inverters = useMemo(() => operationalDevices.filter(d => d.type === 'Power inverter'), [operationalDevices]);
   const onlinePowerReadings = useMemo(() => electricalLiveState === 'fresh' ? inverters.filter((device) => device.status === 'online').map((device) => {
     const power = numberFrom(device, ['power', 'active_kw'], NaN);
     return Number.isFinite(power) ? power : null;
   }).filter((power): power is number => power !== null) : [], [electricalLiveState, inverters]);
   const totalAcPower = onlinePowerReadings.length ? onlinePowerReadings.reduce((sum, power) => sum + power, 0) : null;
-  const selectedInverter = useMemo(() => selectedInverterId ? operationalDevices.find((device) => device.id === selectedInverterId) ?? null : null, [operationalDevices, selectedInverterId]);
+  const selectedInverter = useMemo(() => selectedInverterId ? inverterDisplayDevices.find((device) => device.id === selectedInverterId) ?? null : null, [inverterDisplayDevices, selectedInverterId]);
   const onlineInverters = electricalLiveState === 'fresh' ? inverters.filter(d => d.status === 'online').length : 0;
   const totalInverters = inverters.length;
   const activeAlarms = useMemo(() => operationalDevices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0), 0), [operationalDevices]);
@@ -2576,7 +2631,7 @@ function AppShell() {
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} now={now} weather={weatherState} siteName={plantSiteName} />
         
         <main className="min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden p-3 sm:p-6">
-          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={operationalDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
+          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -2651,7 +2706,7 @@ function AppShell() {
                 <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} />
             </div>
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
-                <InverterOverviewTable devices={operationalDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
+                <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
           </div>
           
@@ -2682,7 +2737,7 @@ function AppShell() {
        <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} />
         {selectedInverter && (
           <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1e293b] bg-[#111827] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
-            <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} />
+            <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />
           </Suspense>
         )}
       <Toaster />
