@@ -8,18 +8,19 @@ import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceT
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
-import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
   Download, Droplets, Grid2X2, LayoutGrid, Link2, LocateFixed, MapPin, Menu, Play, PlugZap, Radio, RefreshCw, Search, Settings2,
   Thermometer, Wind, Wifi, WifiOff, X, Zap, Sun, Moon, Bell, FileText, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
+import type * as Recharts from 'recharts';
 
 const queryClient = new QueryClient();
 const DEFAULT_BROKER_URL = 'mqtt://76.13.4.214';
 const DEFAULT_BROKER_TOPIC = 'trn246/modbus';
 
+const ChartPlaceholder = ({ children }: { children?: ReactNode }) => <>{children}</>;
 type DeviceStatus = 'online' | 'stale' | 'offline';
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type Device = {
@@ -2639,6 +2640,7 @@ function AppShell() {
   const [mobileNav, setMobileNav] = useState(false);
   const [navigationCollapsed, setNavigationCollapsed] = useState(() => localStorage.getItem('solar-scada-navigation-collapsed') === 'true');
   const [activeSection, setActiveSection] = useState('overview');
+  useDeferredChartLibrary(activeSection !== 'reports' && activeSection !== 'settings');
   const [selectedInverterId, setSelectedInverterId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState('');
@@ -3455,3 +3457,63 @@ export default function App() {
     </QueryClientProvider>
   );
 }
+
+function useDeferredChartLibrary(enabled: boolean) {
+  const [, refresh] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const loadCharts = () => {
+      chartsLoadPromise ??= import('recharts').then((charts) => {
+        LineChart = charts.LineChart;
+        Line = charts.Line;
+        AreaChart = charts.AreaChart;
+        Area = charts.Area;
+        BarChart = charts.BarChart;
+        Bar = charts.Bar;
+        PieChart = charts.PieChart;
+        Pie = charts.Pie;
+        Cell = charts.Cell;
+        XAxis = charts.XAxis;
+        YAxis = charts.YAxis;
+        CartesianGrid = charts.CartesianGrid;
+        Tooltip = charts.Tooltip;
+        ResponsiveContainer = charts.ResponsiveContainer;
+      });
+      void chartsLoadPromise.then(() => refresh((version) => version + 1));
+    };
+    const timer = window.setTimeout(loadCharts, 150);
+    return () => window.clearTimeout(timer);
+  }, [enabled]);
+}
+
+const EmptyChartElement = () => null;
+
+let XAxis: typeof Recharts.XAxis = EmptyChartElement as unknown as typeof Recharts.XAxis;
+
+let Cell: typeof Recharts.Cell = EmptyChartElement as typeof Recharts.Cell;
+
+let Bar: typeof Recharts.Bar = EmptyChartElement as unknown as typeof Recharts.Bar;
+
+let Tooltip: typeof Recharts.Tooltip = EmptyChartElement as unknown as typeof Recharts.Tooltip;
+
+let CartesianGrid: typeof Recharts.CartesianGrid = EmptyChartElement as unknown as typeof Recharts.CartesianGrid;
+
+let Line: typeof Recharts.Line = EmptyChartElement as unknown as typeof Recharts.Line;
+
+let chartsLoadPromise: Promise<void> | null = null;
+
+let LineChart: typeof Recharts.LineChart = ChartPlaceholder as typeof Recharts.LineChart;
+
+let PieChart: typeof Recharts.PieChart = ChartPlaceholder as typeof Recharts.PieChart;
+
+let YAxis: typeof Recharts.YAxis = EmptyChartElement as unknown as typeof Recharts.YAxis;
+
+let ResponsiveContainer: typeof Recharts.ResponsiveContainer = ChartPlaceholder as typeof Recharts.ResponsiveContainer;
+
+let Area: typeof Recharts.Area = EmptyChartElement as unknown as typeof Recharts.Area;
+
+let BarChart: typeof Recharts.BarChart = ChartPlaceholder as typeof Recharts.BarChart;
+
+let AreaChart: typeof Recharts.AreaChart = ChartPlaceholder as typeof Recharts.AreaChart;
+
+let Pie: typeof Recharts.Pie = EmptyChartElement as unknown as typeof Recharts.Pie;

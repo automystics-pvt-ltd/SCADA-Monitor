@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Response } from "express";
-import { and, asc, desc, eq, gt, gte, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import mqtt, { type MqttClient } from "mqtt";
 import {
   db,
@@ -26,6 +26,7 @@ import {
   type ScadaReportRecord,
   type ScadaReportType,
 } from "../lib/scada-reporting";
+import { queryBoundedScadaReport } from "../lib/scada-report-query";
 
 const router: IRouter = Router();
 const brokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
@@ -1338,7 +1339,7 @@ function parseRangeBoundary(value: unknown, boundary: "start" | "end") {
   if (typeof value !== "string" || !value.trim()) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return undefined;
-  if (boundary === "end") parsed.setMilliseconds(999);
+  if (boundary === "end" && /^\d{4}-\d{2}-\d{2}$/.test(value)) parsed.setUTCHours(23, 59, 59, 999);
   return parsed;
 }
 
@@ -1636,6 +1637,33 @@ function reportTitle(type: ScadaReportType) {
   }[type];
 }
 
+function validatedLiveReportRecord(message: StoredMessage): ScadaReportRecord | undefined {
+  const parameter = parameterFromPayload(message.payload);
+  const measurement = parameter ? inverterMeasurementObservationFromParameter(parameter, configuredMqttPlantSite) : undefined;
+  if (measurement?.scalingStatus !== "validated") return undefined;
+  return {
+    id: stableReportRecordId({ source: measurement.sourceName, siteName: measurement.siteName, deviceId: measurement.inverterId, parameter: measurement.parameter, address: measurement.address, observedAt: measurement.observedAt, receivedAt: message.receivedAt, value: measurement.value }),
+    recordType: "measurement",
+    category: reportCategoryForMeasurement(measurement.measurementKind, measurement.parameter),
+    siteName: measurement.siteName,
+    deviceId: measurement.inverterId,
+    deviceName: measurement.inverterName,
+    parameter: measurement.parameter,
+    displayLabel: measurement.displayLabel,
+    measurementKind: measurement.measurementKind,
+    value: measurement.value,
+    unit: measurement.unit,
+    address: measurement.address,
+    sourceName: measurement.sourceName,
+    observedAt: measurement.observedAt,
+    receivedAt: message.receivedAt,
+    provenance: "live",
+    quality: "validated",
+    status: null,
+    reason: null,
+  };
+}
+
 router.get("/mqtt/reports", async (req, res): Promise<void> => {
   const requestedType = typeof req.query.reportType === "string" ? req.query.reportType : "operations";
   if (!SCADA_REPORT_TYPES.includes(requestedType as ScadaReportType)) {
@@ -1665,8 +1693,19 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
     status: req.query.status === "active" || req.query.status === "warning" || req.query.status === "normal" ? req.query.status : "all",
   };
   const reportType = requestedType as ScadaReportType;
-   if (!filters.provenance.length && (reportType === "live" || reportType === "live-data")) filters.provenance = ["live"];
-   if (!filters.provenance.length && (reportType === "historical" || reportType === "historical-saved")) filters.provenance = ["latest-saved", "historical-saved"];
+  if (!filters.provenance.length && (reportType === "live" || reportType === "live-data")) filters.provenance = ["live"];
+  if (!filters.provenance.length && (reportType === "historical" || reportType === "historical-saved")) filters.provenance = ["latest-saved", "historical-saved"];
+  const complete = req.query.complete === "true";
+  const requestedPage = Number(req.query.page);
+  const requestedPageSize = Number(req.query.pageSize);
+  const MAX_REPORT_PAGE = 10_000;
+  if (Number.isInteger(requestedPage) && requestedPage > MAX_REPORT_PAGE) {
+    res.status(400).json({ message: `Use a report page no greater than ${MAX_REPORT_PAGE}.` });
+    return;
+  }
+  const pageSize = Number.isInteger(requestedPageSize) ? Math.min(Math.max(requestedPageSize, 25), 500) : 200;
+  const page = Number.isInteger(requestedPage) ? Math.max(requestedPage, 1) : 1;
+  const savedEvidenceRequested = filters.provenance.length === 0 || filters.provenance.some((provenance) => provenance === "latest-saved" || provenance === "historical-saved");
   const records: ScadaReportRecord[] = [];
   const excludedEvidence: Array<{ reason: string; source: string; parameter: string }> = [];
   const addRecord = (record: ScadaReportRecord) => {
@@ -1677,30 +1716,107 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
   };
 
   try {
+    const boundedLiveRecord = latestMessage ? validatedLiveReportRecord(latestMessage) : undefined;
+    // Normal previews use one canonical SQL relation so the optional current
+    // live observation participates in the same filters, totals, ordering,
+    // paging, and bounded chart selection as durable evidence.
+    if (!complete) {
+      const bounded = await queryBoundedScadaReport({
+        topic: subscriptionTopic,
+        defaultSite: configuredMqttPlantSite,
+        siteName,
+        from: rangeStart,
+        to: rangeEnd,
+        reportType,
+        filters,
+        page,
+        pageSize,
+        liveRecord: boundedLiveRecord,
+      });
+      const aggregate = bounded.aggregate;
+      const numericRecords = bounded.chartRecords;
+      const chartGroups = [...new Map(numericRecords.map((record) => [`${record.parameter}|${record.unit}|${record.deviceId ?? ""}`, record])).values()];
+      const charts = chartGroups.slice(0, 6).map((chartSignal) => {
+        const data = numericRecords
+          .filter((record) => record.unit === chartSignal.unit && record.parameter === chartSignal.parameter && record.deviceId === chartSignal.deviceId)
+          .slice(0, 80).reverse()
+          .map((record) => ({ time: record.observedAt, value: record.value as number, label: record.deviceName ?? record.parameter }));
+        return data.length > 1 ? { kind: "line" as const, title: `Validated ${chartSignal.displayLabel} trend`, unit: chartSignal.unit, data } : null;
+      }).filter(Boolean);
+      const totalRecords = Number(aggregate.total_records ?? 0);
+      const excludedRaw = Number(aggregate.excluded_raw ?? 0);
+      const excludedSnapshots = Number(aggregate.excluded_snapshots ?? 0);
+      const excludedCount = excludedRaw + excludedSnapshots;
+      const excludedByReason = [
+        ...(excludedRaw ? [{ reason: "Raw or unvalidated engineering value excluded from report values.", count: excludedRaw }] : []),
+        ...(excludedSnapshots ? [{ reason: "Saved snapshot was incomplete or missing.", count: excludedSnapshots }] : []),
+      ];
+      const latestObservedAt = aggregate.latest_observed_at;
+      const latestReceivedAt = aggregate.latest_received_at;
+      res.set("Cache-Control", "no-store").json({
+        title: reportTitle(reportType),
+        category: reportType,
+        siteName: siteName || configuredMqttPlantSite,
+        period: { from: rangeStart.toISOString(), to: rangeEnd.toISOString(), label: `${rangeStart.toLocaleDateString("en-GB")} — ${rangeEnd.toLocaleDateString("en-GB")}` },
+        generatedAt: new Date().toISOString(),
+        sourceStatus: latestMessage ? "Live delivery remains active; report preview uses a separate read-only query." : "No current live payload; preview uses saved evidence only.",
+        filters: { ...filters, reportType },
+        summary: [
+          { label: "Validated records", value: Number(aggregate.validated_records ?? 0), unit: "", detail: "Engineering values with explicit source validation.", quality: "validated" },
+          { label: "Source-reported events", value: Number(aggregate.source_reported_records ?? 0), unit: "", detail: "Alarms and communication evidence are not engineering conversions.", quality: "source-reported" },
+          { label: "Inverter/device context", value: Number(aggregate.unique_devices ?? 0), unit: "", detail: "Explicitly identified devices in this report.", quality: "validated" },
+          { label: "Excluded evidence", value: excludedCount, unit: "", detail: "Raw or unvalidated values are retained as exclusion context only.", quality: excludedCount ? "raw" : "validated" },
+        ],
+        charts,
+        freshness: {
+          latestObservedAt: latestObservedAt instanceof Date ? latestObservedAt.toISOString() : latestObservedAt ?? null,
+          latestReceivedAt: latestReceivedAt instanceof Date ? latestReceivedAt.toISOString() : latestReceivedAt ?? null,
+        },
+        records: bounded.records,
+        pagination: { page, pageSize, totalRecords, totalPages: Math.max(1, Math.ceil(totalRecords / pageSize)), complete: false },
+        excludedEvidence: { count: excludedCount, byReason: excludedByReason },
+        alarmSummary: { reported: Number(aggregate.alarms ?? 0), sourceReported: Number(aggregate.alarms ?? 0), active: Number(aggregate.active_alarms ?? 0) },
+        communicationSummary: { events: Number(aggregate.communication_events ?? 0), warnings: Number(aggregate.communication_warnings ?? 0) },
+        qualityNotes: [
+          "Customer-facing report values are shown only when source identity, unit, semantic meaning, and scaling validation are explicit.",
+          "Raw or unvalidated records are not converted, estimated, or shown as report values; they are counted as excluded evidence.",
+          "Live, latest saved, and historical saved provenance are kept distinct for every included record.",
+        ],
+        attribution: "Powered by Automystics Technologies Pvt Ltd.",
+      });
+      return;
+    }
     const snapshotWhere = and(
       eq(mqttSnapshotsTable.topic, subscriptionTopic),
       gte(mqttSnapshotsTable.windowEndedAt, rangeStart),
       lte(mqttSnapshotsTable.windowStartedAt, rangeEnd),
     );
-    const [snapshots, measurements, energyRecords, communicationEvents] = await Promise.all([
-      db.select().from(mqttSnapshotsTable).where(snapshotWhere).orderBy(asc(mqttSnapshotsTable.capturedAt)),
-      db.select().from(mqttInverterMeasurementHistoryTable).where(and(
+    const measurementWhere = and(
         eq(mqttInverterMeasurementHistoryTable.topic, subscriptionTopic),
         ...(siteName ? [eq(mqttInverterMeasurementHistoryTable.siteName, siteName)] : []),
+        ...(filters.devices.length ? [inArray(mqttInverterMeasurementHistoryTable.inverterId, filters.devices)] : []),
+        ...(filters.parameters.length ? [inArray(mqttInverterMeasurementHistoryTable.parameter, filters.parameters)] : []),
         gte(mqttInverterMeasurementHistoryTable.observedAt, rangeStart),
         lte(mqttInverterMeasurementHistoryTable.observedAt, rangeEnd),
-      )).orderBy(asc(mqttInverterMeasurementHistoryTable.observedAt), asc(mqttInverterMeasurementHistoryTable.receivedAt)),
-      db.select().from(mqttInverterEnergyHistoryTable).where(and(
+      );
+    const energyWhere = and(
         eq(mqttInverterEnergyHistoryTable.topic, subscriptionTopic),
         ...(siteName ? [eq(mqttInverterEnergyHistoryTable.siteName, siteName)] : []),
+        ...(filters.devices.length ? [inArray(mqttInverterEnergyHistoryTable.inverterId, filters.devices)] : []),
+        ...(filters.parameters.length ? [inArray(mqttInverterEnergyHistoryTable.parameter, filters.parameters)] : []),
         gte(mqttInverterEnergyHistoryTable.observedAt, rangeStart),
         lte(mqttInverterEnergyHistoryTable.observedAt, rangeEnd),
-      )).orderBy(asc(mqttInverterEnergyHistoryTable.observedAt), asc(mqttInverterEnergyHistoryTable.receivedAt)),
-      db.select().from(mqttCommunicationEventsTable).where(and(
+      );
+    const communicationWhere = and(
         eq(mqttCommunicationEventsTable.topic, subscriptionTopic),
         gte(mqttCommunicationEventsTable.receivedAt, rangeStart),
         lte(mqttCommunicationEventsTable.receivedAt, rangeEnd),
-      )).orderBy(asc(mqttCommunicationEventsTable.receivedAt)),
+      );
+    const [snapshots, measurements, energyRecords, communicationEvents] = await Promise.all([
+      savedEvidenceRequested ? db.select().from(mqttSnapshotsTable).where(snapshotWhere).orderBy(asc(mqttSnapshotsTable.capturedAt)) : Promise.resolve([]),
+      savedEvidenceRequested ? db.select().from(mqttInverterMeasurementHistoryTable).where(measurementWhere).orderBy(asc(mqttInverterMeasurementHistoryTable.observedAt), asc(mqttInverterMeasurementHistoryTable.receivedAt)) : Promise.resolve([]),
+      savedEvidenceRequested ? db.select().from(mqttInverterEnergyHistoryTable).where(energyWhere).orderBy(asc(mqttInverterEnergyHistoryTable.observedAt), asc(mqttInverterEnergyHistoryTable.receivedAt)) : Promise.resolve([]),
+      savedEvidenceRequested && !siteName ? db.select().from(mqttCommunicationEventsTable).where(communicationWhere).orderBy(asc(mqttCommunicationEventsTable.receivedAt)) : Promise.resolve([]),
     ]);
 
     const scopedSnapshots = snapshots.map((snapshot) => ({ snapshot, evidence: snapshotEvidence(snapshot) })).filter(({ evidence }) => {
@@ -1726,6 +1842,8 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
         const sourceName = String(parameter.server_name ?? parameter.source ?? "Saved MQTT snapshot");
         const address = String(parameter.full_addr ?? parameter.address ?? parameter.addr ?? "—");
         const observedAt = parameterObservationTime(parameter) ?? evidence.scheduledFor;
+        const observedAtMs = Date.parse(observedAt);
+        if (!Number.isFinite(observedAtMs) || observedAtMs < rangeStart.getTime() || observedAtMs > rangeEnd.getTime()) continue;
         const numeric = numericParameterValue(parameter);
         const sourceStatus = sourceText(parameter, ["alarmStatus", "alarm_status", "status", "state", "severity"]);
         const alarm = category === "alarms";
@@ -1837,33 +1955,18 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
     }
 
     if (latestMessage && (filters.provenance.length === 0 || filters.provenance.includes("live"))) {
-      const receivedAt = new Date(latestMessage.receivedAt);
       const parameter = parameterFromPayload(latestMessage.payload);
-      if (parameter && receivedAt >= rangeStart && receivedAt <= rangeEnd) {
-        const measurement = inverterMeasurementObservationFromParameter(parameter, configuredMqttPlantSite);
-        if (measurement?.scalingStatus === "validated" && (!siteName || measurement.siteName === siteName)) {
-          addRecord({
-            id: stableReportRecordId({ source: measurement.sourceName, siteName: measurement.siteName, deviceId: measurement.inverterId, parameter: measurement.parameter, address: measurement.address, observedAt: measurement.observedAt, receivedAt: latestMessage.receivedAt, value: measurement.value }),
-            recordType: "measurement",
-            category: reportCategoryForMeasurement(measurement.measurementKind, measurement.parameter),
-            siteName: measurement.siteName,
-            deviceId: measurement.inverterId,
-            deviceName: measurement.inverterName,
-            parameter: measurement.parameter,
-            displayLabel: measurement.displayLabel,
-             measurementKind: measurement.measurementKind,
-            value: measurement.value,
-            unit: measurement.unit,
-            address: measurement.address,
-            sourceName: measurement.sourceName,
-            observedAt: measurement.observedAt,
-            receivedAt: latestMessage.receivedAt,
-            provenance: "live",
-            quality: "validated",
-            status: null,
-            reason: null,
-          });
-        } else if (parameter) {
+      const liveObservedAtMs = boundedLiveRecord ? Date.parse(boundedLiveRecord.observedAt) : undefined;
+      const liveInRange = liveObservedAtMs !== undefined
+        && Number.isFinite(liveObservedAtMs)
+        && liveObservedAtMs >= rangeStart.getTime()
+        && liveObservedAtMs <= rangeEnd.getTime();
+      if (boundedLiveRecord && liveInRange && (!siteName || boundedLiveRecord.siteName === siteName)) {
+        addRecord(boundedLiveRecord);
+      } else if (!boundedLiveRecord && parameter) {
+        const parameterObservedAt = parameterObservationTime(parameter);
+        const parameterObservedAtMs = parameterObservedAt ? Date.parse(parameterObservedAt) : NaN;
+        if (Number.isFinite(parameterObservedAtMs) && parameterObservedAtMs >= rangeStart.getTime() && parameterObservedAtMs <= rangeEnd.getTime()) {
           exclude("Live source value excluded until unit, semantic, and scaling are explicitly validated.", String(parameter.server_name ?? parameter.source ?? "Live MQTT"), String(parameter.name ?? "register"));
         }
       }
@@ -1917,7 +2020,14 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
          latestObservedAt: latestEvidence?.observedAt ?? null,
          latestReceivedAt: latestEvidence?.receivedAt ?? null,
        },
-      records,
+      records: complete ? records : records.slice((page - 1) * pageSize, page * pageSize),
+      pagination: {
+        page: complete ? 1 : page,
+        pageSize: complete ? records.length : pageSize,
+        totalRecords: records.length,
+        totalPages: complete ? 1 : Math.max(1, Math.ceil(records.length / pageSize)),
+        complete,
+      },
       excludedEvidence: { count: excludedEvidence.length, byReason: excludedByReason },
       alarmSummary: { reported: alarmRecords.length, sourceReported: alarmRecords.length, active: alarmRecords.filter((record) => record.status === "active").length },
       communicationSummary: { events: communicationRecords.length, warnings: communicationRecords.filter((record) => record.status === "warning").length },

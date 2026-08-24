@@ -13,6 +13,12 @@ export type ReportRequestFilters = {
   customToTime?: string;
 };
 
+export type ReportQueryOptions = {
+  page?: number;
+  pageSize?: number;
+  complete?: boolean;
+  range?: { from: string; to: string };
+};
 function startOfLocalDay(date: Date) {
   const result = new Date(date);
   result.setHours(0, 0, 0, 0);
@@ -48,12 +54,15 @@ export function reportRange(filters: Pick<ReportRequestFilters, 'preset' | 'cust
   return { from: from.toISOString(), to: tomorrow.toISOString() };
 }
 
-export function buildReportQuery(filters: ReportRequestFilters, now?: Date) {
-  const range = reportRange(filters, now);
+export function buildReportQuery(filters: ReportRequestFilters, now?: Date, options: ReportQueryOptions = {}) {
+  const range = options.range ?? reportRange(filters, now);
   const query = new URLSearchParams({ reportType: filters.reportType, from: range.from, to: range.to, quality: filters.quality, status: filters.status });
   if (filters.siteName) query.set('siteName', filters.siteName);
   if (filters.devices.length) query.set('devices', filters.devices.join(','));
   if (filters.parameters.length) query.set('parameters', filters.parameters.join(','));
   if (filters.provenance.length) query.set('provenance', filters.provenance.join(','));
+  if (options.page !== undefined) query.set('page', String(Math.max(1, Math.floor(options.page))));
+  if (options.pageSize !== undefined) query.set('pageSize', String(Math.max(1, Math.floor(options.pageSize))));
+  if (options.complete) query.set('complete', 'true');
   return query;
 }

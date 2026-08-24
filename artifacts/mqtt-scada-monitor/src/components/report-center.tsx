@@ -46,6 +46,13 @@ type ReportResult = {
   communicationSummary: { events: number; warnings: number };
   qualityNotes: string[];
   attribution: string;
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalRecords: number;
+    totalPages: number;
+    complete: boolean;
+  };
 };
 
 type Filters = {
@@ -276,6 +283,8 @@ export default function ReportCenter({ siteName, sites, devices, parameters }: {
   const [result, setResult] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [requestNotice, setRequestNotice] = useState('');
+  const [exporting, setExporting] = useState<'csv' | 'xlsx' | 'json' | 'pdf' | null>(null);
   const [tablePage, setTablePage] = useState(0);
   const reportRequestRef = useRef<AbortController | null>(null);
 
@@ -288,57 +297,100 @@ export default function ReportCenter({ siteName, sites, devices, parameters }: {
   const visibleDevices = useMemo(() => devices.filter((device) => !pending.siteName || device.site === pending.siteName), [devices, pending.siteName]);
   const activeFilters = filterCount(applied, siteName);
 
-  const requestReport = async (filters: Filters) => {
-    reportRequestRef.current?.abort();
+  const requestReport = async (filters: Filters, options: { page?: number; range?: { from: string; to: string } } = {}) => {
+    if (reportRequestRef.current) {
+      reportRequestRef.current.abort();
+      setRequestNotice('Previous report request cancelled; loading the latest selection.');
+    } else {
+      setRequestNotice('');
+    }
     const controller = new AbortController();
     reportRequestRef.current = controller;
     setLoading(true);
     setError('');
-    const query = buildReportQuery(filters);
+    const page = options.page ?? 1;
+    const query = buildReportQuery(filters, undefined, { page, pageSize: REPORT_TABLE_PAGE_SIZE, range: options.range });
     try {
       const response = await fetch(`/api/mqtt/reports?${query.toString()}`, { headers: { Accept: 'application/json' }, signal: controller.signal });
       const payload = await response.json().catch(() => null) as ReportResult | { message?: string } | null;
       if (!response.ok || !payload || !('records' in payload)) throw new Error(payload && 'message' in payload ? payload.message ?? 'Unable to load report evidence.' : 'Unable to load report evidence.');
       setResult(payload);
       setApplied(filters);
-       setTablePage(0);
+      setTablePage(Math.max(0, (payload.pagination?.page ?? page) - 1));
+      setRequestNotice('');
     } catch (requestError) {
-      if (requestError instanceof DOMException && requestError.name === 'AbortError') return;
+      if (controller.signal.aborted || (requestError instanceof DOMException && requestError.name === 'AbortError')) return;
       setResult(null);
       setError(requestError instanceof Error ? requestError.message : 'Unable to load report evidence.');
+      setRequestNotice('');
     } finally {
-      if (reportRequestRef.current === controller) setLoading(false);
+      if (reportRequestRef.current === controller) {
+        reportRequestRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    void requestReport(applied);
+    void requestReport(applied, { page: 1 });
     return () => reportRequestRef.current?.abort();
   }, []);
 
-  const exportCsv = () => {
-    if (!result) return;
-    const metadata = [['Report', result.title], ['Site', result.siteName], ['Period', result.period.label], ['Generated', result.generatedAt], ['Source status', result.sourceStatus], ['Attribution', result.attribution]];
-    const headers = ['Record type', 'Category', 'Site', 'Device', 'Parameter', 'Value', 'Unit', 'Register address', 'Source', 'Observed', 'Received', 'Provenance', 'Quality', 'Status', 'Reason'];
-    const lines = [...metadata.map((row) => row.map(csvValue).join(',')), '', headers.join(','), ...result.records.map((record) => [record.recordType, record.category, record.siteName, record.deviceName ?? record.deviceId ?? '', record.displayLabel, record.value ?? '', record.unit, record.address, record.sourceName, record.observedAt, record.receivedAt, record.provenance, record.quality, record.status ?? '', record.reason ?? ''].map(csvValue).join(','))];
-    download(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' }), `scada-${result.category}-report.csv`);
+  const fetchCompleteReport = async () => {
+    if (!result) throw new Error('Load a report preview before creating an export.');
+    const query = buildReportQuery(applied, undefined, { complete: true, range: result.period });
+    const response = await fetch(`/api/mqtt/reports?${query.toString()}`, { headers: { Accept: 'application/json' } });
+    const payload = await response.json().catch(() => null) as ReportResult | { message?: string } | null;
+    if (!response.ok || !payload || !('records' in payload) || payload.pagination?.complete !== true) {
+      throw new Error(payload && 'message' in payload ? payload.message ?? 'Unable to retrieve the complete report evidence.' : 'Unable to retrieve the complete report evidence.');
+    }
+    return payload;
   };
 
-  const exportJson = () => result && download(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }), `scada-${result.category}-report.json`);
-  const exportXlsx = () => result && download(new Blob([workbook(result)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `scada-${result.category}-report.xlsx`);
+  const runExport = async (format: 'csv' | 'xlsx' | 'json' | 'pdf', exporter: (completeResult: ReportResult) => void) => {
+    if (!result || exporting) return;
+    setExporting(format);
+    setError('');
+    try {
+      const completeResult = await fetchCompleteReport();
+      exporter(completeResult);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'Unable to create the complete report export.');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const exportCsv = () => runExport('csv', (completeResult) => {
+    const metadata = [['Report', completeResult.title], ['Site', completeResult.siteName], ['Period', completeResult.period.label], ['Generated', completeResult.generatedAt], ['Source status', completeResult.sourceStatus], ['Attribution', completeResult.attribution]];
+    const headers = ['Record type', 'Category', 'Site', 'Device', 'Parameter', 'Value', 'Unit', 'Register address', 'Source', 'Observed', 'Received', 'Provenance', 'Quality', 'Status', 'Reason'];
+    const lines = [...metadata.map((row) => row.map(csvValue).join(',')), '', headers.join(','), ...completeResult.records.map((record) => [record.recordType, record.category, record.siteName, record.deviceName ?? record.deviceId ?? '', record.displayLabel, record.value ?? '', record.unit, record.address, record.sourceName, record.observedAt, record.receivedAt, record.provenance, record.quality, record.status ?? '', record.reason ?? ''].map(csvValue).join(','))];
+    download(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' }), `scada-${completeResult.category}-report.csv`);
+  });
+
+  const exportJson = () => runExport('json', (completeResult) => download(new Blob([JSON.stringify(completeResult, null, 2)], { type: 'application/json' }), `scada-${completeResult.category}-report.json`));
+  const exportXlsx = () => runExport('xlsx', (completeResult) => download(new Blob([workbook(completeResult)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `scada-${completeResult.category}-report.xlsx`));
   const exportPdf = () => {
-    if (!result) return;
+    if (!result || exporting) return;
     const printWindow = window.open('', '_blank', 'noopener,noreferrer');
     if (!printWindow) { setError('Your browser blocked the print window. Allow pop-ups to create the PDF.'); return; }
-    const rows = result.records.map((record) => `<tr><td>${xml(record.category)}</td><td>${xml(record.deviceName ?? record.deviceId ?? '—')}</td><td>${xml(record.displayLabel)}</td><td>${record.value === null ? '—' : xml(record.value)}</td><td>${xml(record.unit)}</td><td>${xml(record.sourceName)}</td><td>${xml(record.observedAt)}</td><td>${xml(record.provenance)}</td><td>${xml(record.quality)}</td></tr>`).join('');
-    printWindow.document.write(`<!doctype html><html><head><title>${xml(result.title)}</title><style>body{font:12px Arial;color:#172033;padding:24px}h1{margin:0 0 6px}p{color:#475569}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #cbd5e1;padding:7px;text-align:left;vertical-align:top}th{background:#eff6ff;font-size:10px;text-transform:uppercase}footer{margin-top:20px;color:#64748b}@media print{body{padding:0}}</style></head><body><h1>${xml(result.title)}</h1><p><strong>Site:</strong> ${xml(result.siteName)} &nbsp; <strong>Period:</strong> ${xml(result.period.label)}<br/><strong>Generated:</strong> ${xml(formatDateTime(result.generatedAt))}<br/>${xml(result.sourceStatus)}</p><table><thead><tr><th>Category</th><th>Device</th><th>Parameter</th><th>Value</th><th>Unit</th><th>Source</th><th>Observed</th><th>Provenance</th><th>Quality</th></tr></thead><tbody>${rows || '<tr><td colspan="9">No validated report records for the selected filters.</td></tr>'}</tbody></table><footer>${xml(result.attribution)}</footer><script>window.onload=()=>window.print()</script></body></html>`);
-    printWindow.document.close();
+    void runExport('pdf', (completeResult) => {
+      const rows = completeResult.records.map((record) => `<tr><td>${xml(record.category)}</td><td>${xml(record.deviceName ?? record.deviceId ?? '—')}</td><td>${xml(record.displayLabel)}</td><td>${record.value === null ? '—' : xml(record.value)}</td><td>${xml(record.unit)}</td><td>${xml(record.sourceName)}</td><td>${xml(record.observedAt)}</td><td>${xml(record.provenance)}</td><td>${xml(record.quality)}</td></tr>`).join('');
+      printWindow.document.write(`<!doctype html><html><head><title>${xml(completeResult.title)}</title><style>body{font:12px Arial;color:#172033;padding:24px}h1{margin:0 0 6px}p{color:#475569}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #cbd5e1;padding:7px;text-align:left;vertical-align:top}th{background:#eff6ff;font-size:10px;text-transform:uppercase}footer{margin-top:20px;color:#64748b}@media print{body{padding:0}}</style></head><body><h1>${xml(completeResult.title)}</h1><p><strong>Site:</strong> ${xml(completeResult.siteName)} &nbsp; <strong>Period:</strong> ${xml(completeResult.period.label)}<br/><strong>Generated:</strong> ${xml(formatDateTime(completeResult.generatedAt))}<br/>${xml(completeResult.sourceStatus)}</p><table><thead><tr><th>Category</th><th>Device</th><th>Parameter</th><th>Value</th><th>Unit</th><th>Source</th><th>Observed</th><th>Provenance</th><th>Quality</th></tr></thead><tbody>${rows || '<tr><td colspan="9">No validated report records for the selected filters.</td></tr>'}</tbody></table><footer>${xml(completeResult.attribution)}</footer><script>window.onload=()=>window.print()</script></body></html>`);
+      printWindow.document.close();
+    });
   };
   const reportRecords = result?.records ?? [];
-  const tablePageCount = Math.max(1, Math.ceil(reportRecords.length / REPORT_TABLE_PAGE_SIZE));
+  const tablePageCount = Math.max(1, result?.pagination?.totalPages ?? Math.ceil(reportRecords.length / REPORT_TABLE_PAGE_SIZE));
   const visibleTablePage = Math.min(tablePage, tablePageCount - 1);
-  const tableStart = visibleTablePage * REPORT_TABLE_PAGE_SIZE;
-  const visibleRecords = reportRecords.slice(tableStart, tableStart + REPORT_TABLE_PAGE_SIZE);
+  const tableStart = (result?.pagination?.page ? result.pagination.page - 1 : visibleTablePage) * REPORT_TABLE_PAGE_SIZE;
+  const tableTotal = result?.pagination?.totalRecords ?? reportRecords.length;
+  const tableEnd = Math.min(tableStart + reportRecords.length, tableTotal);
+  const visibleRecords = reportRecords;
+  const changeTablePage = (nextPage: number) => {
+    if (loading || nextPage < 0 || nextPage >= tablePageCount) return;
+    void requestReport(applied, { page: nextPage + 1, range: result ? { from: result.period.from, to: result.period.to } : undefined });
+  };
 
   return (
     <div data-testid="screen-reports" className="scada-report-center animate-rise-in space-y-5">
@@ -350,9 +402,9 @@ export default function ReportCenter({ siteName, sites, devices, parameters }: {
       </header>
 
       <div className="grid gap-5 xl:grid-cols-[310px_minmax(0,1fr)]">
-         <aside className="scada-report-filters h-fit rounded-2xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
+        <aside className="h-fit rounded-2xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
           <div className="flex items-center justify-between"><div className="flex items-center gap-2"><Filter size={16} className="text-blue-400" /><h2 className="text-sm font-bold text-slate-100">Report filters</h2></div><span className="text-[10px] text-slate-500">Does not pause MQTT</span></div>
-           <div className="scada-report-filter-stack mt-4 space-y-4">
+          <div className="mt-4 space-y-4">
             <label className="block"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Report category</span><select data-testid="report-type-select" value={pending.reportType} onChange={(event) => setPending({ ...pending, reportType: event.target.value as ReportType })} className="mt-1.5 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-3 py-2 text-sm font-semibold text-slate-200 focus-ring">{REPORT_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select><p className="mt-1 text-[10px] leading-4 text-slate-500">{selectedType.description}</p></label>
             <label className="block"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Plant / site</span><select value={pending.siteName} onChange={(event) => setPending({ ...pending, siteName: event.target.value, devices: [] })} className="mt-1.5 w-full rounded-lg border border-[#334155] bg-[#0F1322] px-3 py-2 text-sm text-slate-200 focus-ring"><option value="">All configured sites</option>{Array.from(new Set([siteName, ...sites])).filter(Boolean).map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
             <fieldset><legend className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Devices</legend><div className="mt-1.5 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-[#334155] bg-[#0F1322] p-2 scrollbar-thin">{visibleDevices.filter((device) => device.type === 'Power inverter').length ? visibleDevices.filter((device) => device.type === 'Power inverter').map((device) => <label key={device.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs text-slate-300 hover:bg-[#1E293B]"><input type="checkbox" checked={pending.devices.includes(device.id)} onChange={() => setPending({ ...pending, devices: toggleSelection(pending.devices, device.id) })} />{device.name}</label>) : <p className="px-1 py-1 text-xs text-slate-500">No inverters available for this site.</p>}</div></fieldset>
@@ -366,9 +418,9 @@ export default function ReportCenter({ siteName, sites, devices, parameters }: {
         </aside>
 
         <section className="min-w-0 space-y-5">
-          {loading && <div role="status" className="flex min-h-64 items-center justify-center rounded-2xl border border-dashed border-[#334155] bg-[#090B13] text-sm text-slate-400"><RefreshCw size={16} className="mr-2 animate-spin text-blue-400" />Loading source-backed report evidence…</div>}
+          {(loading || requestNotice || exporting) && <div role="status" data-testid="report-request-status" className="flex items-center justify-center gap-2 rounded-xl border border-blue-500/20 bg-blue-500/[.04] px-4 py-3 text-xs text-blue-200"><RefreshCw size={14} className={loading || exporting ? 'animate-spin text-blue-400' : 'text-blue-400'} />{exporting ? `Retrieving complete evidence for ${exporting.toUpperCase()} export…` : loading ? 'Loading source-backed report evidence…' : requestNotice}</div>}
           {!loading && error && <div role="alert" className="rounded-2xl border border-rose-500/25 bg-rose-500/[.06] p-5 text-sm text-rose-200"><AlertTriangle size={17} className="mr-2 inline text-rose-400" />{error}<button type="button" onClick={() => void requestReport(applied)} className="ml-3 font-semibold text-rose-300 underline focus-ring">Try again</button></div>}
-          {!loading && !error && result && <>
+          {!error && result && <>
             <div className="rounded-2xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
               <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-blue-400">Preview ready</p><span className="rounded-full border border-[#334155] bg-[#0F1322] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">{result.category.replace('-', ' ')}</span></div><h2 className="mt-2 text-xl font-bold text-slate-100">{result.title}</h2><p className="mt-1 text-sm text-slate-400">{result.siteName} <span className="px-1 text-slate-600">•</span> {result.period.label}</p><p className="mt-2 text-[11px] text-slate-500">{result.sourceStatus}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={exportCsv} data-testid="button-report-export-csv" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-400 hover:bg-emerald-500/20 focus-ring"><Download size={14} />CSV</button><button type="button" onClick={exportXlsx} data-testid="button-report-export-xlsx" className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-400 hover:bg-blue-500/20 focus-ring"><FileSpreadsheet size={14} />Excel</button><button type="button" onClick={exportJson} data-testid="button-report-export-json" className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/25 bg-violet-500/10 px-3 py-2 text-xs font-bold text-violet-400 hover:bg-violet-500/20 focus-ring"><FileJson size={14} />JSON</button><button type="button" onClick={exportPdf} data-testid="button-report-export-pdf" className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-400 hover:bg-rose-500/20 focus-ring"><FileText size={14} />PDF</button><button type="button" onClick={() => void requestReport(applied)} aria-label="Refresh report preview" className="inline-flex items-center justify-center rounded-lg border border-[#334155] bg-[#0F1322] px-3 py-2 text-slate-300 hover:bg-[#1E293B] focus-ring"><RefreshCw size={14} /></button></div></div>
               <div className="mt-4 flex flex-wrap gap-2 border-t border-[#1E293B] pt-3 text-[10px] text-slate-500"><span><strong className="text-slate-300">Generated:</strong> {formatDateTime(result.generatedAt)}</span><span><strong className="text-slate-300">Latest observed:</strong> {result.freshness.latestObservedAt ? formatDateTime(result.freshness.latestObservedAt) : 'No included evidence'}</span><span><strong className="text-slate-300">Latest received:</strong> {result.freshness.latestReceivedAt ? formatDateTime(result.freshness.latestReceivedAt) : 'No included evidence'}</span><span><strong className="text-slate-300">Filters:</strong> {activeFilters ? `${activeFilters} active` : 'Default scope'}</span><span><strong className="text-slate-300">Attribution:</strong> {result.attribution}</span></div>
@@ -377,6 +429,7 @@ export default function ReportCenter({ siteName, sites, devices, parameters }: {
             {result.charts.map((chart) => <section key={chart.title} className="rounded-2xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Trend</p><h3 className="mt-1 text-sm font-bold text-slate-100">{chart.title}</h3></div><BarChart3 size={18} className="text-blue-400" /></div><div className="mt-4 h-56"><ResponsiveContainer width="100%" height="100%">{chart.kind === 'bar' ? <BarChart data={chart.data}><CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} /><XAxis dataKey="time" tickFormatter={(value) => new Date(value).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--scada-tooltip)', borderColor: 'var(--scada-border)', borderRadius: 10 }} formatter={(value) => [`${Number(value).toLocaleString()} ${chart.unit}`, 'Validated value']} /><Bar dataKey="value" fill="#2563EB" radius={[4, 4, 0, 0]} /></BarChart> : chart.kind === 'area' ? <AreaChart data={chart.data}><CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} /><XAxis dataKey="time" hide /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--scada-tooltip)', borderColor: 'var(--scada-border)', borderRadius: 10 }} /><Area type="monotone" dataKey="value" stroke="#0EA5E9" fill="#0EA5E933" /></AreaChart> : <LineChart data={chart.data}><CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} /><XAxis dataKey="time" tickFormatter={(value) => new Date(value).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} minTickGap={20} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--scada-tooltip)', borderColor: 'var(--scada-border)', borderRadius: 10 }} formatter={(value) => [`${Number(value).toLocaleString()} ${chart.unit}`, 'Validated value']} /><Line type="monotone" dataKey="value" stroke="#2563EB" strokeWidth={2} dot={false} /></LineChart>}</ResponsiveContainer></div></section>)}
             <div className="grid gap-4 lg:grid-cols-3"><section className="rounded-2xl border border-[#1E293B] bg-[#090B13] p-4"><div className="flex items-center gap-2"><AlertTriangle size={16} className={result.alarmSummary.reported ? 'text-rose-400' : 'text-emerald-400'} /><h3 className="text-sm font-bold text-slate-100">Alarm & fault summary</h3></div><p className="mt-3 text-2xl font-bold text-slate-100">{result.alarmSummary.reported}</p><p className="mt-1 text-[11px] text-slate-500">Source-reported alarm/fault records. Active state is shown only when the source declares it.</p></section><section className="rounded-2xl border border-[#1E293B] bg-[#090B13] p-4"><div className="flex items-center gap-2"><ShieldCheck size={16} className="text-blue-400" /><h3 className="text-sm font-bold text-slate-100">Communication context</h3></div><p className="mt-3 text-2xl font-bold text-slate-100">{result.communicationSummary.events}</p><p className="mt-1 text-[11px] text-slate-500">{result.communicationSummary.warnings} source-reported warning event{result.communicationSummary.warnings === 1 ? '' : 's'} in period.</p></section><section className="rounded-2xl border border-amber-500/20 bg-amber-500/[.04] p-4"><div className="flex items-center gap-2"><AlertTriangle size={16} className="text-amber-400" /><h3 className="text-sm font-bold text-slate-100">Excluded evidence</h3></div><p className="mt-3 text-2xl font-bold text-slate-100">{result.excludedEvidence.count}</p><p className="mt-1 text-[11px] text-slate-500">Raw/unvalidated values were retained as an audit count, not converted into customer-facing values.</p></section></div>
             <section className="rounded-2xl border border-[#1E293B] bg-[#090B13]"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#1E293B] p-4 sm:p-5"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Detailed evidence</p><h3 className="mt-1 text-sm font-bold text-slate-100">Validated and source-reported report records</h3></div><span className="rounded-full border border-[#334155] bg-[#0F1322] px-2.5 py-1 text-[10px] font-bold text-slate-400">{result.records.length.toLocaleString()} rows</span></div>{reportRecords.length > REPORT_TABLE_PAGE_SIZE && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1E293B] px-4 py-3 text-xs text-slate-400 sm:px-5"><p>Viewing <strong className="text-slate-200">{(tableStart + 1).toLocaleString()}–{Math.min(tableStart + REPORT_TABLE_PAGE_SIZE, reportRecords.length).toLocaleString()}</strong> of {reportRecords.length.toLocaleString()} records. Exports include the full selected period.</p><div className="flex items-center gap-2"><button type="button" aria-label="Previous report table page" disabled={visibleTablePage === 0} onClick={() => setTablePage((page) => Math.max(0, page - 1))} className="inline-flex items-center rounded-md border border-[#334155] bg-[#0F1322] p-1.5 text-slate-300 hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40 focus-ring"><ChevronLeft size={15} /></button><span className="font-mono text-[11px] text-slate-500">{visibleTablePage + 1} / {tablePageCount}</span><button type="button" aria-label="Next report table page" disabled={visibleTablePage >= tablePageCount - 1} onClick={() => setTablePage((page) => Math.min(tablePageCount - 1, page + 1))} className="inline-flex items-center rounded-md border border-[#334155] bg-[#0F1322] p-1.5 text-slate-300 hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40 focus-ring"><ChevronRight size={15} /></button></div></div>}<div className="max-w-full overflow-x-auto scrollbar-thin" data-scroll-region="report-records"><table className="w-full min-w-[1320px] text-left"><thead className="bg-[#0F1322]"><tr>{['Parameter', 'Value', 'Device', 'Source', 'Observed', 'Received', 'Provenance', 'Quality', 'Status'].map((heading) => <th key={heading} className="px-4 py-3 text-[9px] font-bold uppercase tracking-wider text-slate-500">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1E293B]">{reportRecords.length ? visibleRecords.map((record) => <tr key={record.id} className="hover:bg-[#1E293B]/35"><td className="px-4 py-3"><p className="text-xs font-semibold text-slate-200">{record.displayLabel}</p><p className="mt-0.5 font-mono text-[10px] text-slate-500">{record.address}</p></td><td className="px-4 py-3 text-xs font-mono font-bold text-slate-100">{record.value === null ? '—' : `${record.value.toLocaleString()} ${record.unit}`}</td><td className="px-4 py-3 text-xs text-slate-300">{record.deviceName ?? record.deviceId ?? 'Plant context'}</td><td className="px-4 py-3 text-xs text-slate-300">{record.sourceName}</td><td className="px-4 py-3 text-[11px] text-slate-400">{formatDateTime(record.observedAt)}</td><td className="px-4 py-3 text-[11px] text-slate-400">{formatDateTime(record.receivedAt)}</td><td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${provenanceTone(record.provenance)}`}>{record.provenance.replace('-', ' ')}</span></td><td className="px-4 py-3"><span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${tone(record.quality)}`}>{record.quality.replace('-', ' ')}</span></td><td className="px-4 py-3 text-xs text-slate-400">{record.status ?? record.reason ?? '—'}</td></tr>) : <tr><td colSpan={9} className="px-5 py-12 text-center text-sm text-slate-500">No included source records match the selected filters. Review excluded evidence before widening the report scope.</td></tr>}</tbody></table></div></section>
+             {tableTotal > REPORT_TABLE_PAGE_SIZE && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#1E293B] bg-[#090B13] px-4 py-3 text-xs text-slate-400"><p>Viewing <strong className="text-slate-200">{(tableStart + 1).toLocaleString()}–{tableEnd.toLocaleString()}</strong> of {tableTotal.toLocaleString()} records. Exports use complete selected-period evidence.</p><div className="flex items-center gap-2"><button type="button" aria-label="Previous report evidence page" disabled={loading || visibleTablePage === 0} onClick={() => changeTablePage(visibleTablePage - 1)} className="inline-flex items-center rounded-md border border-[#334155] bg-[#0F1322] p-1.5 text-slate-300 hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40 focus-ring"><ChevronLeft size={15} /></button><span className="font-mono text-[11px] text-slate-500">{visibleTablePage + 1} / {tablePageCount}</span><button type="button" aria-label="Next report evidence page" disabled={loading || visibleTablePage >= tablePageCount - 1} onClick={() => changeTablePage(visibleTablePage + 1)} className="inline-flex items-center rounded-md border border-[#334155] bg-[#0F1322] p-1.5 text-slate-300 hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40 focus-ring"><ChevronRight size={15} /></button></div></div>}
             {result.excludedEvidence.count > 0 && <details className="rounded-2xl border border-amber-500/20 bg-amber-500/[.035] p-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-amber-200 focus-ring"><span>Why some evidence is excluded</span><ChevronDown size={16} /></summary><p className="mt-3 text-xs leading-5 text-amber-100/70">The Report Center never estimates engineering values from raw registers. The following evidence was retained only as an audit explanation:</p><ul className="mt-3 space-y-2">{result.excludedEvidence.byReason.map((item) => <li key={item.reason} className="flex justify-between gap-3 rounded-lg border border-amber-500/15 bg-[#090B13]/40 px-3 py-2 text-xs"><span className="text-slate-300">{item.reason}</span><span className="shrink-0 font-mono text-amber-300">{item.count}</span></li>)}</ul></details>}
             <footer className="rounded-xl border border-[#1E293B] bg-[#090B13] px-4 py-3 text-center text-[10px] font-semibold tracking-wide text-slate-500">{result.qualityNotes.map((note) => <p key={note} className="mb-1 last:mb-0">{note}</p>)}<p className="mt-2 text-slate-400">{result.attribution}</p></footer>
           </>}
