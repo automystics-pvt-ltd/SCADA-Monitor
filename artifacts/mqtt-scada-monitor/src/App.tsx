@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { calculateVerifiedScadaKpis, selectVerifiedCalculation } from './verified-kpis';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
@@ -265,8 +265,6 @@ function numberFrom(device: Device, path: string[], fallback = 0) {
 
 const DEVICE_ONLINE_MAX_AGE_MS = 30_000;
 const DEVICE_STALE_MAX_AGE_MS = 120_000;
-const SAVED_RECORD_MAX_AGE_MS = 15 * 60_000;
-
 function statusAt(device: Device, now: number, mode: 'demo' | 'live'): DeviceStatus {
   if (mode === 'demo') return device.status;
   const age = now - device.lastSeen;
@@ -2809,16 +2807,14 @@ function AppShell() {
       : communication?.deviceCommunication === 'stale' || (telemetryAge !== null && telemetryAge <= DEVICE_STALE_MAX_AGE_MS)
         ? 'stale'
         : 'unavailable';
-  const savedRecordTime = savedKpiSnapshot
-    ? Date.parse(savedKpiSnapshot.capturedAt || savedKpiSnapshot.scheduledFor)
-    : NaN;
-  const savedRecordAge = Number.isFinite(savedRecordTime) ? Math.max(0, now - savedRecordTime) : Number.POSITIVE_INFINITY;
-  const hasValidSavedSnapshot = savedKpiSnapshot?.saveStatus === 'saved'
-    && (savedKpiSnapshot.parameters.length ?? 0) > 0
-    && savedRecordAge <= SAVED_RECORD_MAX_AGE_MS;
-  const eligibleSavedSnapshot = hasValidSavedSnapshot ? savedKpiSnapshot : null;
+  const savedEvidence = selectSavedKpiEvidence(savedKpiSnapshot, {
+    now,
+    liveTelemetryFresh: mode === 'live' && electricalLiveState === 'fresh',
+  });
+  const eligibleSavedSnapshot = savedEvidence.snapshot;
+  const hasValidSavedSnapshot = eligibleSavedSnapshot !== null;
   const savedSnapshotRows = useMemo(() => (savedKpiSnapshot?.parameters ?? []) as ModbusRow[], [savedKpiSnapshot]);
-  const showingSavedRecord = mode === 'live' && electricalLiveState !== 'fresh' && hasValidSavedSnapshot;
+  const showingSavedRecord = mode === 'live' && savedEvidence.source === 'saved';
   const dashboardEvidenceRows = showingSavedRecord ? savedSnapshotRows : modbusRows;
   const lastSavedLabel = hasValidSavedSnapshot
     ? formatInPlantTimezone(savedKpiSnapshot!.scheduledFor || savedKpiSnapshot!.capturedAt, savedKpiSnapshot!.timezone ?? persistence.timezone)

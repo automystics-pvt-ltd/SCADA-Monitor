@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals } from "./telemetry-kpis.ts";
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
 import { calculateVerifiedScadaKpis, selectVerifiedCalculation } from "./verified-kpis.ts";
 
 test("selects the newest named raw register and keeps replay provenance", () => {
@@ -53,6 +53,73 @@ test("parses a saved snapshot and accepts a newer window without carrying missin
   const newerSnapshot = { ...snapshot, id: 10, scheduledFor: "2026-08-24T04:15:00.000Z", capturedAt: "2026-08-24T04:15:02.000Z" };
   assert.equal(isNewerSavedKpiSnapshot(newerSnapshot, snapshot), true);
   assert.equal(isNewerSavedKpiSnapshot(snapshot, newerSnapshot), false);
+});
+
+test("keeps a saved snapshot through the inclusive 15-minute boundary", () => {
+  const now = Date.parse("2026-08-24T04:15:00.000Z");
+  const snapshot = parseSavedKpiSnapshot({
+    id: 11,
+    topic: "trn246/modbus",
+    windowStartedAt: "2026-08-24T03:45:00.000Z",
+    windowEndedAt: "2026-08-24T04:00:00.000Z",
+    scheduledFor: "2026-08-24T04:00:00.000Z",
+    capturedAt: "2026-08-24T04:00:00.000Z",
+    saveStatus: "saved",
+    messageCount: 8,
+    parameterCount: 1,
+    parameters: [{ name: "actpow", data: 44, full_addr: "305031" }],
+    metrics: { activePower: null, dailyEnergy: null, totalEnergy: null, specificYield: null },
+  });
+
+  assert.ok(snapshot);
+  assert.equal(now - Date.parse(snapshot.capturedAt), SAVED_KPI_SNAPSHOT_MAX_AGE_MS);
+  assert.equal(selectSavedKpiEvidence(snapshot, { now, liveTelemetryFresh: false }).source, "saved");
+});
+
+test("removes old, invalid, and incomplete snapshots from fallback display", () => {
+  const now = Date.parse("2026-08-24T04:15:00.000Z");
+  const base = {
+    id: 12,
+    topic: "trn246/modbus",
+    windowStartedAt: "2026-08-24T03:45:00.000Z",
+    windowEndedAt: "2026-08-24T04:00:00.000Z",
+    scheduledFor: "2026-08-24T04:00:00.000Z",
+    capturedAt: "2026-08-24T04:00:00.000Z",
+    messageCount: 8,
+    parameterCount: 1,
+    parameters: [{ name: "actpow", data: 44, full_addr: "305031" }],
+    metrics: { activePower: null, dailyEnergy: null, totalEnergy: null, specificYield: null },
+  };
+  const snapshot = (overrides: Record<string, unknown>) => parseSavedKpiSnapshot({ ...base, saveStatus: "saved", ...overrides });
+
+  assert.equal(selectSavedKpiEvidence(snapshot({ capturedAt: "2026-08-24T03:59:59.999Z" }), { now, liveTelemetryFresh: false }).source, "unavailable");
+  assert.equal(selectSavedKpiEvidence(snapshot({ capturedAt: "not-a-timestamp" }), { now, liveTelemetryFresh: false }).source, "unavailable");
+  assert.equal(selectSavedKpiEvidence(snapshot({ saveStatus: "incomplete" }), { now, liveTelemetryFresh: false }).source, "unavailable");
+  assert.equal(selectSavedKpiEvidence(snapshot({ parameters: [] }), { now, liveTelemetryFresh: false }).source, "unavailable");
+});
+
+test("fresh live telemetry takes precedence over an eligible saved snapshot", () => {
+  const snapshot = parseSavedKpiSnapshot({
+    id: 13,
+    topic: "trn246/modbus",
+    windowStartedAt: "2026-08-24T03:45:00.000Z",
+    windowEndedAt: "2026-08-24T04:00:00.000Z",
+    scheduledFor: "2026-08-24T04:00:00.000Z",
+    capturedAt: "2026-08-24T04:10:00.000Z",
+    saveStatus: "saved",
+    messageCount: 8,
+    parameterCount: 1,
+    parameters: [{ name: "actpow", data: 44, full_addr: "305031" }],
+    metrics: { activePower: null, dailyEnergy: null, totalEnergy: null, specificYield: null },
+  });
+
+  assert.ok(snapshot);
+  const selection = selectSavedKpiEvidence(snapshot, {
+    now: Date.parse("2026-08-24T04:15:00.000Z"),
+    liveTelemetryFresh: true,
+  });
+  assert.equal(selection.source, "live");
+  assert.equal(selection.snapshot?.id, snapshot.id);
 });
 
 test("sums inverter power tags while rejecting an isolated communication outlier", () => {

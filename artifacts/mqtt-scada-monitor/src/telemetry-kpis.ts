@@ -45,6 +45,13 @@ export type SavedKpiSnapshot = {
   };
 };
 
+export const SAVED_KPI_SNAPSHOT_MAX_AGE_MS = 15 * 60_000;
+export type SavedKpiEvidenceSource = "live" | "saved" | "unavailable";
+export type SavedKpiEvidenceSelection = {
+  source: SavedKpiEvidenceSource;
+  snapshot: SavedKpiSnapshot | null;
+};
+
 export type CalculationKey = "acPower" | "dailyEnergy" | "totalEnergy" | "specificYield";
 export type CalculationQuality = "verified" | "awaiting-validation";
 export type CalculationMethod =
@@ -133,6 +140,41 @@ export function parseSavedKpiSnapshot(value: unknown): SavedKpiSnapshot | null {
       specificYield: parseSavedMetric(value.metrics.specificYield),
     },
   };
+}
+
+export function isEligibleSavedKpiSnapshot(
+  snapshot: SavedKpiSnapshot | null,
+  now: number,
+  maximumAgeMs = SAVED_KPI_SNAPSHOT_MAX_AGE_MS,
+) {
+  if (
+    !snapshot
+    || snapshot.saveStatus !== "saved"
+    || snapshot.parameters.length === 0
+    || !Number.isFinite(now)
+    || !Number.isFinite(maximumAgeMs)
+    || maximumAgeMs < 0
+  ) {
+    return false;
+  }
+
+  const capturedAt = Date.parse(snapshot.capturedAt);
+  if (!Number.isFinite(capturedAt)) return false;
+
+  const age = Math.max(0, now - capturedAt);
+  return age <= maximumAgeMs;
+}
+
+export function selectSavedKpiEvidence(
+  snapshot: SavedKpiSnapshot | null,
+  options: { now: number; liveTelemetryFresh: boolean; maximumAgeMs?: number },
+): SavedKpiEvidenceSelection {
+  const eligibleSnapshot = isEligibleSavedKpiSnapshot(snapshot, options.now, options.maximumAgeMs);
+  if (options.liveTelemetryFresh) {
+    return { source: "live", snapshot: eligibleSnapshot ? snapshot : null };
+  }
+  if (eligibleSnapshot) return { source: "saved", snapshot };
+  return { source: "unavailable", snapshot: null };
 }
 
 function calculationInput(row: TelemetryKpiRow, unit: string, semantic: string): CalculationInput | null {
