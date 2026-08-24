@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: platform-admin
+    description: Isolated platform administration operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,171 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /platform-admin/auth/user:
+    get:
+      operationId: getPlatformAdminAuthUser
+      tags: [platform-admin]
+      summary: Get the current platform admin session
+      responses:
+        "200":
+          description: Current admin session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAdminAuthUserResponse"
+  /platform-admin/overview:
+    get:
+      operationId: getPlatformAdminOverview
+      tags: [platform-admin]
+      summary: Get the platform administration overview
+      responses:
+        "200":
+          description: Platform overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAdminOverview"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Platform admin access required
+  /platform-admin/organizations:
+    get:
+      operationId: listPlatformOrganizations
+      tags: [platform-admin]
+      summary: List organizations
+      responses:
+        "200":
+          description: Organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformOrganization"
+    post:
+      operationId: createPlatformOrganization
+      tags: [platform-admin]
+      summary: Create an organization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformOrganizationInput"
+      responses:
+        "201":
+          description: Created organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformOrganization"
+  /platform-admin/sites:
+    get:
+      operationId: listPlatformSites
+      tags: [platform-admin]
+      summary: List sites
+      responses:
+        "200":
+          description: Sites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformSite"
+    post:
+      operationId: createPlatformSite
+      tags: [platform-admin]
+      summary: Create a site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSiteInput"
+      responses:
+        "201":
+          description: Created site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSite"
+  /platform-admin/users:
+    get:
+      operationId: listPlatformUsers
+      tags: [platform-admin]
+      summary: List SCADA users and site access
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformUser"
+  /platform-admin/access:
+    post:
+      operationId: grantPlatformSiteAccess
+      tags: [platform-admin]
+      summary: Grant a user access to a site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSiteAccessInput"
+      responses:
+        "201":
+          description: Access grant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSiteAccess"
+  /platform-admin/mqtt-config:
+    get:
+      operationId: getPlatformMqttConfig
+      tags: [platform-admin]
+      summary: Get safe MQTT configuration
+      responses:
+        "200":
+          description: Safe MQTT configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformMqttConfig"
+    patch:
+      operationId: updatePlatformMqttConfig
+      tags: [platform-admin]
+      summary: Update non-secret MQTT configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformMqttConfigInput"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformMqttConfig"
+  /platform-admin/audit:
+    get:
+      operationId: listPlatformAuditEvents
+      tags: [platform-admin]
+      summary: List platform audit events
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformAuditEvent"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +200,130 @@ components:
           type: string
       required:
         - status
+    PlatformAdminAuthUserResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/PlatformAdminUser"
+        admin:
+          type: boolean
+      required: [user, admin]
+    PlatformAdminUser:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        role: { type: string }
+      required: [id, email, name, role]
+    PlatformAdminOverview:
+      type: object
+      properties:
+        organizationCount: { type: integer }
+        siteCount: { type: integer }
+        userCount: { type: integer }
+        activeAccessGrantCount: { type: integer }
+        broker:
+          $ref: "#/components/schemas/PlatformMqttConfig"
+        communication:
+          type: object
+          additionalProperties: true
+        recentAudit:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAuditEvent"
+      required: [organizationCount, siteCount, userCount, activeAccessGrantCount, broker, communication, recentAudit]
+    PlatformOrganization:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        status: { type: string }
+        siteCount: { type: integer }
+      required: [id, name, slug, status, siteCount]
+    PlatformOrganizationInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 160 }
+        slug: { type: string, minLength: 2, maxLength: 80 }
+      required: [name, slug]
+    PlatformSite:
+      type: object
+      properties:
+        siteName: { type: string }
+        organizationId: { type: string }
+        organizationName: { type: string }
+        latitude: { type: number, nullable: true }
+        longitude: { type: number, nullable: true }
+        timezone: { type: string }
+        status: { type: string }
+      required: [siteName, organizationId, organizationName, latitude, longitude, timezone, status]
+    PlatformSiteInput:
+      type: object
+      properties:
+        siteName: { type: string, minLength: 2, maxLength: 160 }
+        organizationId: { type: string }
+        latitude: { type: number, nullable: true }
+        longitude: { type: number, nullable: true }
+        timezone: { type: string, maxLength: 80 }
+      required: [siteName, organizationId, timezone]
+    PlatformUser:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, nullable: true }
+        name: { type: string }
+        access:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformSiteAccess"
+      required: [id, email, name, access]
+    PlatformSiteAccess:
+      type: object
+      properties:
+        userId: { type: string }
+        siteName: { type: string }
+        organizationId: { type: string }
+        role: { type: string }
+        status: { type: string }
+      required: [userId, siteName, organizationId, role, status]
+    PlatformSiteAccessInput:
+      type: object
+      properties:
+        userId: { type: string }
+        siteName: { type: string }
+        role: { type: string, enum: [viewer, operator, site-admin] }
+      required: [userId, siteName, role]
+    PlatformMqttConfig:
+      type: object
+      properties:
+        brokerUrl: { type: string }
+        topic: { type: string }
+        plantSite: { type: string }
+        timezone: { type: string }
+        credentialsConfigured: { type: boolean }
+        pendingApply: { type: boolean }
+      required: [brokerUrl, topic, plantSite, timezone, credentialsConfigured, pendingApply]
+    PlatformMqttConfigInput:
+      type: object
+      properties:
+        brokerUrl: { type: string, minLength: 8, maxLength: 300 }
+        topic: { type: string, minLength: 1, maxLength: 300 }
+        plantSite: { type: string, minLength: 1, maxLength: 160 }
+        timezone: { type: string, minLength: 1, maxLength: 80 }
+      required: [brokerUrl, topic, plantSite, timezone]
+    PlatformAuditEvent:
+      type: object
+      properties:
+        id: { type: string }
+        actorEmail: { type: string }
+        action: { type: string }
+        targetType: { type: string }
+        targetId: { type: string }
+        createdAt: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [id, actorEmail, action, targetType, targetId, createdAt, metadata]
 
