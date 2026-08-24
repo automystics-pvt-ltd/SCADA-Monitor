@@ -9,6 +9,7 @@ import {
   mqttInverterEnergyHistoryTable,
   mqttInverterMeasurementHistoryTable,
   mqttSnapshotsTable,
+  plantCalibrationProfilesTable,
   plantLocationsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -117,6 +118,30 @@ type SavedSnapshotEvidence = {
     totalEnergy: SavedKpiMetric | null;
     specificYield: SavedKpiMetric | null;
   };
+  calibrationProfile?: PublicPlantCalibrationProfile | null;
+};
+
+type CalibrationRole = "acPower" | "dailyEnergy" | "totalEnergy";
+type CalibrationCounterRole = "instantaneous-power" | "daily-counter" | "cumulative-counter";
+type CalibrationEngineeringUnit = "W" | "kW" | "MW" | "Wh" | "kWh" | "MWh";
+type CalibrationSource = {
+  role: CalibrationRole;
+  sourceName: string;
+  parameter: string;
+  address: string;
+  unit: CalibrationEngineeringUnit;
+  multiplier: number;
+  counterRole: CalibrationCounterRole;
+  scalingConfirmed: true;
+};
+type PublicPlantCalibrationProfile = {
+  siteName: string;
+  version: string;
+  status: "approved";
+  installedDcCapacityKwp: number;
+  sources: CalibrationSource[];
+  approvedBy: string;
+  approvedAt: string;
 };
 
 let client: MqttClient | undefined;
@@ -321,6 +346,67 @@ function broadcast(event: string, data: unknown, eventId?: number) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function publicCalibrationProfile(record: {
+  siteName: string;
+  version: string;
+  status: string;
+  installedDcCapacityKwp: number;
+  sources: unknown;
+  approvedBy: string;
+  approvedAt: Date;
+}): PublicPlantCalibrationProfile | null {
+  if (record.status !== "approved" || !Array.isArray(record.sources)) return null;
+  const sources = parseCalibrationSources(record.sources);
+  if (!sources || !Number.isFinite(record.installedDcCapacityKwp) || record.installedDcCapacityKwp <= 0) return null;
+  return {
+    siteName: record.siteName,
+    version: record.version,
+    status: "approved",
+    installedDcCapacityKwp: record.installedDcCapacityKwp,
+    sources,
+    approvedBy: record.approvedBy,
+    approvedAt: record.approvedAt.toISOString(),
+  };
+}
+
+function parseCalibrationSources(value: unknown): CalibrationSource[] | null {
+  if (!Array.isArray(value) || !value.length) return null;
+  const allowedRoles = new Set<CalibrationRole>(["acPower", "dailyEnergy", "totalEnergy"]);
+  const allowedUnits = new Set<CalibrationEngineeringUnit>(["W", "kW", "MW", "Wh", "kWh", "MWh"]);
+  const allowedCounters = new Set<CalibrationCounterRole>(["instantaneous-power", "daily-counter", "cumulative-counter"]);
+  const sources: CalibrationSource[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) return null;
+    const multiplier = typeof item.multiplier === "number" ? item.multiplier : Number(item.multiplier);
+    if (
+      !allowedRoles.has(item.role as CalibrationRole)
+      || typeof item.sourceName !== "string" || !item.sourceName.trim() || item.sourceName.trim().length > 160
+      || typeof item.parameter !== "string" || !item.parameter.trim() || item.parameter.trim().length > 160
+      || typeof item.address !== "string" || !item.address.trim() || item.address.trim().length > 160
+      || !allowedUnits.has(item.unit as CalibrationEngineeringUnit)
+      || !allowedCounters.has(item.counterRole as CalibrationCounterRole)
+      || item.scalingConfirmed !== true
+      || !Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 1_000_000
+    ) return null;
+    const role = item.role as CalibrationRole;
+    const counterRole = item.counterRole as CalibrationCounterRole;
+    if ((role === "acPower" && counterRole !== "instantaneous-power") || (role === "dailyEnergy" && counterRole !== "daily-counter") || (role === "totalEnergy" && counterRole !== "cumulative-counter")) return null;
+    const unit = item.unit as CalibrationEngineeringUnit;
+    if ((role === "acPower" && !["W", "kW", "MW"].includes(unit)) || (role !== "acPower" && !["Wh", "kWh", "MWh"].includes(unit))) return null;
+    sources.push({ role, sourceName: item.sourceName.trim(), parameter: item.parameter.trim(), address: item.address.trim(), unit, multiplier, counterRole, scalingConfirmed: true });
+  }
+  return sources;
+}
+
+async function currentPlantCalibrationProfile(siteName = configuredMqttPlantSite) {
+  const [record] = await db
+    .select()
+    .from(plantCalibrationProfilesTable)
+    .where(eq(plantCalibrationProfilesTable.siteName, siteName))
+    .limit(1);
+  return record ? publicCalibrationProfile(record) : null;
 }
 
 function enqueueCommunicationEvent(event: CommunicationEventDraft) {
@@ -653,6 +739,22 @@ function snapshotEvidence(snapshot: {
       totalEnergy: latestSavedMetric(parameters, ["totalenergy"]),
       specificYield: latestSavedMetric(parameters, ["todayyield"]),
     },
+    calibrationProfile: publicCalibrationProfileFromSnapshot(data.calibrationProfile),
+  };
+}
+
+function publicCalibrationProfileFromSnapshot(value: unknown) {
+  if (!isRecord(value) || typeof value.siteName !== "string" || typeof value.version !== "string" || value.status !== "approved" || typeof value.installedDcCapacityKwp !== "number" || typeof value.approvedBy !== "string" || typeof value.approvedAt !== "string") return null;
+  const sources = parseCalibrationSources(value.sources);
+  if (!sources || !Number.isFinite(value.installedDcCapacityKwp) || value.installedDcCapacityKwp <= 0) return null;
+  return {
+    siteName: value.siteName,
+    version: value.version,
+    status: "approved" as const,
+    installedDcCapacityKwp: value.installedDcCapacityKwp,
+    sources,
+    approvedBy: value.approvedBy,
+    approvedAt: value.approvedAt,
   };
 }
 
@@ -773,6 +875,7 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
   const scheduledForIso = scheduledFor.toISOString();
   try {
     const outcome = snapshotOutcome(buffer);
+    const calibrationProfile = await currentPlantCalibrationProfile();
     const [inserted] = await db.insert(mqttSnapshotsTable).values({
       windowStartedAt: buffer.startedAt,
       windowEndedAt: scheduledFor,
@@ -781,7 +884,7 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
       messageCount: buffer.messages.length,
       parameterCount: Object.keys(buffer.latestParameters).length,
       data: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         recordType: "scheduled-telemetry-snapshot",
         saveStatus: outcome.saveStatus,
         missingReason: outcome.missingReason,
@@ -790,10 +893,11 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
         timezone: plantTimezone,
         messages: buffer.messages,
         latestParameters: Object.values(buffer.latestParameters),
+        calibrationProfile,
       },
     }).onConflictDoNothing({
       target: [mqttSnapshotsTable.topic, mqttSnapshotsTable.windowEndedAt],
-      where: sql`(${mqttSnapshotsTable.data} ->> 'schemaVersion') = '3'`,
+      where: sql`(${mqttSnapshotsTable.data} ->> 'schemaVersion') = '4'`,
     }).returning();
 
     if (!inserted) {
@@ -802,7 +906,7 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
         .from(mqttSnapshotsTable)
         .where(and(eq(mqttSnapshotsTable.topic, subscriptionTopic), eq(mqttSnapshotsTable.windowEndedAt, scheduledFor)))
         .limit(10);
-      const existing = existingCandidates.find((candidate) => isRecord(candidate.data) && candidate.data.schemaVersion === 3);
+      const existing = existingCandidates.find((candidate) => isRecord(candidate.data) && candidate.data.schemaVersion === 4);
       if (existing) {
         const evidence = snapshotEvidence(existing);
         setLastSnapshot(evidence);
@@ -836,7 +940,7 @@ async function latestSavedSnapshotEvidence() {
     .where(eq(mqttSnapshotsTable.topic, subscriptionTopic))
     .orderBy(desc(mqttSnapshotsTable.windowEndedAt), desc(mqttSnapshotsTable.capturedAt))
     .limit(96);
-  const snapshot = snapshots.find((candidate) => isRecord(candidate.data) && candidate.data.schemaVersion === 3 && snapshotSaveStatus(candidate.data, candidate.messageCount, candidate.parameterCount) === "saved");
+  const snapshot = snapshots.find((candidate) => isRecord(candidate.data) && (candidate.data.schemaVersion === 3 || candidate.data.schemaVersion === 4) && snapshotSaveStatus(candidate.data, candidate.messageCount, candidate.parameterCount) === "saved");
   return snapshot ? snapshotEvidence(snapshot) : null;
 }
 
@@ -1336,6 +1440,61 @@ router.put("/mqtt/site-locations/:siteName", async (req, res): Promise<void> => 
   } catch (error) {
     logger.error({ err: error, siteName }, "Plant location save failed");
     res.status(500).json({ message: "Unable to save the plant location" });
+  }
+});
+
+router.get("/mqtt/calibration-profile", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.query.siteName) || configuredMqttPlantSite;
+  if (siteName.length > 160) {
+    res.status(400).json({ message: "A valid plant/site name is required." });
+    return;
+  }
+  try {
+    res.set("Cache-Control", "no-store").json({ profile: await currentPlantCalibrationProfile(siteName) });
+  } catch (error) {
+    req.log.error({ err: error, siteName }, "Plant calibration profile query failed");
+    res.status(500).json({ message: "Unable to load the plant calibration profile." });
+  }
+});
+
+router.put("/mqtt/calibration-profile/:siteName", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.params.siteName);
+  const installedDcCapacityKwp = typeof req.body?.installedDcCapacityKwp === "number" ? req.body.installedDcCapacityKwp : Number(req.body?.installedDcCapacityKwp);
+  const sources = parseCalibrationSources(req.body?.sources);
+  if (!siteName || siteName.length > 160 || !Number.isFinite(installedDcCapacityKwp) || installedDcCapacityKwp <= 0 || installedDcCapacityKwp > 10_000_000 || !sources) {
+    res.status(400).json({ message: "An installed DC capacity and one or more complete, confirmed source-register mappings are required." });
+    return;
+  }
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ message: "Operator sign-in is required to approve a plant calibration profile." });
+    return;
+  }
+  if (!canUpdatePlantLocation(req.user, siteName)) {
+    res.status(403).json({ message: "Your operator account is not authorized to approve this plant calibration profile." });
+    return;
+  }
+  const approvedAt = new Date();
+  const version = `calibration-${approvedAt.toISOString()}`;
+  const approvedBy = req.user.email ? `email:${req.user.email.toLowerCase()}` : `id:${req.user.id}`;
+  try {
+    const [record] = await db.insert(plantCalibrationProfilesTable).values({
+      siteName,
+      version,
+      status: "approved",
+      installedDcCapacityKwp,
+      sources,
+      approvedBy,
+      approvedAt,
+    }).onConflictDoUpdate({
+      target: plantCalibrationProfilesTable.siteName,
+      set: { version, status: "approved", installedDcCapacityKwp, sources, approvedBy, approvedAt, updatedAt: approvedAt },
+    }).returning();
+    const profile = record ? publicCalibrationProfile(record) : null;
+    if (!profile) throw new Error("Saved calibration profile could not be validated.");
+    res.json({ profile });
+  } catch (error) {
+    req.log.error({ err: error, siteName }, "Plant calibration profile save failed");
+    res.status(500).json({ message: "Unable to save the plant calibration profile." });
   }
 });
 

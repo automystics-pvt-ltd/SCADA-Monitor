@@ -16,6 +16,9 @@ export const mqttSnapshotsTable = pgTable("mqtt_snapshots", {
   uniqueIndex("mqtt_snapshot_topic_window_ended_unique")
     .on(table.topic, table.windowEndedAt)
     .where(sql`(${table.data} ->> 'schemaVersion') = '3'`),
+  uniqueIndex("mqtt_snapshot_topic_window_ended_v4_unique")
+    .on(table.topic, table.windowEndedAt)
+    .where(sql`(${table.data} ->> 'schemaVersion') = '4'`),
 ]);
 
 export const insertMqttSnapshotSchema = createInsertSchema(mqttSnapshotsTable).omit({ id: true, capturedAt: true });

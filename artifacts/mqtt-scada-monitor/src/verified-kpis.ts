@@ -2,6 +2,8 @@ import {
   type CalculationInput,
   type CalculationKey,
   type CalculationMethod,
+  type PlantCalibrationProfile,
+  type PlantCalibrationSource,
   type TelemetryKpiRow,
   type VerifiedKpiCalculation,
   type VerifiedScadaKpis,
@@ -14,6 +16,7 @@ type CalculationOptions = {
   snapshotWindow?: VerifiedKpiCalculation["snapshotWindow"];
   asOf?: number;
   maximumAgeMs?: number;
+  calibrationProfile?: PlantCalibrationProfile | null;
 };
 
 export type ValidatedInverterPowerRecord = {
@@ -309,29 +312,123 @@ function latest(rows: Array<{ row: TelemetryKpiRow; value: number }>) {
   return rows.reduce<{ row: TelemetryKpiRow; value: number } | null>((current, candidate) => !current || observedMs(candidate.row) >= observedMs(current.row) ? candidate : current, null);
 }
 
-function blank(key: CalculationKey, readiness: string, snapshotWindow?: VerifiedKpiCalculation["snapshotWindow"]): VerifiedKpiCalculation {
+function blank(key: CalculationKey, readiness: string, snapshotWindow?: VerifiedKpiCalculation["snapshotWindow"], profileVersion = SCADA_CALCULATION_PROFILE_VERSION): VerifiedKpiCalculation {
   const labels: Record<CalculationKey, string> = { acPower: "Total AC Power", dailyEnergy: "Today’s Energy", totalEnergy: "Total Energy", specificYield: "Specific Yield" };
   return {
     key, label: labels[key], value: null, unit: null, quality: "awaiting-validation", method: "unavailable",
     formula: UNAVAILABLE_FORMULAS[key], inputs: [], excluded: [], provenance: "unavailable",
-    profileVersion: SCADA_CALCULATION_PROFILE_VERSION, readiness, snapshotWindow,
+    profileVersion, readiness, snapshotWindow,
   };
 }
 
-function finish(key: CalculationKey, value: number, unit: VerifiedKpiCalculation["unit"], method: CalculationMethod, formula: string, inputs: CalculationInput[], excluded: CalculationInput[] = [], snapshotWindow?: VerifiedKpiCalculation["snapshotWindow"]): VerifiedKpiCalculation {
+function finish(key: CalculationKey, value: number, unit: VerifiedKpiCalculation["unit"], method: CalculationMethod, formula: string, inputs: CalculationInput[], excluded: CalculationInput[] = [], snapshotWindow?: VerifiedKpiCalculation["snapshotWindow"], profileVersion = SCADA_CALCULATION_PROFILE_VERSION): VerifiedKpiCalculation {
   const latestInput = inputs.reduce<CalculationInput | null>((current, candidate) => !current || new Date(candidate.observedAt ?? 0).getTime() >= new Date(current.observedAt ?? 0).getTime() ? candidate : current, null);
   const provenance = snapshotWindow ? "snapshot" : inputs.some((item) => item.provenance === "live") ? "live" : "replay";
   return {
     key, label: ({ acPower: "Total AC Power", dailyEnergy: "Today’s Energy", totalEnergy: "Total Energy", specificYield: "Specific Yield" })[key],
     value, unit, quality: "verified", method, formula, inputs, excluded, calculatedAt: latestInput?.observedAt,
-    provenance, profileVersion: SCADA_CALCULATION_PROFILE_VERSION,
-    readiness: snapshotWindow ? "Verified from the saved snapshot window." : "Verified from the latest approved source records.",
+    provenance, profileVersion,
+    readiness: snapshotWindow ? `Verified from the saved snapshot window using calibration profile ${profileVersion}.` : `Verified from the latest approved source records using calibration profile ${profileVersion}.`,
     snapshotWindow,
   };
 }
 
+function profileSourceName(row: TelemetryKpiRow) {
+  return String(row.server_name ?? row.source ?? row.device ?? row.server ?? "").trim();
+}
+
+function calibrationUnitValue(value: number, source: PlantCalibrationSource, target: "kW" | "kWh") {
+  const normalizedUnit = source.unit.toLowerCase();
+  const scaled = value * source.multiplier;
+  if (target === "kW") {
+    if (normalizedUnit === "w") return scaled / 1000;
+    if (normalizedUnit === "mw") return scaled * 1000;
+    if (normalizedUnit === "kw") return scaled;
+    return null;
+  }
+  if (normalizedUnit === "wh") return scaled / 1000;
+  if (normalizedUnit === "mwh") return scaled * 1000;
+  if (normalizedUnit === "kwh") return scaled;
+  return null;
+}
+
+function profileSourceMatches(row: TelemetryKpiRow, source: PlantCalibrationSource) {
+  return normalized(profileSourceName(row)) === normalized(source.sourceName)
+    && normalized(row.name) === normalized(source.parameter)
+    && sourceAddress(row) === source.address;
+}
+
+function profileSourcesForRole(rows: TelemetryKpiRow[], sources: PlantCalibrationSource[], role: PlantCalibrationSource["role"], target: "kW" | "kWh", options: CalculationOptions) {
+  const latest = new Map<string, { row: TelemetryKpiRow; value: number }>();
+  for (const source of sources.filter((candidate) => candidate.role === role)) {
+    for (const row of rows) {
+      if (!profileSourceMatches(row, source) || source.scalingConfirmed !== true) continue;
+      const timestamp = observedMs(row);
+      if (!timestamp || (options.asOf !== undefined && timestamp > options.asOf)) continue;
+      if (options.asOf !== undefined && options.maximumAgeMs !== undefined && timestamp < options.asOf - options.maximumAgeMs) continue;
+      const value = numeric(row);
+      const converted = value === null ? null : calibrationUnitValue(value, source, target);
+      if (converted === null) continue;
+      const identity = `${normalized(source.sourceName)}|${normalized(source.parameter)}|${source.address}`;
+      const current = latest.get(identity);
+      if (!current || timestamp >= observedMs(current.row)) latest.set(identity, { row, value: converted });
+    }
+  }
+  return [...latest.values()];
+}
+
+function calculateWithPlantProfile(rows: TelemetryKpiRow[], profile: PlantCalibrationProfile, options: CalculationOptions): VerifiedScadaKpis {
+  const { snapshotWindow } = options;
+  const profileVersion = profile.version;
+  const acRecords = profileSourcesForRole(rows, profile.sources, "acPower", "kW", options);
+  const acInputs = acRecords.map(({ row, value }) => input(row, value, "kW", "profile-approved active power"));
+  const acSelection = rejectOutliers(acInputs);
+  const acPower = acSelection.included.length
+    ? finish("acPower", acSelection.included.reduce((sum, item) => sum + item.value, 0), "kW", "inverter-sum", `Σ latest readings from calibration profile ${profileVersion}`, acSelection.included, acSelection.excluded, snapshotWindow, profileVersion)
+    : blank("acPower", "No fresh reading matches an approved active-power source register in the selected plant profile.", snapshotWindow, profileVersion);
+
+  const dailyRecords = profileSourcesForRole(rows, profile.sources, "dailyEnergy", "kWh", options);
+  const daily = latest(dailyRecords);
+  const dailyEnergy = daily
+    ? finish("dailyEnergy", daily.value, "kWh", "daily-counter", `Latest daily counter from calibration profile ${profileVersion}`, [input(daily.row, daily.value, "kWh", "profile-approved daily energy")], [], snapshotWindow, profileVersion)
+    : blank("dailyEnergy", "No fresh reading matches the approved daily-energy counter in the selected plant profile.", snapshotWindow, profileVersion);
+
+  const totalRecords = profileSourcesForRole(rows, profile.sources, "totalEnergy", "kWh", options);
+  const totalInputs = totalRecords.map(({ row, value }) => input(row, value, "kWh", "profile-approved cumulative energy"));
+  const totalEnergy = totalInputs.length
+    ? finish("totalEnergy", totalInputs.reduce((sum, item) => sum + item.value, 0), "kWh", totalInputs.length > 1 ? "inverter-energy-sum" : "totalizing-meter", `Σ latest cumulative counters from calibration profile ${profileVersion}`, totalInputs, [], snapshotWindow, profileVersion)
+    : blank("totalEnergy", "No fresh reading matches an approved cumulative-energy counter in the selected plant profile.", snapshotWindow, profileVersion);
+
+  const capacityInput: CalculationInput = {
+    parameter: "installedDcCapacityKwp",
+    value: profile.installedDcCapacityKwp,
+    address: "calibration-profile",
+    provenance: snapshotWindow ? "replay" : "live",
+    unit: "kWp",
+    semantic: "profile-approved installed DC capacity",
+    observedAt: profile.approvedAt,
+  };
+  const specificYield = dailyEnergy.quality === "verified"
+    ? finish("specificYield", dailyEnergy.value! / profile.installedDcCapacityKwp, "kWh/kWp", "specific-yield", `Verified daily energy ÷ ${profile.installedDcCapacityKwp} kWp installed DC capacity`, [...dailyEnergy.inputs, capacityInput], [], snapshotWindow, profileVersion)
+    : blank("specificYield", "Specific yield is waiting for the profile-approved daily-energy counter.", snapshotWindow, profileVersion);
+
+  return { acPower, dailyEnergy, totalEnergy, specificYield };
+}
+
 export function calculateVerifiedScadaKpis(rows: TelemetryKpiRow[], options: CalculationOptions = {}): VerifiedScadaKpis {
   const { snapshotWindow } = options;
+  if ("calibrationProfile" in options) {
+    if (!options.calibrationProfile) {
+      const readiness = "No approved plant calibration profile is available. Raw source evidence remains visible, but engineering KPIs are withheld.";
+      return {
+        acPower: blank("acPower", readiness, snapshotWindow),
+        dailyEnergy: blank("dailyEnergy", readiness, snapshotWindow),
+        totalEnergy: blank("totalEnergy", readiness, snapshotWindow),
+        specificYield: blank("specificYield", readiness, snapshotWindow),
+      };
+    }
+    return calculateWithPlantProfile(rows, options.calibrationProfile, options);
+  }
   const inverterInputs = latestRows(rows, "inverter-power", "kW", options).map(({ row, value }) => input(row, value, "kW", "active power"));
   const inverterSelection = rejectOutliers(inverterInputs);
   let acPower = inverterSelection.included.length

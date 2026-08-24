@@ -23,4 +23,5 @@ export * from "./mqtt-delivery-coordination";
 export * from "./mqtt-inverter-energy-history";
 export * from "./mqtt-inverter-measurement-history";
 export * from "./plant-locations";
+export * from "./plant-calibration-profiles";
 export * from "./auth";

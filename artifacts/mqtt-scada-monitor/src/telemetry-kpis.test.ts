@@ -192,6 +192,43 @@ test("calculates verified power, counters, and specific yield with traceable inp
   assert.equal(kpis.specificYield.inputs.length, 2);
 });
 
+test("uses only an approved plant calibration profile to scale raw live registers", () => {
+  const profile = {
+    siteName: "trn246/modbus",
+    version: "calibration-2026-08-24T10:00:00.000Z",
+    status: "approved" as const,
+    installedDcCapacityKwp: 50,
+    approvedBy: "id:operator",
+    approvedAt: "2026-08-24T10:00:00.000Z",
+    sources: [
+      { role: "acPower" as const, sourceName: "ana", parameter: "actpow", address: "305031", unit: "W" as const, multiplier: 0.1, counterRole: "instantaneous-power" as const, scalingConfirmed: true as const },
+      { role: "dailyEnergy" as const, sourceName: "ana", parameter: "dailyeneregykwh", address: "305032", unit: "kWh" as const, multiplier: 0.1, counterRole: "daily-counter" as const, scalingConfirmed: true as const },
+      { role: "totalEnergy" as const, sourceName: "ana", parameter: "totalenergy", address: "305008", unit: "kWh" as const, multiplier: 0.1, counterRole: "cumulative-counter" as const, scalingConfirmed: true as const },
+    ],
+  };
+  const kpis = calculateVerifiedScadaKpis([
+    { name: "actpow", data: 430000, full_addr: "305031", server_name: "ana", timestamp: 1_000 },
+    { name: "dailyeneregykwh", data: 1800, full_addr: "305032", server_name: "ana", timestamp: 1_001 },
+    { name: "totalenergy", data: 12200000, full_addr: "305008", server_name: "ana", timestamp: 1_002 },
+    { name: "actpow", data: 999999, full_addr: "999999", server_name: "ana", timestamp: 1_003 },
+  ], { calibrationProfile: profile, asOf: 1_100_000, maximumAgeMs: 1_000_000 });
+
+  assert.equal(kpis.acPower.value, 43);
+  assert.equal(kpis.dailyEnergy.value, 180);
+  assert.equal(kpis.totalEnergy.value, 1220000);
+  assert.equal(kpis.specificYield.value, 3.6);
+  assert.equal(kpis.acPower.profileVersion, profile.version);
+  assert.equal(kpis.acPower.inputs[0]?.address, "305031");
+});
+
+test("withholds engineering KPIs when the plant has no approved calibration profile", () => {
+  const kpis = calculateVerifiedScadaKpis([
+    { name: "actpow", data: 43000, full_addr: "305031", server_name: "ana", timestamp: 1_000 },
+  ], { calibrationProfile: null, asOf: 1_100, maximumAgeMs: 1_000 });
+  assert.equal(kpis.acPower.quality, "awaiting-validation");
+  assert.match(kpis.acPower.readiness, /No approved plant calibration profile/i);
+});
+
 test("sums approved inverter readings and excludes an extreme outlier", () => {
   const rows = [3.3, 3.45, 3.46, 999]
     .map((value, index) => ({ name: `inv${index + 1}`, data: value, full_addr: `30500${index + 1}`, timestamp: 100, scaling_validated: true, unit: "kW", semantic: "active_power" }));

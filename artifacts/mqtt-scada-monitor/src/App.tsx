@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
@@ -1558,7 +1558,7 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel }: { mo
         : 'Data unavailable';
   const displayUnit = mode === 'demo'
     ? range === 'yearly' ? 'MWh this year' : `MWh ${range === 'daily' ? 'today' : 'this month'}`
-    : hasVerifiedValue ? `${dailyEnergy.unit} from current counter` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'no verified daily counter';
+    : hasVerifiedValue ? `${dailyEnergy.unit} · ${dailyEnergy.profileVersion}` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'no verified daily counter';
   return (
     <div className="scada-chart-surface bg-[#090B13] border border-[#1E293B] rounded-xl p-6 flex flex-col h-full relative overflow-hidden group">
       <div className="flex items-center justify-between mb-6 border-b border-[#1E293B] pb-4 relative z-10">
@@ -1569,7 +1569,7 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel }: { mo
              </div>
              Energy Summary
            </h3>
-            <p className="text-[10px] text-slate-500 font-medium tracking-wide mt-1">{mode === 'demo' ? 'Demonstration trend' : hasVerifiedValue ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter` : hasRawValue ? 'Source-backed raw daily-energy register' : 'Verified energy history unavailable'}</p>
+            <p className="text-[10px] text-slate-500 font-medium tracking-wide mt-1">{mode === 'demo' ? 'Demonstration trend' : hasVerifiedValue ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter · ${dailyEnergy.profileVersion}` : hasRawValue ? 'Source-backed raw daily-energy register' : 'Verified energy history unavailable'}</p>
         </div>
         <div role="tablist" aria-label="Energy time range" className="flex bg-[#0F1322] p-1 rounded-lg border border-[#1E293B] shadow-inner shrink-0">
            {(['daily', 'monthly', 'yearly'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-energy-range-${option}`} className={`px-3 py-1 text-[11px] rounded-md font-bold capitalize transition-all focus-ring ${range === option ? 'bg-[#2563EB] text-white shadow-md' : 'text-slate-500 hover:text-slate-300 hover:bg-[#1E293B]'}`}>{option}</button>)}
@@ -1619,7 +1619,7 @@ function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }:
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-300">Calculation evidence</p>
           <h2 className="mt-1 text-sm font-bold text-slate-100">Plant KPI calculations & source evidence</h2>
-          <p className="mt-1 text-xs leading-5 text-slate-400">Cards always show the latest raw source evidence when it exists. Engineering units and converted KPI values appear only when the source supplies approved scaling, units, and signal semantics.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Cards always show the latest raw source evidence when it exists. Engineering units and converted KPI values appear only after an administrator-approved plant calibration profile matches the source register, scaling, unit, and counter role.</p>
         </div>
         <span className="shrink-0 rounded-md border border-[#1E293B] bg-[#0b0f19] px-2 py-1 text-[10px] font-semibold text-slate-400">Profile {entries[0].profileVersion}</span>
       </div>
@@ -1759,7 +1759,7 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
         : 'Data unavailable';
   const displayUnit = mode === 'demo'
     ? 'demo trend below'
-    : hasVerifiedValue ? `${calculation.unit} · ${calculation.provenance === 'snapshot' ? 'saved window' : 'right now'}` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'no source-backed power';
+    : hasVerifiedValue ? `${calculation.unit} · ${calculation.provenance === 'snapshot' ? 'saved window' : 'right now'} · ${calculation.profileVersion}` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : 'no source-backed power';
   return (
     <div className="scada-chart-surface bg-[#090B13] border border-[#1E293B] rounded-xl p-6 flex flex-col h-full relative overflow-hidden group">
       <div className="flex items-center justify-between mb-6 border-b border-[#1E293B] pb-4 relative z-10">
@@ -2449,7 +2449,117 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }
   );
 }
 
-function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, locationAdmin, onSaveSiteLocation }: {
+function emptyCalibrationSources(): PlantCalibrationSource[] {
+  return [
+    { role: 'acPower', sourceName: '', parameter: '', address: '', unit: 'kW', multiplier: 1, counterRole: 'instantaneous-power', scalingConfirmed: true },
+    { role: 'dailyEnergy', sourceName: '', parameter: '', address: '', unit: 'kWh', multiplier: 1, counterRole: 'daily-counter', scalingConfirmed: true },
+    { role: 'totalEnergy', sourceName: '', parameter: '', address: '', unit: 'kWh', multiplier: 1, counterRole: 'cumulative-counter', scalingConfirmed: true },
+  ];
+}
+
+function CalibrationProfileEditor({ siteName, profile, canManage, onSave }: {
+  siteName: string;
+  profile: PlantCalibrationProfile | null;
+  canManage: boolean;
+  onSave: (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => Promise<void>;
+}) {
+  const [capacity, setCapacity] = useState('');
+  const [sources, setSources] = useState<PlantCalibrationSource[]>(emptyCalibrationSources);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setCapacity(profile ? String(profile.installedDcCapacityKwp) : '');
+    setSources(profile?.sources.length ? profile.sources : emptyCalibrationSources());
+    setError('');
+    setSaved('');
+  }, [profile, siteName]);
+  const updateSource = (index: number, patch: Partial<PlantCalibrationSource>) => {
+    setSources((current) => current.map((source, sourceIndex) => sourceIndex === index ? { ...source, ...patch } : source));
+  };
+  const addSource = () => setSources((current) => [...current, { role: 'acPower', sourceName: '', parameter: '', address: '', unit: 'kW', multiplier: 1, counterRole: 'instantaneous-power', scalingConfirmed: true }]);
+  const removeSource = (index: number) => setSources((current) => current.length > 1 ? current.filter((_, sourceIndex) => sourceIndex !== index) : current);
+  const save = async () => {
+    const installedDcCapacityKwp = Number(capacity);
+    const requiredRoles: PlantCalibrationSource['role'][] = ['acPower', 'dailyEnergy', 'totalEnergy'];
+    if (!Number.isFinite(installedDcCapacityKwp) || installedDcCapacityKwp <= 0) {
+      setError('Installed DC capacity must be a positive value in kWp.');
+      return;
+    }
+    if (requiredRoles.some((role) => !sources.some((source) => source.role === role))) {
+      setError('Add one confirmed mapping for total AC power, today’s energy, and total energy.');
+      return;
+    }
+    if (sources.some((source) => !source.sourceName.trim() || !source.parameter.trim() || !source.address.trim() || !Number.isFinite(source.multiplier) || source.multiplier <= 0)) {
+      setError('Each source mapping needs a source name, parameter, register address, and positive scaling multiplier.');
+      return;
+    }
+    setError('');
+    setSaved('');
+    setSaving(true);
+    try {
+      await onSave(siteName, installedDcCapacityKwp, sources);
+      setSaved('Approved plant calibration saved. Fresh readings now use this profile.');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save this plant calibration profile.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const roleLabel: Record<PlantCalibrationSource['role'], string> = { acPower: 'Total AC Power', dailyEnergy: 'Today’s Energy', totalEnergy: 'Total Energy' };
+  const roleCounter: Record<PlantCalibrationSource['role'], PlantCalibrationSource['counterRole']> = { acPower: 'instantaneous-power', dailyEnergy: 'daily-counter', totalEnergy: 'cumulative-counter' };
+  return (
+    <div className="space-y-4 border-t border-[#1E293B] pt-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-slate-300">Approved plant calibration</h3>
+          <p className="mt-1 text-[10px] leading-5 text-slate-500">Match the raw source name, parameter, and register exactly. The multiplier converts the raw register to the declared engineering unit.</p>
+        </div>
+        <Gauge size={16} className="shrink-0 text-emerald-400" />
+      </div>
+      <div data-testid="plant-calibration-access" className={`rounded-lg border px-3 py-2.5 text-[11px] leading-5 ${canManage ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300' : 'border-slate-500/20 bg-slate-500/5 text-slate-400'}`}>
+        {canManage ? `You can approve engineering units and source scaling for ${siteName}.` : 'View-only access. An authorized Platform/Site Administrator must approve source mappings before live engineering KPIs are shown.'}
+      </div>
+      {profile ? <div data-testid="plant-calibration-summary" className="rounded-lg border border-blue-500/20 bg-blue-500/[0.04] px-3 py-2 text-[10px] leading-5 text-slate-400"><span className="font-semibold text-blue-300">Active profile:</span> {profile.version} · approved {new Date(profile.approvedAt).toLocaleString()} · {profile.installedDcCapacityKwp.toLocaleString()} kWp</div> : <div data-testid="plant-calibration-missing" className="rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.03] px-3 py-2 text-[10px] leading-5 text-amber-300">No approved profile for this plant. Dashboard cards will retain raw evidence and withhold kW, kWh, and specific-yield KPIs.</div>}
+      <label className="block">
+        <span className="mb-2 block text-xs font-bold text-slate-300">Installed DC capacity (kWp)</span>
+        <input inputMode="decimal" aria-label="Installed DC capacity in kWp" data-testid="input-calibration-capacity" value={capacity} onChange={(event) => setCapacity(event.target.value)} disabled={!canManage} placeholder="e.g. 50" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+      </label>
+      <div className="space-y-3">
+        {sources.map((source, index) => <div key={`${source.role}-${index}`} className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <select aria-label={`Calibration role ${index + 1}`} value={source.role} disabled={!canManage} onChange={(event) => {
+              const role = event.target.value as PlantCalibrationSource['role'];
+              updateSource(index, { role, counterRole: roleCounter[role], unit: role === 'acPower' ? 'kW' : 'kWh' });
+            }} className="min-w-0 rounded-md border border-[#1E293B] bg-[#090B13] px-2 py-1.5 text-[10px] font-bold text-slate-200 focus:border-blue-500 focus:outline-none disabled:opacity-60">
+              {Object.entries(roleLabel).map(([role, label]) => <option key={role} value={role}>{label}</option>)}
+            </select>
+            {canManage && <button type="button" onClick={() => removeSource(index)} disabled={sources.length === 1} aria-label={`Remove calibration source ${index + 1}`} className="rounded px-2 py-1 text-[10px] font-semibold text-slate-500 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-40 focus-ring">Remove</button>}
+          </div>
+          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+            <input aria-label={`Source name for ${roleLabel[source.role]}`} value={source.sourceName} onChange={(event) => updateSource(index, { sourceName: event.target.value })} disabled={!canManage} placeholder="Source / server name" className="rounded-md border border-[#1E293B] bg-[#090B13] px-2.5 py-2 font-mono text-[11px] text-slate-200 focus:border-blue-500 focus:outline-none disabled:opacity-60" />
+            <input aria-label={`Parameter for ${roleLabel[source.role]}`} value={source.parameter} onChange={(event) => updateSource(index, { parameter: event.target.value })} disabled={!canManage} placeholder="Parameter name" className="rounded-md border border-[#1E293B] bg-[#090B13] px-2.5 py-2 font-mono text-[11px] text-slate-200 focus:border-blue-500 focus:outline-none disabled:opacity-60" />
+            <input aria-label={`Register address for ${roleLabel[source.role]}`} value={source.address} onChange={(event) => updateSource(index, { address: event.target.value })} disabled={!canManage} placeholder="Register address" className="rounded-md border border-[#1E293B] bg-[#090B13] px-2.5 py-2 font-mono text-[11px] text-slate-200 focus:border-blue-500 focus:outline-none disabled:opacity-60" />
+            <div className="grid grid-cols-2 gap-2">
+              <select aria-label={`Engineering unit for ${roleLabel[source.role]}`} value={source.unit} disabled={!canManage} onChange={(event) => updateSource(index, { unit: event.target.value as PlantCalibrationSource['unit'] })} className="rounded-md border border-[#1E293B] bg-[#090B13] px-2 py-2 text-[11px] text-slate-200 focus:border-blue-500 focus:outline-none disabled:opacity-60">
+                {(source.role === 'acPower' ? ['W', 'kW', 'MW'] : ['Wh', 'kWh', 'MWh']).map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+              </select>
+              <input inputMode="decimal" aria-label={`Scaling multiplier for ${roleLabel[source.role]}`} value={String(source.multiplier)} onChange={(event) => updateSource(index, { multiplier: Number(event.target.value) })} disabled={!canManage} placeholder="Multiplier" className="rounded-md border border-[#1E293B] bg-[#090B13] px-2 py-2 font-mono text-[11px] text-slate-200 focus:border-blue-500 focus:outline-none disabled:opacity-60" />
+            </div>
+          </div>
+          <p className="mt-2 text-[9px] text-slate-500">Confirmed role: {source.counterRole.replaceAll('-', ' ')} · raw value × {source.multiplier || '—'} → {source.unit}</p>
+        </div>)}
+      </div>
+      {canManage && <button type="button" onClick={addSource} data-testid="button-add-calibration-source" className="w-full rounded-lg border border-dashed border-[#334155] px-3 py-2 text-[11px] font-semibold text-slate-400 hover:border-blue-500/50 hover:text-blue-300 focus-ring">Add another approved source</button>}
+      {!canManage && <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Sign in as an authorized administrator to approve calibration</a>}
+      {error && <p role="alert" data-testid="alert-plant-calibration" className="text-xs text-rose-400">{error}</p>}
+      {saved && <p role="status" data-testid="status-plant-calibration-saved" className="text-xs text-emerald-400">{saved}</p>}
+      {canManage && <button type="button" onClick={() => void save()} disabled={saving} data-testid="button-save-plant-calibration" className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-600 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-500/10 transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {saving ? 'Approving…' : profile ? 'Update approved calibration' : 'Approve plant calibration'}</button>}
+    </div>
+  );
+}
+
+function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, locationAdmin, onSaveSiteLocation, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile }: {
   open: boolean;
   onClose: () => void;
   mode: 'demo' | 'live';
@@ -2464,6 +2574,9 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   siteLocationError: string;
   locationAdmin: boolean;
   onSaveSiteLocation: (siteName: string, latitude: number, longitude: number) => Promise<void>;
+  calibrationProfile: PlantCalibrationProfile | null;
+  calibrationProfileError: string;
+  onSaveCalibrationProfile: (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => Promise<void>;
 }) {
   const [url, setUrl] = useState(() => localStorage.getItem('northline-broker-url') || DEFAULT_BROKER_URL);
   const [topic, setTopic] = useState(() => localStorage.getItem('northline-broker-topic') || DEFAULT_BROKER_TOPIC);
@@ -2612,6 +2725,8 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                </>
               ) : <p className="rounded-lg border border-dashed border-[#1E293B] px-3 py-4 text-xs text-slate-500">A plant/site name is required before coordinates can be configured.</p>}
            </div>
+             <CalibrationProfileEditor siteName={initialSite} profile={calibrationProfile} canManage={locationAdmin} onSave={onSaveCalibrationProfile} />
+             {calibrationProfileError && <p role="alert" data-testid="alert-plant-calibration-load" className="text-xs text-rose-400">{calibrationProfileError}</p>}
           
           {error && (
             <div className="flex gap-3 p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-lg">
@@ -2669,6 +2784,8 @@ function AppShell() {
   const [siteLocations, setSiteLocations] = useState<Record<string, PlantLocation>>({});
   const [siteLocationError, setSiteLocationError] = useState('');
   const [locationAdmin, setLocationAdmin] = useState(false);
+  const [calibrationProfile, setCalibrationProfile] = useState<PlantCalibrationProfile | null>(null);
+  const [calibrationProfileError, setCalibrationProfileError] = useState('');
   const streamRef = useRef<EventSource | null>(null);
   const streamGenerationRef = useRef(0);
   const seenTelemetryEventsRef = useRef(new Map<string, true>());
@@ -2746,6 +2863,25 @@ function AppShell() {
   }, [activeSite, availableSites]);
   const plantSiteName = activeSite;
   const weatherLocation = useMemo(() => findWeatherLocation(plantSiteName, siteLocations), [plantSiteName, siteLocations]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const loadCalibrationProfile = async () => {
+      try {
+        const response = await fetch(`/api/mqtt/calibration-profile?siteName=${encodeURIComponent(plantSiteName)}`, { signal: controller.signal, cache: 'no-store' });
+        const payload = await response.json() as { profile?: PlantCalibrationProfile | null; message?: string };
+        if (!response.ok) throw new Error(payload.message ?? 'Approved plant calibration could not be loaded.');
+        setCalibrationProfile(payload.profile ?? null);
+        setCalibrationProfileError('');
+      } catch (loadError) {
+        if (!controller.signal.aborted) {
+          setCalibrationProfile(null);
+          setCalibrationProfileError(loadError instanceof Error ? loadError.message : 'Approved plant calibration could not be loaded.');
+        }
+      }
+    };
+    void loadCalibrationProfile();
+    return () => controller.abort();
+  }, [plantSiteName]);
 
   useEffect(() => {
     if (!weatherLocation) {
@@ -3043,6 +3179,17 @@ function AppShell() {
     setSiteLocations((current) => ({ ...current, [payload.location!.siteName]: payload.location! }));
     setWeatherRefreshToken((token) => token + 1);
   };
+  const saveCalibrationProfile = async (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => {
+    const response = await fetch(`/api/mqtt/calibration-profile/${encodeURIComponent(siteName)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installedDcCapacityKwp, sources }),
+    });
+    const payload = await response.json() as { profile?: PlantCalibrationProfile; message?: string };
+    if (!response.ok || !payload.profile) throw new Error(payload.message ?? 'Unable to save the plant calibration profile.');
+    if (payload.profile.siteName === plantSiteName) setCalibrationProfile(payload.profile);
+    setCalibrationProfileError('');
+  };
   const openLocationSettings = () => {
     setMobileNav(false);
     setSettingsOpen(true);
@@ -3202,8 +3349,8 @@ function AppShell() {
   const rawFallbacks = useMemo(() => rawKpiFallbacks(dashboardEvidenceRows), [dashboardEvidenceRows]);
   const liveKpiCalculations = useMemo(() => calculateVerifiedScadaKpis(
     mode === 'live' ? modbusRows.filter((row) => row.provenance === 'live') : modbusRows,
-    { asOf: now, maximumAgeMs: DEVICE_STALE_MAX_AGE_MS },
-  ), [modbusRows, mode, now]);
+    { asOf: now, maximumAgeMs: DEVICE_STALE_MAX_AGE_MS, calibrationProfile },
+  ), [calibrationProfile, modbusRows, mode, now]);
   const savedKpiCalculations = useMemo(() => calculateVerifiedScadaKpis(
     savedKpiSnapshot?.parameters ?? [],
     savedKpiSnapshot ? {
@@ -3212,6 +3359,7 @@ function AppShell() {
         endedAt: savedKpiSnapshot.windowEndedAt,
         scheduledFor: savedKpiSnapshot.scheduledFor,
       },
+      calibrationProfile: savedKpiSnapshot.calibrationProfile ?? null,
     } : undefined,
   ), [savedKpiSnapshot]);
   const calculations = useMemo<VerifiedScadaKpis>(() => {
@@ -3237,7 +3385,7 @@ function AppShell() {
     if (calculation.quality !== 'verified') return calculation.readiness;
     const outliers = calculation.excluded.length ? ` · ${calculation.excluded.length} outlier${calculation.excluded.length === 1 ? '' : 's'} excluded` : '';
     const saved = calculation.snapshotWindow ? ` · saved ${formatInPlantTimezone(calculation.snapshotWindow.scheduledFor, persistence.timezone)}` : '';
-    return `${calculation.method.replaceAll('-', ' ')} · ${calculation.inputs.length} approved source input${calculation.inputs.length === 1 ? '' : 's'}${outliers}${saved}`;
+    return `${calculation.method.replaceAll('-', ' ')} · ${calculation.inputs.length} approved source input${calculation.inputs.length === 1 ? '' : 's'} · ${calculation.profileVersion}${outliers}${saved}`;
   };
   const calculationCard = (calculation: VerifiedKpiCalculation, rawFallback: RawKpiFallback) => {
     if (calculation.quality === 'verified') {
@@ -3301,7 +3449,7 @@ function AppShell() {
         quality: calculations.acPower.value === null ? 'unavailable' as const : 'reported' as const,
         provenance: calculations.acPower.provenance === 'live' ? 'live' as const : calculations.acPower.provenance === 'replay' ? 'replay' as const : undefined,
         status: live ? 'online' as const : 'stale' as const,
-        sourceLabel: live ? 'Validated live calculation' : 'Validated saved calculation',
+        sourceLabel: `${live ? 'Validated live' : 'Validated saved'} · ${calculations.acPower.profileVersion}`,
       };
     }
     if (latestApprovedPlantPower) {
@@ -3471,7 +3619,7 @@ function AppShell() {
             </section>
             <DashboardPowerFlow {...dashboardFlowReading} mode={mode} />
               <div className="scada-dashboard-kpis grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : acPowerCard.subtext} formula={mode === 'demo' ? 'Σ demo inverter active-power values' : acPowerCard.formula} onClick={() => navigateTo('power')} help="The card shows exact source evidence whenever it is available. kW is shown only after source-provided scaling, units, and power semantics are approved." />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : acPowerCard.subtext} formula={mode === 'demo' ? 'Σ demo inverter active-power values' : acPowerCard.formula} onClick={() => navigateTo('power')} help="The card shows exact source evidence whenever it is available. kW is shown only when an administrator-approved plant calibration profile matches its source register, scaling, unit, and role." />
               <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : dailyEnergyCard.subtext} formula={mode === 'demo' ? 'Demo daily energy counter' : dailyEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact daily-energy source register if provided. It never creates energy by integrating unvalidated power records." />
               <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : totalEnergyCard.subtext} formula={mode === 'demo' ? 'Demo cumulative energy counter' : totalEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact raw cumulative-energy evidence when it is available. kWh appears only after approved scaling and units are supplied." />
               <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : specificYieldCard.subtext} formula={mode === 'demo' ? 'Demo daily energy ÷ installed capacity' : specificYieldCard.formula} onClick={() => navigateTo('power')} help="The card shows a source-provided raw specific-yield register if present. An engineering-specific yield is calculated only from verified daily energy and installed DC capacity." />
@@ -3515,7 +3663,7 @@ function AppShell() {
           </>}
         </main>
       </div>
-       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} />
+       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} mode={mode} setMode={changeMode} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} />
         {selectedInverter && (
           <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1E293B] bg-[#090B13] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
             <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} siteName={selectedInverter.site} plantTimezone={persistence.timezone} mode={mode} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />

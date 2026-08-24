@@ -7,6 +7,29 @@ export type RawTelemetryMetric = {
   provenance: "live" | "retained" | "recovered" | "replay";
 };
 
+export type CalibrationRole = "acPower" | "dailyEnergy" | "totalEnergy";
+export type CalibrationCounterRole = "instantaneous-power" | "daily-counter" | "cumulative-counter";
+export type CalibrationEngineeringUnit = "W" | "kW" | "MW" | "Wh" | "kWh" | "MWh";
+export type PlantCalibrationSource = {
+  role: CalibrationRole;
+  sourceName: string;
+  parameter: string;
+  address: string;
+  unit: CalibrationEngineeringUnit;
+  multiplier: number;
+  counterRole: CalibrationCounterRole;
+  scalingConfirmed: true;
+};
+export type PlantCalibrationProfile = {
+  siteName: string;
+  version: string;
+  status: "approved";
+  installedDcCapacityKwp: number;
+  sources: PlantCalibrationSource[];
+  approvedBy: string;
+  approvedAt: string;
+};
+
 export type ScadaAggregate = {
   value: number | null;
   method: "inverter-sum" | "main-meter" | "three-phase" | "inverter-energy-sum" | "totalizing-meter" | "unavailable";
@@ -43,6 +66,7 @@ export type SavedKpiSnapshot = {
     totalEnergy: SavedSnapshotMetric | null;
     specificYield: SavedSnapshotMetric | null;
   };
+  calibrationProfile?: PlantCalibrationProfile | null;
 };
 
 export const SAVED_KPI_SNAPSHOT_MAX_AGE_MS = 15 * 60_000;
@@ -89,10 +113,26 @@ export type VerifiedKpiCalculation = {
 
 export type VerifiedScadaKpis = Record<CalculationKey, VerifiedKpiCalculation>;
 
-export const SCADA_CALCULATION_PROFILE_VERSION = "source-metadata-v1";
+export const SCADA_CALCULATION_PROFILE_VERSION = "plant-calibration-required-v1";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseCalibrationProfile(value: unknown): PlantCalibrationProfile | null {
+  if (!isRecord(value) || typeof value.siteName !== "string" || typeof value.version !== "string" || value.status !== "approved") return null;
+  const capacity = typeof value.installedDcCapacityKwp === "number" ? value.installedDcCapacityKwp : Number(value.installedDcCapacityKwp);
+  if (!Number.isFinite(capacity) || capacity <= 0 || typeof value.approvedBy !== "string" || typeof value.approvedAt !== "string" || !Array.isArray(value.sources)) return null;
+  const sources = value.sources.filter(isRecord).map((source) => {
+    const multiplier = typeof source.multiplier === "number" ? source.multiplier : Number(source.multiplier);
+    const roles = ["acPower", "dailyEnergy", "totalEnergy"];
+    const units = ["W", "kW", "MW", "Wh", "kWh", "MWh"];
+    const counters = ["instantaneous-power", "daily-counter", "cumulative-counter"];
+    if (!roles.includes(String(source.role)) || typeof source.sourceName !== "string" || typeof source.parameter !== "string" || typeof source.address !== "string" || !units.includes(String(source.unit)) || !Number.isFinite(multiplier) || multiplier <= 0 || !counters.includes(String(source.counterRole)) || source.scalingConfirmed !== true) return null;
+    return { role: source.role as CalibrationRole, sourceName: source.sourceName, parameter: source.parameter, address: source.address, unit: source.unit as CalibrationEngineeringUnit, multiplier, counterRole: source.counterRole as CalibrationCounterRole, scalingConfirmed: true as const };
+  }).filter((source): source is PlantCalibrationSource => source !== null);
+  if (sources.length === 0) return null;
+  return { siteName: value.siteName, version: value.version, status: "approved", installedDcCapacityKwp: capacity, sources, approvedBy: value.approvedBy, approvedAt: value.approvedAt };
 }
 
 function parseSavedMetric(value: unknown): SavedSnapshotMetric | null {
@@ -139,6 +179,7 @@ export function parseSavedKpiSnapshot(value: unknown): SavedKpiSnapshot | null {
       totalEnergy: parseSavedMetric(value.metrics.totalEnergy),
       specificYield: parseSavedMetric(value.metrics.specificYield),
     },
+    calibrationProfile: parseCalibrationProfile(value.calibrationProfile),
   };
 }
 
