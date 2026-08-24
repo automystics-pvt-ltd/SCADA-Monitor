@@ -133,7 +133,7 @@ function engineeringUnit(row: TelemetryKpiRow): EngineeringUnit | null {
   if (["wh", "watt hour", "watthour", "kwh", "kilowatt hour", "kilowatthour", "mwh", "megawatt hour", "megawatthour"].includes(unit)) return "kWh";
   if (["v", "volt", "volts"].includes(unit)) return "V";
   if (["a", "amp", "amps", "ampere", "amperes"].includes(unit)) return "A";
-  if (["ratio", "perunit", "pu", "unitless"].includes(unit)) return "ratio";
+  if (["ratio", "perunit", "pu", "unitless", "pf", "powerfactor"].includes(unit)) return "ratio";
   if (["kwp", "kilowattpeak", "kilowattsp"].includes(unit)) return "kWp";
   return null;
 }

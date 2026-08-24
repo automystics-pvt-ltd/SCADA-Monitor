@@ -201,12 +201,6 @@ function siteNameFrom(parameter: Record<string, unknown>) {
   ].map(stringValue).find(Boolean);
 }
 
-function isTrustedBareInverterYield(parameter: Record<string, unknown>, parameterName: string) {
-  const sourceName = String(parameter.server_name ?? parameter.source ?? "").trim().toLowerCase();
-  const address = String(parameter.full_addr ?? parameter.address ?? parameter.register ?? parameter.addr ?? "").trim();
-  return /^inv\d+$/i.test(parameterName) && sourceName === "ana" && address === "305003";
-}
-
 export function inverterEnergyObservationFromParameter(parameter: Record<string, unknown>, siteName: string): InverterEnergyObservation | undefined {
   const parameterName = stringValue(parameter.name) ?? stringValue(parameter.parameter) ?? stringValue(parameter.tag);
   if (!parameterName) return undefined;
@@ -214,8 +208,7 @@ export function inverterEnergyObservationFromParameter(parameter: Record<string,
   const inverterId = inverterIdentity(parameter, parameterName);
   const semanticEnergyName = isInverterEnergyName(parameterName);
   const explicitEnergyUnit = stringValue(parameter.energy_unit) ?? stringValue(parameter.energyUnit);
-  const trustedBareInverterYield = isTrustedBareInverterYield(parameter, parameterName);
-  if (!inverterId || (!trustedBareInverterYield && !semanticEnergyName) || (!trustedBareInverterYield && !explicitEnergyUnit && !explicitScalingValidated(parameter))) return undefined;
+  if (!inverterId || !semanticEnergyName || (!explicitEnergyUnit && !explicitScalingValidated(parameter))) return undefined;
   const sourceSite = siteNameFrom(parameter);
   if (sourceSite && sourceSite !== siteName) return undefined;
 
@@ -248,7 +241,7 @@ export function inverterEnergyObservationFromParameter(parameter: Record<string,
     metadata: {
       serverId: parameter.server_id ?? parameter.serverId,
       sourceTimestamp: parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date,
-      sourceMapping: trustedBareInverterYield ? "ana/305003/invN" : "explicit-inverter-energy",
+      sourceMapping: "explicit-inverter-energy",
     },
   };
 }

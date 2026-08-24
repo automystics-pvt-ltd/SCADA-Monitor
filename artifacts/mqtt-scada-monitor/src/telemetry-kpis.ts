@@ -251,7 +251,7 @@ export function latestRawMetric(rows: TelemetryKpiRow[], parameterNames: string[
 
 export function rawInverterSignals(rows: TelemetryKpiRow[]) {
   return rows
-    .filter((row) => /^inv\d+$/i.test(normalizedParameter(row)))
+    .filter((row) => /^inv\d+$/i.test(normalizedParameter(row)) && normalizedKey(row.measurement_type ?? row.semantic) !== "inverteridentity")
     .map((row) => ({ row, metric: asRawMetric(row) }))
     .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null)
     .sort((left, right) => left.metric.parameter.localeCompare(right.metric.parameter))
@@ -319,7 +319,10 @@ function latestValidatedMetric(rows: TelemetryKpiRow[], names: string[]) {
 }
 
 export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
-  const inverterPower = latestMetricsByParameter(rows, (name) => /^inv\d+$/.test(name));
+  const inverterPower = latestMetricsByParameter(
+    rows.filter((row) => normalizedKey(row.measurement_type ?? row.semantic) !== "inverteridentity"),
+    (name) => /^inv\d+$/.test(name),
+  );
   const powerSelection = rejectPowerOutliers(inverterPower);
   const acPower: ScadaAggregate = powerSelection.included.length
     ? {

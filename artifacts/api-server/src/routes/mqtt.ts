@@ -15,6 +15,7 @@ import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
 import { deviceCommunicationState, heartbeatWindows, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
+import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
 import {
   keepReportRecord,
   reportCategoryForParameter,
@@ -55,6 +56,7 @@ const configuredMqttPlantSite = process.env.MQTT_PLANT_SITE?.trim() || subscript
 type StoredMessage = {
   topic: string;
   payload: string;
+  parameter?: Record<string, unknown>;
   receivedAt: string;
   sequence: number;
   sourceTimestamp?: string;
@@ -397,7 +399,8 @@ function recordCommunicationEvent(event: CommunicationEventDraft) {
 }
 
 function parameterFromPayload(rawPayload: string): Record<string, unknown> | undefined {
-  return telemetryParameterFromRawPayload(rawPayload);
+  const parameter = telemetryParameterFromRawPayload(rawPayload);
+  return parameter ? applyTrn246TelemetryCalibration(parameter) : undefined;
 }
 
 function sourceTimestampFromPayload(rawPayload: string) {
@@ -623,7 +626,7 @@ function snapshotEvidence(snapshot: {
 }): SavedSnapshotEvidence {
   const data = isRecord(snapshot.data) ? snapshot.data : {};
   const parameters = Array.isArray(data.latestParameters)
-    ? data.latestParameters.filter(isRecord)
+    ? data.latestParameters.filter(isRecord).map(applyTrn246TelemetryCalibration)
     : [];
   const saveStatus = snapshotSaveStatus(data, snapshot.messageCount, snapshot.parameterCount);
   const scheduledFor = typeof data.scheduledFor === "string" ? data.scheduledFor : snapshot.windowEndedAt.toISOString();
@@ -734,7 +737,7 @@ function timezoneFromParameter(parameter: Record<string, unknown>) {
 }
 
 function queueSnapshotMessage(message: StoredMessage) {
-  const parameter = parameterFromPayload(message.payload);
+  const parameter = message.parameter ?? parameterFromPayload(message.payload);
   const telemetryTimezone = parameter ? timezoneFromParameter(parameter) : undefined;
   if (telemetryTimezone) plantTimezone = telemetryTimezone;
   const now = new Date(message.receivedAt);
@@ -1160,6 +1163,7 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
   const message: StoredMessage = {
     topic,
     payload: rawPayload,
+    parameter,
     receivedAt,
     sequence: await allocateDeliverySequence(),
     sourceTimestamp: parameter ? parameterObservationTime(parameter) : undefined,
@@ -1638,24 +1642,57 @@ function reportTitle(type: ScadaReportType) {
 }
 
 function validatedLiveReportRecord(message: StoredMessage): ScadaReportRecord | undefined {
-  const parameter = parameterFromPayload(message.payload);
+  const parameter = message.parameter ?? parameterFromPayload(message.payload);
   const measurement = parameter ? inverterMeasurementObservationFromParameter(parameter, configuredMqttPlantSite) : undefined;
-  if (measurement?.scalingStatus !== "validated") return undefined;
+  if (measurement?.scalingStatus === "validated") {
+    return {
+      id: stableReportRecordId({ source: measurement.sourceName, siteName: measurement.siteName, deviceId: measurement.inverterId, parameter: measurement.parameter, address: measurement.address, observedAt: measurement.observedAt, receivedAt: message.receivedAt, value: measurement.value }),
+      recordType: "measurement",
+      category: reportCategoryForMeasurement(measurement.measurementKind, measurement.parameter),
+      siteName: measurement.siteName,
+      deviceId: measurement.inverterId,
+      deviceName: measurement.inverterName,
+      parameter: measurement.parameter,
+      displayLabel: measurement.displayLabel,
+      measurementKind: measurement.measurementKind,
+      value: measurement.value,
+      unit: measurement.unit,
+      address: measurement.address,
+      sourceName: measurement.sourceName,
+      observedAt: measurement.observedAt,
+      receivedAt: message.receivedAt,
+      provenance: "live",
+      quality: "validated",
+      status: null,
+      reason: null,
+    };
+  }
+  if (!parameter || !sourceExplicitlyValidatesEngineeringValue(parameter)) return undefined;
+
+  const value = numericParameterValue(parameter);
+  const observedAt = parameterObservationTime(parameter);
+  if (value === null || !observedAt) return undefined;
+  const parameterName = String(parameter.name ?? parameter.parameter ?? "register");
+  const measurementKind = String(parameter.measurement_type ?? parameter.semantic ?? "other").replaceAll("_", "-");
+  const sourceName = String(parameter.server_name ?? parameter.source ?? "MQTT source");
+  const address = String(parameter.full_addr ?? parameter.address ?? parameter.addr ?? "—");
+  const deviceId = sourceText(parameter, ["inverter_id", "inverterId", "device_id", "deviceId"]) ?? null;
+  const siteName = sourceText(parameter, ["site_name", "siteName", "plant_name", "plantName"]) ?? configuredMqttPlantSite;
   return {
-    id: stableReportRecordId({ source: measurement.sourceName, siteName: measurement.siteName, deviceId: measurement.inverterId, parameter: measurement.parameter, address: measurement.address, observedAt: measurement.observedAt, receivedAt: message.receivedAt, value: measurement.value }),
+    id: stableReportRecordId({ source: sourceName, siteName, deviceId, parameter: parameterName, address, observedAt, receivedAt: message.receivedAt, value }),
     recordType: "measurement",
-    category: reportCategoryForMeasurement(measurement.measurementKind, measurement.parameter),
-    siteName: measurement.siteName,
-    deviceId: measurement.inverterId,
-    deviceName: measurement.inverterName,
-    parameter: measurement.parameter,
-    displayLabel: measurement.displayLabel,
-    measurementKind: measurement.measurementKind,
-    value: measurement.value,
-    unit: measurement.unit,
-    address: measurement.address,
-    sourceName: measurement.sourceName,
-    observedAt: measurement.observedAt,
+    category: reportCategoryForMeasurement(measurementKind, parameterName),
+    siteName,
+    deviceId,
+    deviceName: sourceText(parameter, ["inverter_name", "inverterName", "device_name", "deviceName"]) ?? null,
+    parameter: parameterName,
+    displayLabel: sourceText(parameter, ["display_name", "displayName", "label"]) ?? parameterName,
+    measurementKind,
+    value,
+    unit: String(parameter.engineering_unit ?? parameter.unit ?? "source units"),
+    address,
+    sourceName,
+    observedAt,
     receivedAt: message.receivedAt,
     provenance: "live",
     quality: "validated",

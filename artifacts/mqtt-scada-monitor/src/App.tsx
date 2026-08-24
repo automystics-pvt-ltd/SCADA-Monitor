@@ -2836,7 +2836,7 @@ function AppShell() {
     }
   };
 
-  const ingestPayload = (raw: string, topic: string, receivedAt?: string, replay = false, recovered = false, retained = false, inverterRecords?: unknown[], eventId?: string) => {
+  const ingestPayload = (raw: string, topic: string, receivedAt?: string, replay = false, recovered = false, retained = false, inverterRecords?: unknown[], eventId?: string, calibratedParameter?: unknown) => {
     const identity = telemetryDeliveryIdentity(eventId, topic, receivedAt, raw);
     if (!rememberTelemetryDelivery(seenTelemetryEventsRef.current, identity)) {
       setDuplicateEventCount((count) => count + 1);
@@ -2849,7 +2849,7 @@ function AppShell() {
     try {
       const payload = JSON.parse(raw) as JsonValue;
       setRawJson(payload);
-      const incomingRows = extractModbusRows(payload);
+      const incomingRows = extractModbusRows(isUnknownRecord(calibratedParameter) ? calibratedParameter as JsonValue : payload);
       if (incomingRows.length) {
         setModbusRows((current) => {
           const next = [...current];
@@ -2954,9 +2954,9 @@ function AppShell() {
     stream.addEventListener('message', (event) => {
       if (generation !== streamGenerationRef.current) return;
       try {
-        const message = JSON.parse((event as MessageEvent).data) as { topic: string; payload: string; receivedAt?: string; replay?: boolean; recovered?: boolean; delivery?: 'immediate' | 'retained'; inverterRecords?: unknown[] };
+        const message = JSON.parse((event as MessageEvent).data) as { topic: string; payload: string; parameter?: unknown; receivedAt?: string; replay?: boolean; recovered?: boolean; delivery?: 'immediate' | 'retained'; inverterRecords?: unknown[] };
         if (typeof message.topic !== 'string' || typeof message.payload !== 'string') return;
-        const accepted = ingestPayload(message.payload, message.topic, message.receivedAt, message.replay === true, message.recovered === true, message.delivery === 'retained', message.inverterRecords, (event as MessageEvent).lastEventId || undefined);
+        const accepted = ingestPayload(message.payload, message.topic, message.receivedAt, message.replay === true, message.recovered === true, message.delivery === 'retained', message.inverterRecords, (event as MessageEvent).lastEventId || undefined, message.parameter);
         if (accepted && message.recovered) setRecoveredEventCount((count) => count + 1);
       } catch {
         setError('The telemetry stream sent an unreadable message frame. New frames will continue to be processed.');
@@ -3268,6 +3268,21 @@ function AppShell() {
   const dailyEnergyCard = calculationCard(calculations.dailyEnergy, rawFallbacks.dailyEnergy);
   const totalEnergyCard = calculationCard(calculations.totalEnergy, rawFallbacks.totalEnergy);
   const specificYieldCard = calculationCard(calculations.specificYield, rawFallbacks.specificYield);
+  const latestApprovedPlantPower = useMemo(() => dashboardEvidenceRows
+    .filter((row) => {
+      const parameter = String(row.name ?? row.parameter ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const semantic = String(row.measurement_type ?? row.semantic ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      return explicitScalingValidated(row)
+        && ['actpow', 'mainmeteractivepower', 'gridactivepower', 'plantactivepower'].includes(parameter)
+        && ['activepower', 'acpower', 'realpower'].includes(semantic);
+    })
+    .map((row) => {
+      const value = typeof row.data === 'number' ? row.data : typeof row.data === 'string' ? Number(row.data) : NaN;
+      return { row, value, observedAt: telemetryEpoch(row) ?? 0 };
+    })
+    .filter((candidate) => Number.isFinite(candidate.value))
+    .sort((left, right) => right.observedAt - left.observedAt)[0] ?? null,
+  [dashboardEvidenceRows]);
   const dashboardFlowReading = useMemo(() => {
     if (mode === 'demo') {
       return {
@@ -3287,6 +3302,23 @@ function AppShell() {
         provenance: calculations.acPower.provenance === 'live' ? 'live' as const : calculations.acPower.provenance === 'replay' ? 'replay' as const : undefined,
         status: live ? 'online' as const : 'stale' as const,
         sourceLabel: live ? 'Validated live calculation' : 'Validated saved calculation',
+      };
+    }
+    if (latestApprovedPlantPower) {
+      const { row, value } = latestApprovedPlantPower;
+      const live = row.provenance === 'live' && electricalLiveState === 'fresh';
+      const unit = typeof row.engineering_unit === 'string' && row.engineering_unit.trim()
+        ? row.engineering_unit
+        : typeof row.unit === 'string' && row.unit.trim()
+          ? row.unit
+          : 'kW';
+      return {
+        value,
+        unit,
+        quality: 'reported' as const,
+        provenance: live ? 'live' as const : undefined,
+        status: live ? 'online' as const : 'stale' as const,
+        sourceLabel: `Approved ${String(row.name ?? 'active power')} register · ${String(row.full_addr ?? row.addr ?? '—')}`,
       };
     }
     const liveRawInput = rawFallbacks.acPower.inputs.find((input) => input.provenance === 'live');
@@ -3309,7 +3341,7 @@ function AppShell() {
       status: liveInputs ? 'stale' as const : 'offline' as const,
       sourceLabel: rawFallbacks.acPower.method,
     };
-  }, [calculations.acPower, electricalLiveState, mode, rawFallbacks.acPower, totalAcPower]);
+  }, [calculations.acPower, electricalLiveState, latestApprovedPlantPower, mode, rawFallbacks.acPower, totalAcPower]);
   const deviceCommunication = mode === 'demo'
     ? 'live'
     : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');
