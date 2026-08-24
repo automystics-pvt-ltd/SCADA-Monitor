@@ -1,5 +1,6 @@
 import { createInsertSchema } from "drizzle-zod";
-import { integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
 
 export const mqttSnapshotsTable = pgTable("mqtt_snapshots", {
@@ -11,7 +12,11 @@ export const mqttSnapshotsTable = pgTable("mqtt_snapshots", {
   messageCount: integer("message_count").notNull(),
   parameterCount: integer("parameter_count").notNull(),
   data: jsonb("data").notNull(),
-});
+}, (table) => [
+  uniqueIndex("mqtt_snapshot_topic_window_ended_unique")
+    .on(table.topic, table.windowEndedAt)
+    .where(sql`(${table.data} ->> 'schemaVersion') = '3'`),
+]);
 
 export const insertMqttSnapshotSchema = createInsertSchema(mqttSnapshotsTable).omit({ id: true, capturedAt: true });
 export type InsertMqttSnapshot = z.infer<typeof insertMqttSnapshotSchema>;

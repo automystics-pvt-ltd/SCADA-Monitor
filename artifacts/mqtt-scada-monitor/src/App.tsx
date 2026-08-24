@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry } from './telemetry-provenance';
-import { latestRawMetric, rawInverterSignals, rawMetricContext, type RawTelemetryMetric } from './telemetry-kpis';
+import { isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type SavedSnapshotMetric } from './telemetry-kpis';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
@@ -41,7 +41,7 @@ type PersistenceStatus = {
   pendingMessages: number;
   lastSnapshotAt?: string;
   lastSnapshotScheduledFor?: string;
-  lastSnapshotStatus?: 'saved' | 'missing';
+  lastSnapshotStatus?: 'saved' | 'missing' | 'incomplete';
   error?: string;
 };
 type ThemeMode = 'light' | 'dark';
@@ -63,7 +63,17 @@ type WeatherData = {
   location: {
     latitude: number;
     longitude: number;
+    locationName: string | null;
+    city: string | null;
+    district: string | null;
+    state: string | null;
+    country: string | null;
     timezone: string | null;
+    utcOffsetSeconds: number | null;
+    utcOffset: string | null;
+    localDateTime: string | null;
+    coordinateSource: string;
+    reverseGeocodedAt: string | null;
   };
   current: {
     temperatureC: number | null;
@@ -105,7 +115,7 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
 
 function findWeatherLocation(siteName: string, siteLocations: Record<string, PlantLocation>): WeatherLocation | null {
   const configuredLocation = siteLocations[siteName];
-  if (configuredLocation) {
+  if (configuredLocation && Number.isFinite(configuredLocation.latitude) && configuredLocation.latitude >= -90 && configuredLocation.latitude <= 90 && Number.isFinite(configuredLocation.longitude) && configuredLocation.longitude >= -180 && configuredLocation.longitude <= 180) {
     return {
       latitude: configuredLocation.latitude,
       longitude: configuredLocation.longitude,
@@ -208,6 +218,20 @@ function formatInPlantTimezone(value: string | undefined, timezone: string | und
     }).format(date);
   } catch {
     return date.toISOString();
+  }
+}
+
+function formatCurrentTimeInTimezone(now: number, timezone: string | null | undefined) {
+  if (!timezone) return 'Location data unavailable';
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      hourCycle: 'h23',
+    }).format(new Date(now));
+  } catch {
+    return 'Location data unavailable';
   }
 }
 
@@ -521,13 +545,14 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
   const temperature = weather.data?.current.temperatureC;
   const condition = weather.data?.current.weatherCondition;
   const irradiance = weather.data?.current.irradianceWm2;
-  const weatherUpdated = weather.data?.freshness.retrievedAt ? new Date(weather.data.freshness.retrievedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : null;
-  const weatherLocationLabel = weather.location?.label ?? `${siteName} · location unavailable`;
+  const weatherUpdated = weather.data?.freshness.retrievedAt ? new Date(weather.data.freshness.retrievedAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
+  const weatherLocationLabel = weather.data?.location.locationName ?? (weather.location ? 'Resolving configured coordinates…' : 'Location data unavailable');
   const weatherProvenance = weather.data ? `${weather.data.source} · ${weatherLocationLabel}` : 'Source unavailable';
   const observationTime = weather.data?.freshness.observationTime?.replace('T', ' ') ?? 'Data unavailable';
   const receivedTime = weatherUpdated ?? 'Data unavailable';
   const weatherCacheStatus = weather.data?.freshness.cacheStatus === 'fresh' ? 'Fresh response' : weather.data?.freshness.cacheStatus === 'cached' ? 'Cached ≤ 4 min' : 'Data unavailable';
-  const weatherMetadata = weather.data ? `${weatherProvenance} · Observed ${observationTime} · Received ${receivedTime} · ${weatherCacheStatus}` : 'Weather data unavailable';
+  const weatherLocalTime = weather.data?.location.localDateTime ?? 'Location data unavailable';
+  const weatherMetadata = weather.data ? `${weatherProvenance} · Local ${weatherLocalTime} · Observed ${observationTime} · Received ${receivedTime} · ${weatherCacheStatus}` : 'Weather data unavailable';
   return (
     <header className="flex min-h-[72px] flex-wrap shrink-0 items-center justify-between gap-3 border-b border-[#1e293b] bg-[#0b0f19] px-3 py-2.5 sm:px-5 2xl:flex-nowrap 2xl:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-3 md:gap-4">
@@ -1251,20 +1276,23 @@ function EnvironmentMetric({ icon: Icon, label, value, tone, detail }: { icon: t
   );
 }
 
-function EnvironmentDetails({ siteName, sites = [], weather, onRefresh, onSiteChange, onConfigureLocation }: {
+function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onSiteChange, onConfigureLocation }: {
   siteName: string;
   sites: string[];
   weather: WeatherState;
+  now: number;
   onRefresh: () => void;
   onSiteChange: (site: string) => void;
   onConfigureLocation: () => void;
 }) {
   const current = weather.data?.current;
+  const resolvedLocation = weather.data?.location;
+  const configuredCoordinates = weather.location;
   const isLoading = weather.status === 'loading';
-  const locationLabel = weather.location?.label ?? `${siteName} · location unavailable`;
+  const locationLabel = resolvedLocation?.locationName ?? (configuredCoordinates ? 'Resolving configured coordinates…' : 'Location data unavailable');
   const observationAt = weather.data?.freshness.observationTime?.replace('T', ' ') ?? 'Data unavailable';
-  const receivedAt = weather.data?.freshness.retrievedAt ? new Date(weather.data.freshness.retrievedAt).toLocaleString() : 'Data unavailable';
-  const sourceLabel = weather.data ? `${weather.data.source} · ${weather.location?.source ?? 'Location unavailable'}` : 'Data unavailable';
+  const receivedAt = weather.data?.freshness.retrievedAt ? new Date(weather.data.freshness.retrievedAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC') : 'Data unavailable';
+  const sourceLabel = weather.data ? `${weather.data.source} · ${resolvedLocation?.coordinateSource ?? 'Location data unavailable'}` : configuredCoordinates?.source ?? 'Location data unavailable';
   const siteOptions = sites.length ? sites : [siteName];
   const freshnessLabel = weather.data?.freshness.cacheStatus === 'cached' ? 'Cached response' : weather.data ? 'Fresh response' : 'Data unavailable';
   const weatherIcon = current?.weatherCondition?.toLowerCase().includes('rain') || current?.weatherCondition?.toLowerCase().includes('drizzle') ? CloudRain : current?.weatherCondition?.toLowerCase().includes('clear') ? Sun : CloudSun;
@@ -1273,6 +1301,12 @@ function EnvironmentDetails({ siteName, sites = [], weather, onRefresh, onSiteCh
   const percentWidth = (value: number | null | undefined) => value === null || value === undefined ? 0 : Math.max(0, Math.min(100, value));
   const metricDetail = (label: string) => `${label} · ${siteName} · observed ${observationAt} · source ${sourceLabel} · ${freshnessLabel}`;
   const temperatureTrend = weather.data?.temperatureTrend ?? [];
+  const coordinateLatitude = resolvedLocation?.latitude ?? configuredCoordinates?.latitude;
+  const coordinateLongitude = resolvedLocation?.longitude ?? configuredCoordinates?.longitude;
+  const addressSummary = [resolvedLocation?.city, resolvedLocation?.district, resolvedLocation?.state, resolvedLocation?.country].filter((value): value is string => Boolean(value)).join(' · ') || 'Location data unavailable';
+  const timezoneLabel = resolvedLocation?.timezone ?? 'Location data unavailable';
+  const utcOffsetLabel = resolvedLocation?.utcOffset ?? 'Location data unavailable';
+  const localDateTime = formatCurrentTimeInTimezone(now, resolvedLocation?.timezone);
 
   return (
     <section id="environment" data-section="environment" className="scada-interactive-card scroll-mt-6 overflow-hidden rounded-xl border border-[#1e293b] bg-[#111827]">
@@ -1286,8 +1320,8 @@ function EnvironmentDetails({ siteName, sites = [], weather, onRefresh, onSiteCh
             </div>
             <div className="mt-3 flex flex-col items-start gap-2 text-xs text-slate-400 sm:flex-row sm:items-center">
               <label className="flex w-full items-center gap-2 sm:w-auto"><MapPin size={13} className="shrink-0 text-orange-400" /><span className="shrink-0 font-semibold text-slate-500">Plant/site</span><select value={siteName} onChange={(event) => onSiteChange(event.target.value)} data-testid="select-environment-site" className="min-w-0 flex-1 truncate rounded-md border border-[#1e293b] bg-[#0b0f19] px-2 py-1.5 text-xs font-semibold text-slate-200 focus-ring sm:w-[210px] sm:flex-none">{siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
-              <span className="hidden h-4 w-px bg-[#1e293b] sm:block" />
-                <span className="max-w-full truncate" title={locationLabel}><LocateFixed size={13} className="mr-1 inline text-slate-500" />{locationLabel}</span>
+               <span className="hidden h-4 w-px bg-[#1e293b] sm:block" />
+                 <span className="max-w-full truncate" title={locationLabel}><LocateFixed size={13} className="mr-1 inline text-slate-500" />{locationLabel}</span>
             </div>
           </div>
           <div className="grid w-full grid-cols-1 gap-2 text-[10px] min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:w-auto">
@@ -1304,9 +1338,16 @@ function EnvironmentDetails({ siteName, sites = [], weather, onRefresh, onSiteCh
       <div className="grid gap-4 p-4 sm:p-5 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="grid gap-3 sm:grid-cols-2">
              <div className="rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4 sm:col-span-2">
-              <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Configured site context</p><p className="mt-1 text-base font-bold text-slate-100">{siteName}</p><p className="mt-1 text-xs text-slate-400">{weather.location?.source === 'Configured plant location' ? 'Coordinate source: Configured plant location' : 'Coordinate source: Data unavailable'}</p></div><MapPin size={18} className="text-orange-400" /></div>
-            <div className="mt-4 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Latitude</span><span className="mt-1 block font-mono font-semibold text-slate-200">{weather.location?.latitude.toFixed(5) ?? 'Data unavailable'}</span></div><div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Longitude</span><span className="mt-1 block font-mono font-semibold text-slate-200">{weather.location?.longitude.toFixed(5) ?? 'Data unavailable'}</span></div></div>
-             <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-500/15 bg-blue-500/5 px-3 py-2 text-[10px] text-blue-200/80"><LocateFixed size={13} className="text-blue-400" /> Weather uses this verified configured plant location.</div>
+               <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Configured coordinate identity</p><p className="mt-1 text-base font-bold text-slate-100">{locationLabel}</p><p className="mt-1 text-xs text-slate-400">Plant/site: {siteName} · Coordinate source: {configuredCoordinates?.source ?? 'Location data unavailable'}</p></div><MapPin size={18} className="text-orange-400" /></div>
+            <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+              <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Latitude</span><span data-testid="weather-location-latitude" className="mt-1 block font-mono font-semibold text-slate-200">{coordinateLatitude === undefined ? 'Location data unavailable' : coordinateLatitude.toFixed(6)}</span></div>
+              <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Longitude</span><span data-testid="weather-location-longitude" className="mt-1 block font-mono font-semibold text-slate-200">{coordinateLongitude === undefined ? 'Location data unavailable' : coordinateLongitude.toFixed(6)}</span></div>
+              <div className="rounded-lg bg-[#111827] p-2.5 sm:col-span-2"><span className="block text-[9px] uppercase tracking-wider text-slate-500">City / District / State / Country</span><span data-testid="weather-location-address" className="mt-1 block font-semibold text-slate-200">{addressSummary}</span></div>
+              <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Weather timezone</span><span data-testid="weather-location-timezone" className="mt-1 block font-mono font-semibold text-slate-200">{timezoneLabel}</span></div>
+              <div className="rounded-lg bg-[#111827] p-2.5"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Timezone UTC offset</span><span data-testid="weather-location-offset" className="mt-1 block font-mono font-semibold text-slate-200">{utcOffsetLabel}</span></div>
+              <div className="rounded-lg bg-[#111827] p-2.5 sm:col-span-2"><span className="block text-[9px] uppercase tracking-wider text-slate-500">Current local date &amp; time</span><span data-testid="weather-location-local-time" className="mt-1 block font-mono font-semibold text-slate-200">{localDateTime}</span></div>
+            </div>
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-500/15 bg-blue-500/5 px-3 py-2 text-[10px] text-blue-200/80"><LocateFixed size={13} className="text-blue-400" /> Weather, address, timezone, and environmental analytics use only these configured coordinates.</div>
           </div>
           <div className="rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live condition</p><p className="mt-2 text-lg font-bold text-slate-100">{current?.weatherCondition ?? 'Data unavailable'}</p></div><span className="grid h-11 w-11 place-items-center rounded-full border border-orange-500/20 bg-orange-500/10 text-orange-300"><WeatherIcon size={24} /></span></div><p className="mt-3 text-[10px] text-slate-500">{metricDetail('Weather condition')}</p></div>
           <div className="rounded-xl border border-[#1e293b] bg-[#0b0f19] p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Wind compass</p><p className="mt-2 text-lg font-bold text-slate-100">{weatherMetricValue(current?.windSpeedMs, 'm/s')}</p></div><div className="relative grid h-12 w-12 place-items-center rounded-full border border-[#334155] bg-[#111827] text-[8px] text-slate-500"><span className="absolute top-1">N</span><span className="absolute bottom-1">S</span><span className="absolute left-1">W</span><span className="absolute right-1">E</span><span className="h-0.5 w-7 origin-center bg-blue-400" style={{ transform: `rotate(${windDegrees ?? 0}deg)` }} /><span className="absolute h-2 w-2 rounded-full bg-blue-400" /></div></div><p className="mt-3 text-[10px] text-slate-500">{windDirection(windDegrees) ?? 'Direction unavailable'} · {metricDetail('Wind')}</p></div>
@@ -1327,7 +1368,7 @@ function EnvironmentDetails({ siteName, sites = [], weather, onRefresh, onSiteCh
         <EnvironmentMetric icon={Sun} label="Solar irradiance" value={weatherMetricValue(current?.irradianceWm2, 'W/m²', 0)} tone="text-orange-400" detail={metricDetail('Solar irradiance')} />
         <EnvironmentMetric icon={CloudSun} label="Cloud cover" value={weatherMetricValue(current?.cloudCoverPct, '%', 0)} tone="text-slate-400" detail={metricDetail('Cloud cover')} />
         <EnvironmentMetric icon={CloudRain} label="Precipitation" value={weatherMetricValue(current?.precipitationMm, 'mm')} tone="text-sky-400" detail={metricDetail('Precipitation')} />
-        <EnvironmentMetric icon={MapPin} label="Weather timezone" value={weather.data?.location.timezone ?? 'Data unavailable'} tone="text-emerald-400" detail={metricDetail('Weather timezone')} />
+        <EnvironmentMetric icon={MapPin} label="Weather timezone" value={timezoneLabel} tone="text-emerald-400" detail={metricDetail('Weather timezone')} />
       </div>
       {current && <div className="grid gap-3 border-t border-[#1e293b] bg-[#0f1423] p-4 sm:grid-cols-3 sm:p-5"><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Humidity indicator</span><span className="font-mono text-slate-300">{weatherMetricValue(current.humidityPct, '%', 0)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-cyan-400" style={{ width: `${percentWidth(current.humidityPct)}%` }} /></div></div><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Cloud cover</span><span className="font-mono text-slate-300">{weatherMetricValue(current.cloudCoverPct, '%', 0)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-slate-400" style={{ width: `${percentWidth(current.cloudCoverPct)}%` }} /></div></div><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-slate-400">Precipitation</span><span className="font-mono text-slate-300">{weatherMetricValue(current.precipitationMm, 'mm')}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[#1e293b]"><div className="h-full rounded-full bg-sky-400" style={{ width: `${percentWidth(current.precipitationMm === null ? null : Math.min(100, current.precipitationMm * 10))}%` }} /></div></div></div>}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#1e293b] px-4 py-3 text-[10px] text-slate-500 sm:px-5"><span>Weather data source: <strong className="font-semibold text-slate-300">{weather.data?.source ?? 'Data unavailable'}</strong></span><span>Last updated: <strong className="font-semibold text-slate-300">{receivedAt}</strong></span><span>Site: <strong className="font-semibold text-slate-300">{siteName}</strong></span></div>
@@ -1856,7 +1897,8 @@ function AppShell() {
   const [rawJson, setRawJson] = useState<JsonValue | null>(null);
   const [rawPayloadSource, setRawPayloadSource] = useState<'waiting' | 'demo' | 'replay' | 'live'>('waiting');
   const [modbusRows, setModbusRows] = useState<ModbusRow[]>([]);
-  const [persistence, setPersistence] = useState<PersistenceStatus>({ intervalMinutes: 10, pendingMessages: 0 });
+  const [persistence, setPersistence] = useState<PersistenceStatus>({ intervalMinutes: 15, pendingMessages: 0 });
+  const [savedKpiSnapshot, setSavedKpiSnapshot] = useState<SavedKpiSnapshot | null>(null);
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
   const [activeSite, setActiveSite] = useState(() => initialDevices.find((device) => device.type.toLowerCase().includes('weather'))?.site ?? initialDevices[0]?.site ?? 'Plant site');
   const [weatherState, setWeatherState] = useState<WeatherState>({ status: 'unavailable', message: 'No configured coordinates are available for the selected plant/site.' });
@@ -1888,6 +1930,28 @@ function AppShell() {
     void loadSiteLocations();
     return () => controller.abort();
   }, []);
+  useEffect(() => {
+    if (mode !== 'live') {
+      setSavedKpiSnapshot(null);
+      return;
+    }
+    const controller = new AbortController();
+    const loadSavedKpiSnapshot = async () => {
+      try {
+        const response = await fetch('/api/mqtt/snapshots/latest', { signal: controller.signal, cache: 'no-store' });
+        const payload = await response.json() as { snapshot?: unknown };
+        if (!response.ok || controller.signal.aborted) return;
+        const snapshot = parseSavedKpiSnapshot(payload.snapshot);
+        if (snapshot?.saveStatus === 'saved') {
+          setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
+        }
+      } catch {
+        // Keep any newer snapshot already received through SSE.
+      }
+    };
+    void loadSavedKpiSnapshot();
+    return () => controller.abort();
+  }, [mode]);
   useEffect(() => {
     const controller = new AbortController();
     const loadLocationPermissions = async () => {
@@ -1978,6 +2042,7 @@ function AppShell() {
     setLastTelemetryAt(next === 'demo' ? Date.now() : null);
     setDevices(next === 'demo' ? initialDevices : []);
     setModbusRows([]);
+    setSavedKpiSnapshot(null);
     setSelectedInverterId(null);
     if (next === 'demo') {
       const demoPayload = initialDevices[0].telemetry;
@@ -2071,6 +2136,11 @@ function AppShell() {
       const message = JSON.parse((event as MessageEvent).data) as { topic: string; payload: string; receivedAt?: string; replay?: boolean };
       ingestPayload(message.payload, message.topic, message.receivedAt, message.replay);
       if (!message.replay) setConnected(true);
+    });
+    stream.addEventListener('snapshot', (event) => {
+      const snapshot = parseSavedKpiSnapshot(JSON.parse((event as MessageEvent).data));
+      if (!snapshot || snapshot.saveStatus !== 'saved') return;
+      setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
     });
     stream.onerror = () => setConnected(false);
     setSettingsOpen(false);
@@ -2173,6 +2243,21 @@ function AppShell() {
   }), [modbusRows]);
   const rawKpiValue = (metric: RawTelemetryMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
   const rawKpiUnit = (metric: RawTelemetryMetric | null) => metric ? 'raw' : '';
+  const savedKpiValue = (metric: SavedSnapshotMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
+  const savedKpiUnit = (metric: SavedSnapshotMetric | null) => metric ? 'raw' : '';
+  const savedKpiContext = (metric: SavedSnapshotMetric | null, fallback: string) => {
+    if (!savedKpiSnapshot) return fallback;
+    const scheduledAt = formatInPlantTimezone(savedKpiSnapshot.scheduledFor, savedKpiSnapshot.timezone);
+    if (!metric) {
+      const reason = savedKpiSnapshot.saveStatus === 'saved'
+        ? 'required parameter missing or invalid'
+        : savedKpiSnapshot.missingReason ?? `${savedKpiSnapshot.saveStatus} scheduled window`;
+      return `Saved ${scheduledAt} · ${reason}`;
+    }
+    const capturedAt = formatInPlantTimezone(savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone);
+    const observedAt = metric.sourceTimestamp ? ` · source ${formatInPlantTimezone(metric.sourceTimestamp, savedKpiSnapshot.timezone)}` : '';
+    return `Saved ${scheduledAt} · captured ${capturedAt}${observedAt} · raw ${metric.parameter} · register ${metric.address} · scaling required`;
+  };
   const telemetryLabel = mode === 'demo'
     ? 'Demo telemetry'
     : !connected
@@ -2224,10 +2309,10 @@ function AppShell() {
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="ml-auto whitespace-nowrap text-xs font-semibold underline focus-ring">Retry connection</button></div>}
             <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : rawKpiValue(rawKpis.activePower)} unit={mode === 'demo' ? 'kW' : rawKpiUnit(rawKpis.activePower)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo active power' : rawMetricContext(rawKpis.activePower, 'Awaiting active-power register')} onClick={() => navigateTo('power')} help="The broker value is displayed as raw evidence until its engineering scaling is approved." />
-              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : rawKpiValue(rawKpis.dailyEnergy)} unit={mode === 'demo' ? 'MWh' : rawKpiUnit(rawKpis.dailyEnergy)} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : rawMetricContext(rawKpis.dailyEnergy, 'Awaiting daily-energy register')} onClick={() => navigateTo('energy')} help="The broker value is displayed as raw evidence until its engineering scaling is approved." />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : rawKpiValue(rawKpis.totalEnergy)} unit={mode === 'demo' ? 'kWh' : rawKpiUnit(rawKpis.totalEnergy)} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : rawMetricContext(rawKpis.totalEnergy, 'Awaiting total-energy register')} onClick={() => navigateTo('energy')} help="The broker value is displayed as raw evidence until its engineering scaling is approved." />
-              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : rawKpiValue(rawKpis.specificYield)} unit={mode === 'demo' ? 'kWh/kWp' : rawKpiUnit(rawKpis.specificYield)} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : rawMetricContext(rawKpis.specificYield, 'Awaiting yield register')} onClick={() => navigateTo('power')} help="The broker value is displayed as raw evidence until its engineering scaling is approved." />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : savedKpiValue(savedKpiSnapshot?.metrics.activePower ?? null)} unit={mode === 'demo' ? 'kW' : savedKpiUnit(savedKpiSnapshot?.metrics.activePower ?? null)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo active power' : savedKpiContext(savedKpiSnapshot?.metrics.activePower ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('power')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
+              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : savedKpiValue(savedKpiSnapshot?.metrics.dailyEnergy ?? null)} unit={mode === 'demo' ? 'MWh' : savedKpiUnit(savedKpiSnapshot?.metrics.dailyEnergy ?? null)} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : savedKpiContext(savedKpiSnapshot?.metrics.dailyEnergy ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('energy')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : savedKpiValue(savedKpiSnapshot?.metrics.totalEnergy ?? null)} unit={mode === 'demo' ? 'kWh' : savedKpiUnit(savedKpiSnapshot?.metrics.totalEnergy ?? null)} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : savedKpiContext(savedKpiSnapshot?.metrics.totalEnergy ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('energy')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
+              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : savedKpiValue(savedKpiSnapshot?.metrics.specificYield ?? null)} unit={mode === 'demo' ? 'kWh/kWp' : savedKpiUnit(savedKpiSnapshot?.metrics.specificYield ?? null)} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : savedKpiContext(savedKpiSnapshot?.metrics.specificYield ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('power')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
               <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
               <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpiValue(rawKpis.alarms)} unit={mode === 'demo' ? '' : rawKpiUnit(rawKpis.alarms)} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')} onClick={() => navigateTo('alarms')} help="The raw alarm register is displayed exactly as received; alarm-code mapping is required for an active-alarm count." />
             </div>
@@ -2257,7 +2342,7 @@ function AppShell() {
              </div>
           </div>
 
-           <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} onRefresh={refreshWeather} onSiteChange={changeActiveSite} onConfigureLocation={openLocationSettings} />
+           <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} onRefresh={refreshWeather} onSiteChange={changeActiveSite} onConfigureLocation={openLocationSettings} />
 
           <DetailedLiveDataTable rows={modbusRows} persistence={persistence} />
 

@@ -8,6 +8,7 @@ type OpenMeteoResponse = {
   latitude?: number;
   longitude?: number;
   timezone?: string;
+  utc_offset_seconds?: number;
   current?: {
     time?: string;
     temperature_2m?: number;
@@ -22,6 +23,21 @@ type OpenMeteoResponse = {
     time?: string[];
     shortwave_radiation?: number[];
     temperature_2m?: number[];
+  };
+};
+
+type ReverseGeocodeResponse = {
+  display_name?: string;
+  address?: {
+    city?: string;
+    town?: string;
+    village?: string;
+    municipality?: string;
+    city_district?: string;
+    district?: string;
+    county?: string;
+    state?: string;
+    country?: string;
   };
 };
 
@@ -48,6 +64,52 @@ function weatherCondition(code: number | null) {
   return null;
 }
 
+function formatUtcOffset(seconds: number | null) {
+  if (seconds === null || !Number.isFinite(seconds)) return null;
+  const sign = seconds < 0 ? "-" : "+";
+  const absoluteMinutes = Math.floor(Math.abs(seconds) / 60);
+  return `UTC${sign}${String(Math.floor(absoluteMinutes / 60)).padStart(2, "0")}:${String(absoluteMinutes % 60).padStart(2, "0")}`;
+}
+
+function localDateTime(now: Date, timezone: string | null) {
+  if (!timezone) return null;
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      dateStyle: "medium",
+      timeStyle: "medium",
+      hourCycle: "h23",
+    }).format(now);
+  } catch {
+    return null;
+  }
+}
+
+async function reverseGeocode(latitude: number, longitude: number) {
+  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("lat", String(latitude));
+  url.searchParams.set("lon", String(longitude));
+  url.searchParams.set("zoom", "18");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("accept-language", "en");
+
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Solar SCADA Monitor/1.0 (configured plant weather)" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      logger.warn({ status: response.status, latitude, longitude }, "Reverse geocoding request failed");
+      return null;
+    }
+    return await response.json() as ReverseGeocodeResponse;
+  } catch (error) {
+    logger.warn({ err: error, latitude, longitude }, "Reverse geocoding request could not be completed");
+    return null;
+  }
+}
+
 router.get("/weather", async (req, res): Promise<void> => {
   const latitudeInput = typeof req.query.latitude === "string" ? req.query.latitude.trim() : "";
   const longitudeInput = typeof req.query.longitude === "string" ? req.query.longitude.trim() : "";
@@ -58,7 +120,7 @@ router.get("/weather", async (req, res): Promise<void> => {
     return;
   }
 
-  const cacheKey = `${latitude.toFixed(3)},${longitude.toFixed(3)}`;
+  const cacheKey = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     res.json({
@@ -84,7 +146,10 @@ router.get("/weather", async (req, res): Promise<void> => {
   url.searchParams.set("forecast_days", "1");
 
   try {
-    const response = await fetch(url);
+    const [response, reverse] = await Promise.all([
+      fetch(url, { signal: AbortSignal.timeout(10_000) }),
+      reverseGeocode(latitude, longitude),
+    ]);
     if (!response.ok) {
       logger.warn({ status: response.status }, "Weather provider request failed");
       res.status(502).json({ message: "Weather data is unavailable from the provider" });
@@ -92,6 +157,13 @@ router.get("/weather", async (req, res): Promise<void> => {
     }
 
     const source = await response.json() as OpenMeteoResponse;
+    const retrievedAt = new Date().toISOString();
+    const timezone = typeof source.timezone === "string" ? source.timezone : null;
+    const utcOffsetSeconds = numberOrNull(source.utc_offset_seconds);
+    const reverseAddress = reverse?.address ?? {};
+    const exactLocationName = typeof reverse?.display_name === "string" && reverse.display_name.trim() ? reverse.display_name.trim() : null;
+    const city = reverseAddress.city ?? reverseAddress.town ?? reverseAddress.village ?? reverseAddress.municipality ?? null;
+    const district = reverseAddress.city_district ?? reverseAddress.district ?? reverseAddress.county ?? null;
     const current = source.current ?? {};
     const currentTime = current.time;
     const hourlyIndex = currentTime && source.hourly?.time ? source.hourly.time.indexOf(currentTime) : -1;
@@ -101,14 +173,23 @@ router.get("/weather", async (req, res): Promise<void> => {
       temperatureC: numberOrNull(source.hourly?.temperature_2m?.[index]),
     })).filter((point) => point.temperatureC !== null).slice(Math.max(0, (hourlyIndex >= 0 ? hourlyIndex : 0) - 2), (hourlyIndex >= 0 ? hourlyIndex : 0) + 5);
     const weatherCode = numberOrNull(current.weather_code);
-    const retrievedAt = new Date().toISOString();
     const payload = {
       available: true,
       source: "Open-Meteo",
       location: {
-        latitude: numberOrNull(source.latitude) ?? latitude,
-        longitude: numberOrNull(source.longitude) ?? longitude,
-        timezone: typeof source.timezone === "string" ? source.timezone : null,
+        latitude,
+        longitude,
+        locationName: exactLocationName,
+        city,
+        district,
+        state: reverseAddress.state ?? null,
+        country: reverseAddress.country ?? null,
+        timezone,
+        utcOffsetSeconds,
+        utcOffset: formatUtcOffset(utcOffsetSeconds),
+        localDateTime: localDateTime(new Date(), timezone),
+        coordinateSource: "Configured plant location",
+        reverseGeocodedAt: reverse ? retrievedAt : null,
       },
       current: {
         temperatureC: numberOrNull(current.temperature_2m),

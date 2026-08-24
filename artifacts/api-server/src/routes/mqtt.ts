@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Response } from "express";
-import { and, asc, desc, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import mqtt, { type MqttClient } from "mqtt";
 import { db, mqttSnapshotsTable, plantLocationsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -12,7 +12,7 @@ const username = process.env.MQTT_USERNAME;
 const password = process.env.MQTT_PASSWORD;
 const listeners = new Set<Response>();
 const SNAPSHOT_INTERVAL_MS = 15_000;
-const PERSISTENCE_INTERVAL_MINUTES = 10;
+const PERSISTENCE_INTERVAL_MINUTES = 15;
 const PERSISTENCE_START_MINUTE = 6 * 60;
 const PERSISTENCE_END_MINUTE = 18 * 60;
 const DEFAULT_PLANT_TIMEZONE = "Asia/Kolkata";
@@ -24,6 +24,33 @@ type SnapshotBuffer = {
   slotKey: string;
   messages: StoredMessage[];
   latestParameters: Record<string, Record<string, unknown>>;
+};
+type SnapshotSaveStatus = "saved" | "missing" | "incomplete";
+type SavedKpiMetric = {
+  parameter: string;
+  value: number;
+  rawData: string;
+  address: string;
+  sourceTimestamp?: string;
+};
+type SavedSnapshotEvidence = {
+  id: number;
+  topic: string;
+  windowStartedAt: string;
+  windowEndedAt: string;
+  scheduledFor: string;
+  capturedAt: string;
+  timezone?: string;
+  saveStatus: SnapshotSaveStatus;
+  missingReason?: string;
+  messageCount: number;
+  parameterCount: number;
+  metrics: {
+    activePower: SavedKpiMetric | null;
+    dailyEnergy: SavedKpiMetric | null;
+    totalEnergy: SavedKpiMetric | null;
+    specificYield: SavedKpiMetric | null;
+  };
 };
 
 let client: MqttClient | undefined;
@@ -37,9 +64,9 @@ let snapshotTimer: NodeJS.Timeout | undefined;
 let snapshotBuffer: SnapshotBuffer | undefined;
 let lastSnapshotAt: string | undefined;
 let lastSnapshotScheduledFor: string | undefined;
-let lastSnapshotStatus: "saved" | "missing" | undefined;
+let lastSnapshotStatus: SnapshotSaveStatus | undefined;
 let snapshotError: string | undefined;
-let initializedScheduleDate: string | undefined;
+let reconciledScheduleDate: string | undefined;
 let scheduleRun: Promise<void> | undefined;
 const failedSnapshotQueue: Array<{ buffer: SnapshotBuffer; scheduledFor: Date }> = [];
 
@@ -139,6 +166,99 @@ function emptySnapshotBuffer(startedAt: Date, key: string): SnapshotBuffer {
   return { startedAt, slotKey: key, messages: [], latestParameters: {} };
 }
 
+function numericParameterValue(parameter: Record<string, unknown>) {
+  const value = typeof parameter.data === "number" ? parameter.data : typeof parameter.data === "string" ? Number(parameter.data) : NaN;
+  return Number.isFinite(value) ? value : null;
+}
+
+function parameterObservationTime(parameter: Record<string, unknown>) {
+  const value = parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date;
+  if (typeof value === "string" && value.trim()) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return new Date(value < 1_000_000_000_000 ? value * 1_000 : value).toISOString();
+  return undefined;
+}
+
+function parameterObservationMilliseconds(parameter: Record<string, unknown>) {
+  const value = parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date;
+  if (typeof value === "number" && Number.isFinite(value)) return value < 1_000_000_000_000 ? value * 1_000 : value;
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric < 1_000_000_000_000 ? numeric * 1_000 : numeric;
+    const parsed = new Date(value).getTime();
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function latestSavedMetric(parameters: Record<string, unknown>[], names: string[]): SavedKpiMetric | null {
+  const requestedNames = new Set(names.map((name) => name.toLowerCase()));
+  const matching = parameters
+    .filter((parameter) => requestedNames.has(String(parameter.name ?? "").trim().toLowerCase()))
+    .map((parameter) => ({ parameter, value: numericParameterValue(parameter) }))
+    .filter((candidate): candidate is { parameter: Record<string, unknown>; value: number } => candidate.value !== null);
+
+  if (!matching.length) return null;
+  const latest = matching.reduce((current, candidate) => parameterObservationMilliseconds(candidate.parameter) > parameterObservationMilliseconds(current.parameter) ? candidate : current);
+  return {
+    parameter: String(latest.parameter.name ?? "register"),
+    value: latest.value,
+    rawData: String(latest.parameter.raw_data ?? latest.parameter.data ?? ""),
+    address: String(latest.parameter.full_addr ?? latest.parameter.addr ?? "—"),
+    sourceTimestamp: parameterObservationTime(latest.parameter),
+  };
+}
+
+function snapshotSaveStatus(data: unknown, messageCount: number, parameterCount: number): SnapshotSaveStatus {
+  if (isRecord(data) && data.saveStatus === "missing") return "missing";
+  if (isRecord(data) && data.saveStatus === "incomplete") return "incomplete";
+  if (!messageCount) return "missing";
+  return parameterCount ? "saved" : "incomplete";
+}
+
+function snapshotEvidence(snapshot: {
+  id: number;
+  topic: string;
+  windowStartedAt: Date;
+  windowEndedAt: Date;
+  capturedAt: Date;
+  messageCount: number;
+  parameterCount: number;
+  data: unknown;
+}): SavedSnapshotEvidence {
+  const data = isRecord(snapshot.data) ? snapshot.data : {};
+  const parameters = Array.isArray(data.latestParameters)
+    ? data.latestParameters.filter(isRecord)
+    : [];
+  const saveStatus = snapshotSaveStatus(data, snapshot.messageCount, snapshot.parameterCount);
+  const scheduledFor = typeof data.scheduledFor === "string" ? data.scheduledFor : snapshot.windowEndedAt.toISOString();
+
+  return {
+    id: snapshot.id,
+    topic: snapshot.topic,
+    windowStartedAt: snapshot.windowStartedAt.toISOString(),
+    windowEndedAt: snapshot.windowEndedAt.toISOString(),
+    scheduledFor,
+    capturedAt: snapshot.capturedAt.toISOString(),
+    timezone: typeof data.timezone === "string" ? data.timezone : undefined,
+    saveStatus,
+    missingReason: typeof data.missingReason === "string" ? data.missingReason : undefined,
+    messageCount: snapshot.messageCount,
+    parameterCount: snapshot.parameterCount,
+    metrics: {
+      activePower: latestSavedMetric(parameters, ["actpow"]),
+      dailyEnergy: latestSavedMetric(parameters, ["dailyeneregykwh"]),
+      totalEnergy: latestSavedMetric(parameters, ["totalenergy"]),
+      specificYield: latestSavedMetric(parameters, ["todayyield"]),
+    },
+  };
+}
+
+function setLastSnapshot(evidence: SavedSnapshotEvidence) {
+  lastSnapshotAt = evidence.capturedAt;
+  lastSnapshotScheduledFor = evidence.scheduledFor;
+  lastSnapshotStatus = evidence.saveStatus;
+}
+
 function persistenceSchedule(now: Date) {
   const local = zonedParts(now, plantTimezone);
   const minutes = local.hour * 60 + local.minute;
@@ -170,6 +290,32 @@ function persistenceSchedule(now: Date) {
     currentSlotStart,
     nextScheduledAt: nextStart,
   };
+}
+
+function localBoundary(parts: ZonedParts, minuteOfDay: number) {
+  return localDateTimeToUtc({
+    ...parts,
+    hour: Math.floor(minuteOfDay / 60),
+    minute: minuteOfDay % 60,
+    second: 0,
+  }, plantTimezone);
+}
+
+function completedWindowBoundaries(now: Date) {
+  const schedule = persistenceSchedule(now);
+  const lastCompletedBoundary = schedule.minutes < PERSISTENCE_START_MINUTE
+    ? null
+    : schedule.minutes >= PERSISTENCE_END_MINUTE
+      ? localBoundary(schedule.local, PERSISTENCE_END_MINUTE)
+      : schedule.currentSlotStart;
+  if (!lastCompletedBoundary) return { schedule, boundaries: [] as Date[] };
+
+  const boundaries: Date[] = [];
+  for (let minute = PERSISTENCE_START_MINUTE; minute <= PERSISTENCE_END_MINUTE; minute += PERSISTENCE_INTERVAL_MINUTES) {
+    const boundary = localBoundary(schedule.local, minute);
+    if (boundary <= lastCompletedBoundary) boundaries.push(boundary);
+  }
+  return { schedule, boundaries };
 }
 
 function timezoneFromParameter(parameter: Record<string, unknown>) {
@@ -204,17 +350,27 @@ function queueSnapshotMessage(message: StoredMessage) {
   if (parameter) snapshotBuffer.latestParameters[snapshotParameterKey(parameter)] = parameter;
 }
 
+function snapshotOutcome(buffer: SnapshotBuffer) {
+  if (!buffer.messages.length) {
+    return {
+      saveStatus: "missing" as const,
+      missingReason: "No MQTT telemetry was available in this completed scheduled window.",
+    };
+  }
+  if (!Object.keys(buffer.latestParameters).length) {
+    return {
+      saveStatus: "incomplete" as const,
+      missingReason: "MQTT messages arrived, but none contained a valid telemetry parameter.",
+    };
+  }
+  return { saveStatus: "saved" as const, missingReason: undefined };
+}
+
 async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, savedAt = new Date()) {
   const scheduledForIso = scheduledFor.toISOString();
   try {
-    const [existing] = await db
-      .select({ id: mqttSnapshotsTable.id })
-      .from(mqttSnapshotsTable)
-      .where(sql`${mqttSnapshotsTable.data} ->> 'scheduledFor' = ${scheduledForIso}`)
-      .limit(1);
-    if (existing) return true;
-    const saveStatus = buffer.messages.length ? "saved" : "missing";
-    await db.insert(mqttSnapshotsTable).values({
+    const outcome = snapshotOutcome(buffer);
+    const [inserted] = await db.insert(mqttSnapshotsTable).values({
       windowStartedAt: buffer.startedAt,
       windowEndedAt: scheduledFor,
       capturedAt: savedAt,
@@ -222,23 +378,43 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
       messageCount: buffer.messages.length,
       parameterCount: Object.keys(buffer.latestParameters).length,
       data: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         recordType: "scheduled-telemetry-snapshot",
-        saveStatus,
-        missingReason: buffer.messages.length ? undefined : "No MQTT telemetry was available in this scheduled window.",
+        saveStatus: outcome.saveStatus,
+        missingReason: outcome.missingReason,
         scheduledFor: scheduledForIso,
         capturedAt: savedAt.toISOString(),
         timezone: plantTimezone,
         messages: buffer.messages,
         latestParameters: Object.values(buffer.latestParameters),
       },
-    });
-    lastSnapshotAt = savedAt.toISOString();
-    lastSnapshotScheduledFor = scheduledForIso;
-    lastSnapshotStatus = saveStatus;
+    }).onConflictDoNothing({
+      target: [mqttSnapshotsTable.topic, mqttSnapshotsTable.windowEndedAt],
+      where: sql`(${mqttSnapshotsTable.data} ->> 'schemaVersion') = '3'`,
+    }).returning();
+
+    if (!inserted) {
+      const existingCandidates = await db
+        .select()
+        .from(mqttSnapshotsTable)
+        .where(and(eq(mqttSnapshotsTable.topic, subscriptionTopic), eq(mqttSnapshotsTable.windowEndedAt, scheduledFor)))
+        .limit(10);
+      const existing = existingCandidates.find((candidate) => isRecord(candidate.data) && candidate.data.schemaVersion === 3);
+      if (existing) {
+        const evidence = snapshotEvidence(existing);
+        setLastSnapshot(evidence);
+        broadcast("snapshot", evidence);
+        broadcast("status", status());
+      }
+      return true;
+    }
+
+    const evidence = snapshotEvidence(inserted);
+    setLastSnapshot(evidence);
     snapshotError = undefined;
+    broadcast("snapshot", evidence);
     broadcast("status", status());
-    logger.info({ scheduledFor: scheduledForIso, saveStatus, messageCount: buffer.messages.length, parameterCount: Object.keys(buffer.latestParameters).length }, "MQTT snapshot stored");
+    logger.info({ scheduledFor: scheduledForIso, saveStatus: outcome.saveStatus, messageCount: buffer.messages.length, parameterCount: Object.keys(buffer.latestParameters).length }, "MQTT snapshot stored");
     return true;
   } catch (error) {
     const alreadyQueued = failedSnapshotQueue.some((pending) => pending.scheduledFor.getTime() === scheduledFor.getTime());
@@ -248,6 +424,29 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
     broadcast("status", status());
     return false;
   }
+}
+
+async function latestSavedSnapshotEvidence() {
+  const snapshots = await db
+    .select()
+    .from(mqttSnapshotsTable)
+    .where(eq(mqttSnapshotsTable.topic, subscriptionTopic))
+    .orderBy(desc(mqttSnapshotsTable.windowEndedAt), desc(mqttSnapshotsTable.capturedAt))
+    .limit(96);
+  const snapshot = snapshots.find((candidate) => isRecord(candidate.data) && candidate.data.schemaVersion === 3 && snapshotSaveStatus(candidate.data, candidate.messageCount, candidate.parameterCount) === "saved");
+  return snapshot ? snapshotEvidence(snapshot) : null;
+}
+
+async function reconcileCompletedWindows(now = new Date()) {
+  const { schedule, boundaries } = completedWindowBoundaries(now);
+  if (reconciledScheduleDate === schedule.localDate) return;
+
+  for (const boundary of boundaries) {
+    const windowStartedAt = new Date(boundary.getTime() - PERSISTENCE_INTERVAL_MINUTES * 60_000);
+    const saved = await persistSnapshot(emptySnapshotBuffer(windowStartedAt, slotKey(zonedParts(windowStartedAt, plantTimezone))), boundary, now);
+    if (!saved) return;
+  }
+  reconciledScheduleDate = schedule.localDate;
 }
 
 async function retryFailedSnapshots() {
@@ -263,11 +462,6 @@ async function runSnapshotSchedule(now = new Date()) {
   await retryFailedSnapshots();
   const schedule = persistenceSchedule(now);
   if (schedule.collecting) {
-    if (initializedScheduleDate !== schedule.localDate) {
-      initializedScheduleDate = schedule.localDate;
-      const dayStart = localDateTimeToUtc({ ...schedule.local, hour: 6, minute: 0, second: 0 }, plantTimezone);
-      await persistSnapshot(emptySnapshotBuffer(dayStart, `${schedule.localDate}T06:00`), dayStart, now);
-    }
     if (!snapshotBuffer) snapshotBuffer = emptySnapshotBuffer(schedule.currentSlotStart, schedule.currentSlotKey);
     else if (snapshotBuffer.slotKey !== schedule.currentSlotKey) {
       const previousBuffer = snapshotBuffer;
@@ -282,6 +476,7 @@ async function runSnapshotSchedule(now = new Date()) {
   } else if (schedule.minutes < PERSISTENCE_START_MINUTE) {
     snapshotBuffer = undefined;
   }
+  await reconcileCompletedWindows(now);
   broadcast("status", status());
 }
 
@@ -400,6 +595,16 @@ router.get("/mqtt/snapshots", async (_req, res) => {
   } catch (error) {
     logger.error({ err: error }, "MQTT snapshots query failed");
     res.status(500).json({ message: "Unable to load stored MQTT snapshots" });
+  }
+});
+
+router.get("/mqtt/snapshots/latest", async (req, res): Promise<void> => {
+  try {
+    const snapshot = await latestSavedSnapshotEvidence();
+    res.set("Cache-Control", "no-store").json({ snapshot });
+  } catch (error) {
+    req.log.error({ err: error }, "Latest MQTT snapshot query failed");
+    res.status(500).json({ message: "Unable to load the latest saved MQTT snapshot." });
   }
 });
 
@@ -533,6 +738,11 @@ router.get("/mqtt/stream", (req, res) => {
   res.flushHeaders();
   listeners.add(res);
   send(res, "status", status());
+  void latestSavedSnapshotEvidence()
+    .then((snapshot) => {
+      if (snapshot && listeners.has(res) && !res.writableEnded) send(res, "snapshot", snapshot);
+    })
+    .catch((error) => logger.warn({ err: error }, "Latest MQTT snapshot stream hydration failed"));
   for (const message of messageHistory) send(res, "message", { ...message, replay: true });
 
   const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), 20_000);

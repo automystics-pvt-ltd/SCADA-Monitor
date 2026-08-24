@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "mqtt_snapshot_topic_window_ended_unique" ON "mqtt_snapshots" USING btree ("topic","window_ended_at") WHERE ("mqtt_snapshots"."data" ->> 'schemaVersion') = '3';

@@ -1,0 +1,33 @@
+### Enhanced Prompt
+
+Implement the **15-minute historical data-saving logic from 6:00 AM to 6:00 PM** and ensure the dashboard operates as a reliable, professional **SCADA monitoring system**.
+
+* Save a telemetry snapshot to the backend table **every 15 minutes**, starting at **6:00 AM and continuing through 6:00 PM**, using the configured **Plant/Site timezone**.
+* The scheduled records should be saved at: **06:00, 06:15, 06:30, 06:45 … 17:45, 18:00**.
+* Once a new scheduled record is successfully inserted into the backend table, the dashboard KPI cards must **automatically and immediately reflect that newly saved record without requiring a page refresh or causing any interruption to live monitoring**.
+* The KPI cards should display the **most recently successfully saved and validated record**, including:
+
+  * **Total AC Power**
+  * **Today's Energy**
+  * **Total Energy**
+  * **Specific Yield**
+* After a saved record is displayed, **keep showing that same record continuously until the next valid scheduled record is successfully saved**. Do not clear the KPI values, replace them with zero, or show misleading values between saving intervals.
+* The live SCADA telemetry stream must continue independently and without interruption while historical snapshots are being saved.
+* The system must distinguish clearly between **Live Data** and **Last Saved Data** so users understand exactly what they are viewing.
+* Before displaying or saving a record, perform proper **data validation, quality checks, timestamp validation, device identification, duplicate detection, and engineering-value validation**.
+* Do not save or display **false, corrupted, incomplete, stale, incorrectly scaled, duplicated, or unreliable records as genuine measurements**.
+* If a parameter is unavailable or its scaling/decoding is not confirmed, retain the raw value and clearly mark it as **Invalid / Unavailable / Validation Required** rather than inventing or estimating an engineering value.
+* If one parameter in a record is unreliable, handle that parameter independently without corrupting the other valid parameters in the same snapshot.
+* Ensure every saved record contains proper **site/device identification, timestamp, parameter name, value, unit, source, quality status, and data provenance**.
+* Prevent duplicate snapshots when multiple MQTT messages arrive around the same 15-minute interval.
+* If the scheduled save fails, do not create a fake record. Retain the **last successfully saved valid record** on the dashboard and clearly indicate the data freshness/status.
+* Historical analytics and reports must use **only successfully persisted and validated records** from the backend table.
+* After **6:00 PM**, stop historical snapshot persistence according to the existing save schedule, but **continue live SCADA monitoring 24/7**. Resume scheduled persistence automatically at **6:00 AM the following day**.
+
+### Critical SCADA Requirement
+
+The system must follow this flow:
+
+**Live Device Data → Validate → Normalize/Scale → Validate Again → Save 15-Minute Snapshot → Backend Table → Detect Successful Insert → Automatically Update KPI Cards → Continue Displaying Last Valid Saved Record Until Next Valid Record**
+
+The implementation must be **fault-tolerant, interruption-free, accurate, traceable, and logically consistent**, ensuring that customers always see **genuine, validated data** and never misleading or fabricated values.

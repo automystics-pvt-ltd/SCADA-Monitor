@@ -7,6 +7,93 @@ export type RawTelemetryMetric = {
   provenance: "live" | "replay";
 };
 
+export type SavedSnapshotMetric = {
+  parameter: string;
+  value: number;
+  rawData: string;
+  address: string;
+  sourceTimestamp?: string;
+};
+
+export type SavedKpiSnapshot = {
+  id: number;
+  topic: string;
+  windowStartedAt: string;
+  windowEndedAt: string;
+  scheduledFor: string;
+  capturedAt: string;
+  timezone?: string;
+  saveStatus: "saved" | "missing" | "incomplete";
+  missingReason?: string;
+  messageCount: number;
+  parameterCount: number;
+  metrics: {
+    activePower: SavedSnapshotMetric | null;
+    dailyEnergy: SavedSnapshotMetric | null;
+    totalEnergy: SavedSnapshotMetric | null;
+    specificYield: SavedSnapshotMetric | null;
+  };
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseSavedMetric(value: unknown): SavedSnapshotMetric | null {
+  if (!isRecord(value)) return null;
+  const numeric = typeof value.value === "number" ? value.value : typeof value.value === "string" ? Number(value.value) : NaN;
+  if (!Number.isFinite(numeric) || typeof value.parameter !== "string" || typeof value.address !== "string" || typeof value.rawData !== "string") return null;
+  return {
+    parameter: value.parameter,
+    value: numeric,
+    address: value.address,
+    rawData: value.rawData,
+    sourceTimestamp: typeof value.sourceTimestamp === "string" ? value.sourceTimestamp : undefined,
+  };
+}
+
+export function parseSavedKpiSnapshot(value: unknown): SavedKpiSnapshot | null {
+  if (!isRecord(value) || !isRecord(value.metrics)) return null;
+  const id = typeof value.id === "number" ? value.id : Number(value.id);
+  if (!Number.isInteger(id)) return null;
+  const requiredStrings = ["topic", "windowStartedAt", "windowEndedAt", "scheduledFor", "capturedAt"] as const;
+  if (requiredStrings.some((key) => typeof value[key] !== "string")) return null;
+  const saveStatus = value.saveStatus;
+  if (saveStatus !== "saved" && saveStatus !== "missing" && saveStatus !== "incomplete") return null;
+  const messageCount = typeof value.messageCount === "number" ? value.messageCount : Number(value.messageCount);
+  const parameterCount = typeof value.parameterCount === "number" ? value.parameterCount : Number(value.parameterCount);
+  if (!Number.isFinite(messageCount) || !Number.isFinite(parameterCount)) return null;
+
+  return {
+    id,
+    topic: value.topic as string,
+    windowStartedAt: value.windowStartedAt as string,
+    windowEndedAt: value.windowEndedAt as string,
+    scheduledFor: value.scheduledFor as string,
+    capturedAt: value.capturedAt as string,
+    timezone: typeof value.timezone === "string" ? value.timezone : undefined,
+    saveStatus,
+    missingReason: typeof value.missingReason === "string" ? value.missingReason : undefined,
+    messageCount,
+    parameterCount,
+    metrics: {
+      activePower: parseSavedMetric(value.metrics.activePower),
+      dailyEnergy: parseSavedMetric(value.metrics.dailyEnergy),
+      totalEnergy: parseSavedMetric(value.metrics.totalEnergy),
+      specificYield: parseSavedMetric(value.metrics.specificYield),
+    },
+  };
+}
+
+export function isNewerSavedKpiSnapshot(next: SavedKpiSnapshot, current: SavedKpiSnapshot | null) {
+  if (!current) return true;
+  const nextTime = new Date(next.scheduledFor).getTime();
+  const currentTime = new Date(current.scheduledFor).getTime();
+  if (!Number.isFinite(nextTime) || !Number.isFinite(currentTime)) return next.id >= current.id;
+  if (nextTime !== currentTime) return nextTime > currentTime;
+  return new Date(next.capturedAt).getTime() >= new Date(current.capturedAt).getTime();
+}
+
 function normalizedParameter(row: TelemetryKpiRow) {
   return String(row.name ?? "").trim().toLowerCase();
 }
