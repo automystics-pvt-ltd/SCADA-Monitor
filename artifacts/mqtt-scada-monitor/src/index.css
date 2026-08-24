@@ -179,6 +179,18 @@
 .scada-theme .scada-chart-surface,
 .scada-theme .recharts-wrapper { min-width: 0; }
 .scada-theme main { min-height: 0; }
+.scada-theme,
+.scada-theme main,
+.scada-theme section,
+.scada-theme article,
+.scada-theme [role="dialog"] { max-width: 100%; }
+.scada-theme table { max-width: none; }
+.scada-theme [data-scroll-region] {
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
+}
+.scada-theme svg { max-width: 100%; }
 .scada-safe-drawer-header { padding-top: max(1.25rem, env(safe-area-inset-top)); }
 .scada-safe-drawer-footer { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 .scada-theme button,
@@ -459,6 +471,12 @@ button:not(:disabled):active,
   .scada-theme select { min-height: 2.5rem; }
   .scada-theme input { min-height: 2.75rem; }
   .scada-theme .recharts-responsive-container { min-height: 1px; }
+  .scada-theme header,
+  .scada-theme section,
+  .scada-theme article { overflow-wrap: anywhere; }
+  .scada-theme [data-scroll-region] {
+    scrollbar-width: thin;
+  }
 
   @supports (padding: max(0px)) {
     .scada-theme > aside {
@@ -468,6 +486,17 @@ button:not(:disabled):active,
     .scada-theme > div > header {
       padding-top: max(0.625rem, env(safe-area-inset-top));
     }
+  }
+}
+
+@media (max-width: 419px) {
+  .scada-theme main { padding-inline: 0.75rem; }
+  .scada-theme .scada-power-flow { padding-inline: 0.625rem; }
+  .scada-theme [data-testid="inverter-power-flow"] .min-w-28 {
+    min-width: 5.75rem;
+  }
+  .scada-theme [data-testid="inverter-power-flow"] p {
+    overflow-wrap: anywhere;
   }
 }
 

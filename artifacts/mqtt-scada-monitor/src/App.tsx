@@ -1330,7 +1330,7 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
 
       <div className="relative z-10 mb-4 rounded-xl border border-[#1e293b] bg-[#0f1423] p-3" data-testid="electrical-time-filter">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-          <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Electrical analysis window</p><p className="mt-1 truncate text-xs font-medium text-slate-300" title={rangeLabel}>{rangeLabel}</p></div>
+          <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Electrical analysis window</p><p className="mt-1 break-words text-xs font-medium text-slate-300" title={rangeLabel}>{rangeLabel}</p></div>
           <div className="flex flex-wrap items-center gap-2">
             {(['live', 'today', '24h', '7d', 'custom'] as const).map((preset) => <button key={preset} type="button" onClick={() => choosePreset(preset)} data-testid={`button-electrical-preset-${preset}`} className={`rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-colors focus-ring ${draftRange.preset === preset ? 'bg-blue-500/15 text-blue-300' : 'text-slate-400 hover:bg-[#1e293b] hover:text-slate-200'}`}>{preset === 'live' ? 'Live' : preset === '24h' ? 'Last 24 h' : preset === '7d' ? 'Last 7 d' : preset[0].toUpperCase() + preset.slice(1)}</button>)}
           </div>
@@ -1361,12 +1361,12 @@ function ElectricalParametersChart({ rows, mode, liveState }: { rows: ModbusRow[
             const displayedEvidence = evidence ?? rawEvidence;
             const rawOnly = !evidence && Boolean(rawEvidence);
             const value = evidence ? formatElectricalValue(evidence.value, evidence.unit) : rawEvidence ? `${rawEvidence.rawValue} raw` : calculated ? `${calculated.value.toFixed(2)} ${calculated.unit}` : 'Data unavailable';
-            return <div key={title} className="scada-interactive-card rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" data-testid={`card-electrical-${title.toLowerCase().replace(/\s+/g, '-')}`} title={displayedEvidence ? `${displayedEvidence.label}\nSource: ${displayedEvidence.source}\nAddress: ${displayedEvidence.address}\nTimestamp: ${displayedEvidence.timestampLabel}\nReported raw value: ${displayedEvidence.rawValue}\nTransport payload: ${displayedEvidence.transportRawValue}\nQuality: ${displayedEvidence.quality}` : `${title} requires validated electrical telemetry.`}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 truncate text-base font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'font-mono text-slate-100'}`}>{value}</p><p className="mt-1 truncate text-[10px] text-slate-500">{evidence ? `${evidence.status} · ${evidence.source}` : rawOnly ? `Raw input · ${rawEvidence!.source} · scaling required` : calculated ? 'Calculated only from validated phase values' : context}</p></div>;
+            return <div key={title} className="scada-interactive-card min-w-0 rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" data-testid={`card-electrical-${title.toLowerCase().replace(/\s+/g, '-')}`} title={displayedEvidence ? `${displayedEvidence.label}\nSource: ${displayedEvidence.source}\nAddress: ${displayedEvidence.address}\nTimestamp: ${displayedEvidence.timestampLabel}\nReported raw value: ${displayedEvidence.rawValue}\nTransport payload: ${displayedEvidence.transportRawValue}\nQuality: ${displayedEvidence.quality}` : `${title} requires validated electrical telemetry.`}><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 break-words text-base font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'font-mono text-slate-100'}`}>{value}</p><p className="mt-1 break-words text-[10px] text-slate-500">{evidence ? `${evidence.status} · ${evidence.source}` : rawOnly ? `Raw input · ${rawEvidence!.source} · scaling required` : calculated ? 'Calculated only from validated phase values' : context}</p></div>;
           })}
         </div>
         <div className="grid gap-4 xl:grid-cols-2"><Comparison title="Phase Voltage Comparison" data={phaseVoltage} unit={phaseVoltage[0]?.unit || 'V'} testId="chart-phase-voltage-comparison" /><Comparison title="Phase Current Comparison" data={phaseCurrent} unit={phaseCurrent[0]?.unit || 'A'} testId="chart-phase-current-comparison" /></div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Trend title="Voltage Trend" kind="vab" unit="V" color="#3b82f6" /><Trend title="Current Trend" kind="ia" unit="A" color="#10b981" /><Trend title="Active Power Trend" kind="activePower" unit="kW" color="#f59e0b" /><Trend title="Frequency Trend" kind="frequency" unit="Hz" color="#8b5cf6" /></div>
-        <div className="scada-chart-surface overflow-hidden rounded-xl border border-[#1e293b] bg-[#0b0f19]"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1e293b] px-4 py-3"><div><h4 className="text-xs font-bold text-slate-200">Discovered electrical telemetry</h4><p className="mt-0.5 text-[10px] text-slate-500">Recent backend snapshots and current MQTT values are shown together; transport payload bytes remain traceable.</p></div><span data-testid="text-electrical-discovery-count" className="text-[10px] font-semibold text-slate-400">{traceRows.length} parameter{traceRows.length === 1 ? '' : 's'}</span></div><div className="max-h-64 overflow-auto scrollbar-thin"><table className="min-w-[1100px] w-full text-left"><thead className="sticky top-0 bg-[#111827]"><tr>{['Parameter', 'Reported value', 'Unit', 'Timestamp', 'Source', 'Modbus address', 'Reported raw', 'Data quality', 'Status'].map((heading) => <th key={heading} className="px-3 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{traceRows.length ? traceRows.map((item) => <tr key={item.id} data-testid={`row-electrical-${item.id}`} title={`${item.label}\nReported value: ${item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}\nReported raw: ${item.rawValue}\nTransport payload: ${item.transportRawValue}\nTimestamp: ${item.timestampLabel}\nSource: ${item.source}\nAddress: ${item.address}\nQuality: ${item.quality}\nStatus: ${item.status}`} className="scada-table-row hover:bg-[#1e293b]/40"><td className="px-3 py-2.5 text-xs font-medium text-slate-200">{item.label}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.status === 'Validated' ? item.unit : '—'}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.timestampLabel}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.source}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-400">{item.address}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.rawValue}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.quality}</td><td className="px-3 py-2.5"><CustomBadge tone={item.status === 'Validated' ? 'success' : 'warning'}>{item.status}</CustomBadge></td></tr>) : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">{historyState.loading ? 'Loading recent backend electrical telemetry…' : isHistorical ? 'No saved electrical records are available for the selected range.' : 'No live or recent saved electrical records are available yet.'}</td></tr>}</tbody></table></div></div>
+        <div className="scada-chart-surface overflow-hidden rounded-xl border border-[#1e293b] bg-[#0b0f19]"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1e293b] px-4 py-3"><div className="min-w-0"><h4 className="text-xs font-bold text-slate-200">Discovered electrical telemetry</h4><p className="mt-0.5 break-words text-[10px] text-slate-500">Recent backend snapshots and current MQTT values are shown together; transport payload bytes remain traceable.</p></div><span data-testid="text-electrical-discovery-count" className="shrink-0 text-[10px] font-semibold text-slate-400">{traceRows.length} parameter{traceRows.length === 1 ? '' : 's'}</span></div><div className="max-h-64 overflow-auto scrollbar-thin" data-scroll-region="electrical-telemetry-table"><p className="border-b border-[#1e293b] px-4 py-2 text-[10px] text-slate-500 sm:hidden">Swipe horizontally to inspect every source-backed field.</p><table className="min-w-[1100px] w-full text-left"><thead className="sticky top-0 bg-[#111827]"><tr>{['Parameter', 'Reported value', 'Unit', 'Timestamp', 'Source', 'Modbus address', 'Reported raw', 'Data quality', 'Status'].map((heading) => <th key={heading} className="px-3 py-2.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">{heading}</th>)}</tr></thead><tbody className="divide-y divide-[#1e293b]/70">{traceRows.length ? traceRows.map((item) => <tr key={item.id} data-testid={`row-electrical-${item.id}`} title={`${item.label}\nReported value: ${item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}\nReported raw: ${item.rawValue}\nTransport payload: ${item.transportRawValue}\nTimestamp: ${item.timestampLabel}\nSource: ${item.source}\nAddress: ${item.address}\nQuality: ${item.quality}\nStatus: ${item.status}`} className="scada-table-row hover:bg-[#1e293b]/40"><td className="px-3 py-2.5 text-xs font-medium text-slate-200">{item.label}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.status === 'Validated' ? formatElectricalValue(item.value, item.unit) : `${item.rawValue} raw`}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.status === 'Validated' ? item.unit : '—'}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.timestampLabel}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.source}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-400">{item.address}</td><td className="px-3 py-2.5 font-mono text-xs text-slate-300">{item.rawValue}</td><td className="px-3 py-2.5 text-xs text-slate-400">{item.quality}</td><td className="px-3 py-2.5"><CustomBadge tone={item.status === 'Validated' ? 'success' : 'warning'}>{item.status}</CustomBadge></td></tr>) : <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-500">{historyState.loading ? 'Loading recent backend electrical telemetry…' : isHistorical ? 'No saved electrical records are available for the selected range.' : 'No live or recent saved electrical records are available yet.'}</td></tr>}</tbody></table></div></div>
       </div>}
     </section>
   );
@@ -1388,7 +1388,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
       </div>
       
       <div className="flex-1 overflow-auto scrollbar-thin pr-1">
-        <table className="w-full text-left">
+        <table className="w-auto max-w-none text-left">
           <thead>
             <tr className="border-b border-[#1e293b]">
               <th className="py-2.5 text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Inv.</th>
@@ -1422,7 +1422,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
         </table>
       </div>
       
-      <div className="pt-3 mt-2 border-t border-[#1e293b] flex justify-between items-center text-[10px] text-slate-400">
+      <div className="mt-2 flex items-center gap-3 border-t border-[#1e293b] pt-3 text-[10px] text-slate-400">
         <span className="uppercase tracking-wider font-semibold">Total Today</span>
           <span className="font-bold text-slate-200">{inverters.length ? inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source tag${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}</span>
       </div>
@@ -1697,10 +1697,10 @@ function EnvironmentMetric({ icon: Icon, label, value, tone, detail }: { icon: t
     <div className="scada-interactive-card min-w-0 rounded-xl border border-[#1e293b] bg-[#0b0f19] p-3" title={detail}>
       <div className="mb-2 flex items-center gap-2">
         <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#1e293b]/60 ${tone}`}><Icon size={14} /></span>
-        <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+        <span className="break-words text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
       </div>
-      <p className={`truncate text-sm font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'text-slate-100'}`} title={value}>{value}</p>
-      <p className="mt-1 truncate text-[9px] text-slate-600">{detail}</p>
+      <p className={`break-words text-sm font-bold ${value === 'Data unavailable' ? 'text-slate-500' : 'text-slate-100'}`} title={value}>{value}</p>
+      <p className="mt-1 break-words text-[9px] text-slate-600">{detail}</p>
     </div>
   );
 }
@@ -1749,17 +1749,17 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
               <h2 className="text-sm font-bold text-slate-100">Environment Details</h2>
               <span data-testid="status-weather" className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${weather.status === 'ready' ? 'bg-emerald-500/10 text-emerald-400' : weather.status === 'stale' ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-500/10 text-amber-400'}`}><span className={`h-1.5 w-1.5 rounded-full ${weather.status === 'ready' ? 'bg-emerald-400 pulse-soft' : 'bg-amber-400'}`} />{weather.status === 'ready' ? 'Live weather' : weather.status === 'stale' ? 'Stale data' : isLoading ? 'Refreshing' : 'Data unavailable'}</span>
             </div>
-            <div className="mt-3 flex flex-col items-start gap-2 text-xs text-slate-400 sm:flex-row sm:items-center">
-              <label className="flex w-full items-center gap-2 sm:w-auto"><MapPin size={13} className="shrink-0 text-orange-400" /><span className="shrink-0 font-semibold text-slate-500">Plant/site</span><select value={siteName} onChange={(event) => onSiteChange(event.target.value)} data-testid="select-environment-site" className="min-w-0 flex-1 truncate rounded-md border border-[#1e293b] bg-[#0b0f19] px-2 py-1.5 text-xs font-semibold text-slate-200 focus-ring sm:w-[210px] sm:flex-none">{siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
+              <div className="mt-3 flex flex-col items-start gap-2 text-xs text-slate-400 sm:flex-row sm:items-center">
+               <label className="flex w-full min-w-0 items-center gap-2 sm:w-auto"><MapPin size={13} className="shrink-0 text-orange-400" /><span className="shrink-0 font-semibold text-slate-500">Plant/site</span><select value={siteName} onChange={(event) => onSiteChange(event.target.value)} data-testid="select-environment-site" className="min-w-0 flex-1 rounded-md border border-[#1e293b] bg-[#0b0f19] px-2 py-1.5 text-xs font-semibold text-slate-200 focus-ring sm:w-[210px] sm:flex-none">{siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
                <span className="hidden h-4 w-px bg-[#1e293b] sm:block" />
-                 <span className="max-w-full truncate" title={locationLabel}><LocateFixed size={13} className="mr-1 inline text-slate-500" />{locationLabel}</span>
+                  <span className="max-w-full break-words" title={locationLabel}><LocateFixed size={13} className="mr-1 inline text-slate-500" />{locationLabel}</span>
             </div>
           </div>
-          <div className="grid w-full grid-cols-1 gap-2 text-[10px] min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:w-auto">
-             <span data-testid="weather-location-source" className="min-w-0 truncate rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Configured site/device weather provenance: ${sourceLabel}`}>Location source: {sourceLabel}</span>
-            <span className="min-w-0 truncate rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Weather provider observation timestamp: ${observationAt}`}>Observed: {observationAt}</span>
-             <span data-testid="weather-location-updated" className="min-w-0 truncate rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title="Last time the configured plant coordinates were saved">Location updated: {locationUpdatedAt}</span>
-            <span className={`min-w-0 truncate rounded-lg border border-[#1e293b] px-2.5 py-1.5 ${weather.data?.freshness.cacheStatus === 'cached' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`} title="Data freshness state">{freshnessLabel}</span>
+           <div className="grid w-full min-w-0 grid-cols-1 gap-2 text-[10px] min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:w-auto">
+              <span data-testid="weather-location-source" className="min-w-0 break-words rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Configured site/device weather provenance: ${sourceLabel}`}>Location source: {sourceLabel}</span>
+             <span className="min-w-0 break-words rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title={`Weather provider observation timestamp: ${observationAt}`}>Observed: {observationAt}</span>
+              <span data-testid="weather-location-updated" className="min-w-0 break-words rounded-lg border border-[#1e293b] bg-[#0b0f19] px-2.5 py-1.5 text-slate-400" title="Last time the configured plant coordinates were saved">Location updated: {locationUpdatedAt}</span>
+             <span className={`min-w-0 break-words rounded-lg border border-[#1e293b] px-2.5 py-1.5 ${weather.data?.freshness.cacheStatus === 'cached' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`} title="Data freshness state">{freshnessLabel}</span>
             <button type="button" onClick={onRefresh} data-testid="button-refresh-weather" title="Refresh weather for the selected configured site" className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#1e293b] px-2.5 py-1.5 font-semibold text-slate-300 hover:bg-[#1e293b] focus-ring"><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} /> Refresh</button>
           </div>
         </div>
@@ -2007,31 +2007,32 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
         <span><strong className="font-semibold text-slate-300">Next window:</strong> {formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}</span>
         <span><strong className="font-semibold text-slate-300">Last record:</strong> {lastSnapshotLabel}</span>
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[#1e293b] bg-[#0f1423] p-4">
-        <label className="relative min-w-[220px] flex-1 sm:flex-none">
+       <div className="flex flex-col items-stretch gap-2 border-b border-[#1e293b] bg-[#0f1423] p-4 sm:flex-row sm:flex-wrap sm:items-center">
+         <label className="relative w-full min-w-0 flex-1 sm:min-w-[220px] sm:flex-none">
           <span className="sr-only">Search live Modbus data</span>
           <Search size={14} aria-hidden="true" className="absolute left-3 top-2.5 text-slate-500" />
           <input value={filter} onChange={(event) => setFilter(event.target.value)} data-testid="input-filter-live-data" placeholder="Search parameter, address, source, date..." className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] py-2 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-500 focus-ring" />
         </label>
         <label>
           <span className="sr-only">Filter by telemetry category</span>
-          <select value={filterCategory} onChange={(event) => setFilterCategory(event.target.value)} data-testid="select-filter-category" className="rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-2 text-xs text-slate-300 focus-ring">
+           <select value={filterCategory} onChange={(event) => setFilterCategory(event.target.value)} data-testid="select-filter-category" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-2 text-xs text-slate-300 focus-ring sm:w-auto">
             {categories.map((category) => <option key={category}>{category}</option>)}
           </select>
         </label>
         <label>
           <span className="sr-only">Filter by telemetry source</span>
-          <select value={filterSource} onChange={(event) => setFilterSource(event.target.value)} data-testid="select-filter-source" className="max-w-[180px] rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-2 text-xs text-slate-300 focus-ring">
+           <select value={filterSource} onChange={(event) => setFilterSource(event.target.value)} data-testid="select-filter-source" className="w-full max-w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-2 text-xs text-slate-300 focus-ring sm:w-auto sm:max-w-[180px]">
             {sources.map((source) => <option key={source}>{source}</option>)}
           </select>
         </label>
         {(filter || filterCategory !== 'All categories' || filterSource !== 'All sources') && <button type="button" onClick={resetFilters} data-testid="button-clear-live-filters" className="rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-400 hover:bg-[#1e293b] hover:text-slate-200 focus-ring">Clear filters</button>}
-        <span role="status" data-testid="text-live-data-count" className="ml-auto text-xs text-slate-400">{sortedRows.length} of {rows.length} parameters</span>
+         <span role="status" data-testid="text-live-data-count" className="text-xs text-slate-400 sm:ml-auto">{sortedRows.length} of {rows.length} parameters</span>
       </div>
       {exportMessage && <div role="status" data-testid="status-export-message" className="border-b border-[#1e293b] bg-blue-500/5 px-5 py-2.5 text-xs text-blue-300">{exportMessage}</div>}
       
-      <div className="overflow-x-auto scrollbar-thin">
-        <table className="w-full text-left whitespace-nowrap min-w-[1260px]">
+       <div className="max-w-full overflow-x-auto scrollbar-thin" data-scroll-region="live-telemetry-table">
+         <div className="border-b border-[#1e293b] bg-[#0f1423] px-4 py-2 text-[10px] text-slate-500 sm:hidden">Swipe horizontally to inspect every telemetry field. No source columns are removed.</div>
+         <table className="w-full min-w-[1260px] text-left whitespace-nowrap">
           <thead className="bg-[#0b0f19]">
             <tr>
               {[
@@ -2085,7 +2086,7 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }
     <section id="raw-data" data-section="raw-data" className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden mt-6">
       <div className="flex flex-col justify-between gap-3 border-b border-[#1e293b] p-5 sm:flex-row sm:items-center">
         <div>
-          <div className="flex items-center gap-3 mb-1">
+          <div className="flex flex-wrap items-center gap-3 mb-1">
              <Code2 size={16} className="text-slate-400" />
              <h3 className="text-sm font-bold text-slate-200">Raw MQTT Payload</h3>
              <CustomBadge tone={sourceTone}><span className="w-1.5 h-1.5 rounded-full bg-current" />{sourceLabel}</CustomBadge>
@@ -2118,9 +2119,9 @@ function CompletePayloadInspector({ rawPayload, rawJson, topic, source, onCopy }
                </thead>
                <tbody className="divide-y divide-[#1e293b]/50">
                  {rows.map((row, i) => (
-                    <tr key={i} className="scada-table-row hover:bg-[#1e293b]/30">
-                     <td className="px-3 py-2 text-[11px] text-blue-400 font-mono whitespace-nowrap">{row.path}</td>
-                     <td className="px-3 py-2 text-[11px] text-slate-300 font-mono truncate max-w-[200px]">{row.value}</td>
+                     <tr key={i} className="scada-table-row hover:bg-[#1e293b]/30">
+                      <td className="break-all px-3 py-2 text-[11px] text-blue-400 font-mono">{row.path}</td>
+                      <td className="max-w-[240px] break-all px-3 py-2 text-[11px] text-slate-300 font-mono">{row.value}</td>
                    </tr>
                  ))}
                  {!rows.length && <tr><td colSpan={2} className="px-3 py-8 text-center text-xs text-slate-500">Waiting for data...</td></tr>}
@@ -2277,7 +2278,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
                       {locationSiteOptions.map((site) => <option key={site} value={site}>{site}</option>)}
                    </select>
                  </label>
-                 <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                    <label className="block">
                      <span className="mb-2 block text-xs font-bold text-slate-300">Latitude</span>
                       <input inputMode="decimal" aria-label="Plant latitude" data-testid="input-plant-latitude" value={locationLatitude} onChange={(event) => setLocationLatitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 19.0760" className="w-full rounded-lg border border-[#1e293b] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
@@ -2944,7 +2945,7 @@ function AppShell() {
                 {!connected && <button type="button" onClick={refreshTelemetry} data-testid="button-retry-connection" className="ml-1 underline underline-offset-2 focus-ring">Retry</button>}
               </div>
             </div>
-            {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="ml-auto whitespace-nowrap text-xs font-semibold underline focus-ring">Retry connection</button></div>}
+            {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex flex-col items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400 sm:flex-row"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div className="min-w-0 flex-1"><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 break-words text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="shrink-0 text-xs font-semibold underline focus-ring">Retry connection</button></div>}
             <section data-testid="panel-live-communication" aria-label="Live communication health" className="mb-4 rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -2953,7 +2954,7 @@ function AppShell() {
                 </div>
                 <CustomBadge tone={communicationTone(deviceCommunication)}>{communicationLabel(deviceCommunication)}</CustomBadge>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+              <div className="mt-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
                 <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Broker transport</p>
                   <p className={`mt-1 text-xs font-bold ${communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}`}>{brokerTransportLabel}</p>
