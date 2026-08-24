@@ -1,8 +1,9 @@
 import { Router, type IRouter, type Response } from "express";
-import { and, asc, desc, gt, lt, sql } from "drizzle-orm";
+import { and, asc, desc, gte, lte, sql } from "drizzle-orm";
 import mqtt, { type MqttClient } from "mqtt";
-import { db, mqttSnapshotsTable } from "@workspace/db";
+import { db, mqttSnapshotsTable, plantLocationsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
 
 const router: IRouter = Router();
 const brokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
@@ -15,8 +16,6 @@ const PERSISTENCE_INTERVAL_MINUTES = 10;
 const PERSISTENCE_START_MINUTE = 6 * 60;
 const PERSISTENCE_END_MINUTE = 18 * 60;
 const DEFAULT_PLANT_TIMEZONE = "Asia/Kolkata";
-const HISTORY_PAGE_SIZE = 250;
-const MAX_HISTORY_SNAPSHOTS = 5000;
 const configuredTimezone = process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? DEFAULT_PLANT_TIMEZONE;
 
 type StoredMessage = { topic: string; payload: string; receivedAt: string };
@@ -43,6 +42,15 @@ let snapshotError: string | undefined;
 let initializedScheduleDate: string | undefined;
 let scheduleRun: Promise<void> | undefined;
 const failedSnapshotQueue: Array<{ buffer: SnapshotBuffer; scheduledFor: Date }> = [];
+
+function parseCoordinate(value: unknown, min: number, max: number) {
+  const numeric = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(numeric) && numeric >= min && numeric <= max ? numeric : undefined;
+}
+
+function parseSiteName(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
 
 function send(res: Response, event: string, data: unknown) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -395,10 +403,57 @@ router.get("/mqtt/snapshots", async (_req, res) => {
   }
 });
 
+router.get("/mqtt/site-locations", async (_req, res) => {
+  try {
+    const locations = await db
+      .select()
+      .from(plantLocationsTable)
+      .orderBy(asc(plantLocationsTable.siteName));
+    res.set("Cache-Control", "no-store").json({ locations });
+  } catch (error) {
+    logger.error({ err: error }, "Plant locations query failed");
+    res.status(500).json({ message: "Unable to load saved plant locations" });
+  }
+});
+
+router.put("/mqtt/site-locations/:siteName", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.params.siteName);
+  const latitude = parseCoordinate(req.body?.latitude, -90, 90);
+  const longitude = parseCoordinate(req.body?.longitude, -180, 180);
+  if (!siteName || siteName.length > 160 || latitude === undefined || longitude === undefined) {
+    res.status(400).json({ message: "Site name, latitude (-90 to 90), and longitude (-180 to 180) are required." });
+    return;
+  }
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ message: "Operator sign-in is required to update plant locations." });
+    return;
+  }
+  if (!canUpdatePlantLocation(req.user, siteName)) {
+    res.status(403).json({ message: "Your operator account is not authorized to update this plant location." });
+    return;
+  }
+
+  try {
+    const [location] = await db
+      .insert(plantLocationsTable)
+      .values({ siteName, latitude, longitude })
+      .onConflictDoUpdate({
+        target: plantLocationsTable.siteName,
+        set: { latitude, longitude, updatedAt: new Date() },
+      })
+      .returning();
+    res.json({ location });
+  } catch (error) {
+    logger.error({ err: error, siteName }, "Plant location save failed");
+    res.status(500).json({ message: "Unable to save the plant location" });
+  }
+});
+
 function parseRangeBoundary(value: unknown, boundary: "start" | "end") {
   if (typeof value !== "string" || !value.trim()) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return undefined;
+  if (boundary === "end") parsed.setMilliseconds(999);
   return parsed;
 }
 
@@ -417,7 +472,7 @@ router.get("/mqtt/electrical-history", async (req, res) => {
 
   const rangeEnd = to ?? new Date();
   const rangeStart = from ?? new Date(rangeEnd.getTime() - 24 * 60 * 60 * 1000);
-  if (rangeStart >= rangeEnd) {
+  if (rangeStart > rangeEnd) {
     res.status(400).json({ message: "The history start must be before the end." });
     return;
   }
@@ -427,22 +482,12 @@ router.get("/mqtt/electrical-history", async (req, res) => {
   }
 
   try {
-    const snapshots = [];
-    let page = 0;
-    let truncated = false;
-    while (snapshots.length < MAX_HISTORY_SNAPSHOTS) {
-      const batch = await db
-        .select()
-        .from(mqttSnapshotsTable)
-        .where(and(gt(mqttSnapshotsTable.windowEndedAt, rangeStart), lt(mqttSnapshotsTable.windowStartedAt, rangeEnd)))
-        .orderBy(asc(mqttSnapshotsTable.windowEndedAt))
-        .limit(Math.min(HISTORY_PAGE_SIZE, MAX_HISTORY_SNAPSHOTS - snapshots.length))
-        .offset(page * HISTORY_PAGE_SIZE);
-      snapshots.push(...batch);
-      if (batch.length < HISTORY_PAGE_SIZE) break;
-      page += 1;
-    }
-    if (snapshots.length === MAX_HISTORY_SNAPSHOTS) truncated = true;
+    const snapshots = await db
+      .select()
+      .from(mqttSnapshotsTable)
+      .where(and(gte(mqttSnapshotsTable.windowEndedAt, rangeStart), lte(mqttSnapshotsTable.windowStartedAt, rangeEnd)))
+      .orderBy(asc(mqttSnapshotsTable.windowEndedAt))
+      .limit(500);
 
     const samples: Array<Record<string, unknown>> = [];
     for (const snapshot of snapshots) {
@@ -456,7 +501,7 @@ router.get("/mqtt/electrical-history", async (req, res) => {
         if (!parameter || !isElectricalParameter(parameter)) continue;
         const receivedAt = typeof message.receivedAt === "string" ? message.receivedAt : snapshot.capturedAt.toISOString();
         const receivedTime = new Date(receivedAt);
-        if (Number.isNaN(receivedTime.getTime()) || receivedTime < rangeStart || receivedTime >= rangeEnd) continue;
+        if (Number.isNaN(receivedTime.getTime()) || receivedTime < rangeStart || receivedTime > rangeEnd) continue;
         samples.push({
           ...parameter,
           timestamp: receivedAt,
@@ -471,9 +516,7 @@ router.get("/mqtt/electrical-history", async (req, res) => {
 
     res.json({
       range: { from: rangeStart.toISOString(), to: rangeEnd.toISOString() },
-      semantics: "[from, to)",
       snapshotCount: snapshots.length,
-      truncated,
       samples,
     });
   } catch (error) {

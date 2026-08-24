@@ -69,6 +69,10 @@
   --scada-hover: #edf2f7;
   --scada-tooltip: #162033;
   --scada-shadow: 0 12px 30px rgba(30, 64, 175, .10);
+  --scada-accent: #3b82f6;
+  --scada-accent-soft: rgba(59, 130, 246, .10);
+  --scada-highlight: rgba(255, 255, 255, .72);
+  --scada-control-shadow: 0 5px 16px rgba(30, 64, 175, .14);
   
   --app-font-sans: 'Inter', sans-serif;
   --app-font-mono: 'DM Mono', monospace;
@@ -98,12 +102,16 @@
   --scada-hover: #1e293b;
   --scada-tooltip: #0f1423;
   --scada-shadow: 0 14px 34px rgba(0, 0, 0, .24);
+  --scada-accent: #60a5fa;
+  --scada-accent-soft: rgba(96, 165, 250, .12);
+  --scada-highlight: rgba(255, 255, 255, .10);
+  --scada-control-shadow: 0 6px 20px rgba(0, 0, 0, .28);
 }
 
 @layer base {
   * { @apply border-border; }
   html, body, #root { width: 100%; min-width: 0; min-height: 100%; }
-  body { @apply font-sans antialiased bg-background text-foreground; margin: 0; overflow: hidden; }
+  body { @apply font-sans antialiased bg-background text-foreground; margin: 0; overflow: hidden; overscroll-behavior: none; }
   button, input, select { font: inherit; }
 }
 
@@ -127,9 +135,15 @@
 .scada-theme main > *,
 .scada-theme [data-section],
 .scada-theme .recharts-responsive-container { min-width: 0; }
+.scada-theme main .grid > *,
+.scada-theme .scada-chart-surface,
+.scada-theme .recharts-wrapper { min-width: 0; }
+.scada-theme main { overscroll-behavior-y: contain; scroll-behavior: smooth; }
+.scada-safe-drawer-header { padding-top: max(1.25rem, env(safe-area-inset-top)); }
+.scada-safe-drawer-footer { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 .scada-theme button,
 .scada-theme input,
-.scada-theme select { -webkit-tap-highlight-color: transparent; }
+.scada-theme select { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 
 /* Shared premium interaction language. Transforms preserve layout dimensions,
    and the hover media query keeps touch devices from getting sticky hover states. */
@@ -203,7 +217,7 @@ button:not(:disabled):active,
   .scada-chart-surface:hover {
     border-color: color-mix(in srgb, var(--scada-border) 70%, var(--ring));
     box-shadow: var(--scada-shadow);
-    transform: translateY(-2px) scale(1.002);
+    transform: translateY(-2px);
   }
 
   .scada-interactive-card:hover::after,
@@ -222,7 +236,7 @@ button:not(:disabled):active,
   }
 
   .scada-kpi-card:hover .scada-kpi-value {
-    color: #f8fafc;
+    color: var(--scada-text);
     transform: translateX(1px);
   }
 
@@ -301,10 +315,185 @@ button:not(:disabled):active,
 .scada-theme.light .scrollbar-thin::-webkit-scrollbar-thumb { background: #c0cbda; }
 
 @media (max-width: 640px) {
-  .scada-theme main { padding: 0.875rem; }
+  .scada-theme { height: 100dvh; }
+  .scada-theme main {
+    padding: 0.875rem;
+    padding-bottom: max(1.25rem, calc(env(safe-area-inset-bottom) + 1rem));
+  }
   .scada-theme [data-section] { scroll-margin-top: 0.75rem; }
   .scada-theme button,
-  .scada-theme select { min-height: 2.25rem; }
-  .scada-theme input { min-height: 2.5rem; }
+  .scada-theme select { min-height: 2.5rem; }
+  .scada-theme input { min-height: 2.75rem; }
   .scada-theme .recharts-responsive-container { min-height: 1px; }
+
+  @supports (padding: max(0px)) {
+    .scada-theme > aside {
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-top: env(safe-area-inset-top);
+    }
+    .scada-theme > div > header {
+      padding-top: max(0.625rem, env(safe-area-inset-top));
+    }
+  }
+}
+
+/* Premium interaction pass: surfaces, controls, status chips, and chart marks
+   share one tactile language without changing layout dimensions. */
+.scada-theme main [class*="rounded-xl"][class*="border"],
+.scada-theme main [class*="rounded-lg"][class*="border"],
+.scada-theme [role="tab"],
+.scada-theme select,
+.scada-theme input,
+.scada-theme a {
+  transition:
+    transform 220ms cubic-bezier(.22, 1, .36, 1),
+    border-color 220ms ease,
+    background-color 220ms ease,
+    box-shadow 260ms cubic-bezier(.22, 1, .36, 1),
+    color 180ms ease,
+    filter 220ms ease;
+}
+
+.scada-theme main [class*="rounded-xl"][class*="border"],
+.scada-theme main [class*="rounded-lg"][class*="border"] {
+  background-image: linear-gradient(135deg, rgba(255,255,255,.025), transparent 42%);
+}
+
+.scada-theme button:not(:disabled),
+.scada-theme [role="button"],
+.scada-theme [role="tab"],
+.scada-theme select,
+.scada-theme a {
+  position: relative;
+}
+
+.scada-theme button:not(:disabled)::after,
+.scada-theme [role="tab"]::after,
+.scada-theme select::after,
+.scada-theme a::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(120deg, var(--scada-highlight), transparent 35%);
+  transition: opacity 220ms ease;
+}
+
+.scada-theme .scada-badge,
+.scada-theme .scada-status-chip,
+.scada-theme [role="status"] {
+  transition:
+    transform 220ms cubic-bezier(.22, 1, .36, 1),
+    border-color 220ms ease,
+    background-color 220ms ease,
+    box-shadow 240ms ease,
+    color 180ms ease;
+}
+
+.scada-theme .scada-badge:hover,
+.scada-theme .scada-status-chip:hover,
+.scada-theme [role="status"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .16);
+}
+
+.scada-theme .scada-badge:hover .scada-status-indicator,
+.scada-theme [role="status"]:hover > span:first-child {
+  transform: scale(1.28);
+}
+
+@media (hover: hover), (min-width: 768px) {
+  .scada-theme main [class*="rounded-xl"][class*="border"]:hover,
+  .scada-theme main [class*="rounded-lg"][class*="border"]:hover {
+    border-color: color-mix(in srgb, var(--scada-border) 64%, var(--scada-accent));
+    box-shadow: var(--scada-shadow);
+    transform: translateY(-1px);
+  }
+
+  .scada-theme button:not(:disabled):hover,
+  .scada-theme [role="button"]:hover,
+  .scada-theme [role="tab"]:hover,
+  .scada-theme select:hover,
+  .scada-theme a:hover {
+    border-color: color-mix(in srgb, var(--scada-border) 56%, var(--scada-accent));
+    box-shadow: var(--scada-control-shadow);
+  }
+
+  .scada-theme button:not(:disabled):hover::after,
+  .scada-theme [role="tab"]:hover::after,
+  .scada-theme select:hover::after,
+  .scada-theme a:hover::after {
+    opacity: 1;
+  }
+
+  .scada-theme button:not(:disabled):hover svg,
+  .scada-theme [role="button"]:hover svg,
+  .scada-theme [role="tab"]:hover svg,
+  .scada-theme a:hover svg {
+    transform: translate3d(1px, -1px, 0) scale(1.04);
+    filter: drop-shadow(0 2px 5px color-mix(in srgb, var(--scada-accent) 42%, transparent));
+  }
+
+  .scada-theme button:not(:disabled) svg,
+  .scada-theme [role="button"] svg,
+  .scada-theme [role="tab"] svg,
+  .scada-theme a svg {
+    transition: transform 220ms cubic-bezier(.22, 1, .36, 1), filter 220ms ease;
+  }
+
+  .scada-theme input:hover,
+  .scada-theme select:hover {
+    background-color: color-mix(in srgb, var(--scada-hover) 38%, transparent);
+  }
+
+  .scada-theme .recharts-bar-rectangle path,
+  .scada-theme .recharts-pie-sector path,
+  .scada-theme .recharts-area-area,
+  .scada-theme .recharts-line-curve,
+  .scada-theme .recharts-dot circle {
+    transition: filter 180ms ease, opacity 180ms ease, stroke-width 180ms ease;
+  }
+
+  .scada-theme .recharts-bar-rectangle:hover path,
+  .scada-theme .recharts-pie-sector:hover path,
+  .scada-theme .recharts-dot:hover circle {
+    filter: brightness(1.14) drop-shadow(0 2px 5px color-mix(in srgb, var(--scada-accent) 32%, transparent));
+  }
+
+  .scada-theme .recharts-tooltip-wrapper {
+    filter: drop-shadow(0 9px 18px rgba(2, 6, 23, .24));
+  }
+}
+
+.scada-theme .recharts-default-tooltip {
+  border-radius: 10px !important;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 26px rgba(2, 6, 23, .24);
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .mask-edges-x {
+    mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scada-theme main [class*="rounded-xl"][class*="border"]:hover,
+  .scada-theme main [class*="rounded-lg"][class*="border"]:hover,
+  .scada-theme .scada-badge:hover,
+  .scada-theme .scada-status-chip:hover,
+  .scada-theme [role="status"]:hover {
+    transform: none;
+  }
 }
