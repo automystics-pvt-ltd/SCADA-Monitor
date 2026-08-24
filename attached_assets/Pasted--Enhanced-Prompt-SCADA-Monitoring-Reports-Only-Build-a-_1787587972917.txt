@@ -1,0 +1,46 @@
+### Enhanced Prompt — SCADA Monitoring Reports Only
+
+Build a **professional, comprehensive SCADA Monitoring Reports module** focused strictly on **real-time and historical plant/device monitoring data**. This must **not be a management, business, financial, or executive reporting system**.
+
+Reports should provide detailed operational visibility into the actual Solar SCADA telemetry and monitoring information, including:
+
+* **Plant/Site Monitoring Report**
+* **Inverter Monitoring Report**
+* **Electrical Parameters Report**
+* **AC/DC Power Report**
+* **Energy Generation Report**
+* **MPPT Monitoring Report**
+* **String Monitoring Report**
+* **Temperature Monitoring Report**
+* **Power Factor & Frequency Report**
+* **Alarm & Fault Report**
+* **Device Communication Report**
+* **MQTT/Modbus Telemetry Report**
+* **Live Data Report**
+* **Historical Saved Data Report**
+* **Data Quality / Missing Telemetry Report**
+* **Daily, Periodic & Custom Date/Time SCADA Reports**
+
+Each report should focus on **actual SCADA monitoring values**, such as:
+
+**Timestamp → Plant → Device/Inverter → Parameter → Actual Value → Unit → Status → Data Quality → Communication Status → Source**
+
+Provide professional SCADA-specific filtering:
+
+**Plant/Site → Inverter/Device → Parameter → Date → Time → Status → Alarm/Fault → Data Quality → Live/Saved Data**
+
+Include **Live Data vs Latest Saved Data vs Historical Data** clearly, with exact timestamps and data freshness.
+
+Reports should contain appropriate **SCADA charts, trends, parameter tables, inverter comparisons, alarm timelines, communication status, and telemetry details** based on the selected report—not management KPIs or business analytics.
+
+Support professional exports:
+
+**PDF | Excel | CSV | JSON**
+
+All exported reports must contain **genuine, validated SCADA records only**, with no fabricated, estimated, duplicated, or unreliable values.
+
+The entire Reports module should have a **modern industrial SCADA UI/UX**, with excellent filtering, clean tables, attractive but technically meaningful visualizations, Light/Dark mode, responsive layouts, professional hover interactions, clear status indicators, and proper loading/error/no-data states.
+
+**Do not introduce management-oriented reports, financial reports, executive summaries, business performance reports, or unrelated analytics. Keep the entire reporting system strictly focused on Solar SCADA monitoring, telemetry, equipment status, electrical/energy measurements, alarms, faults, communication, and historical operational data.**
+
+**Do not modify or break any existing SCADA functionality, MQTT/Modbus communication, database logic, authentication, or existing application behavior.**
