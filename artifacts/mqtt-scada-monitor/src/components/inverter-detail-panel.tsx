@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { getFaultGuidance, normalizeFaults, telemetryText, type FaultEvidence } from '../fault-guidance';
+import { buildPowerTrendSeries, countRawPowerSamples, getPowerTrendState, selectValidatedPowerSamples } from '../inverter-power-trend';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type DeviceStatus = 'online' | 'stale' | 'offline';
@@ -651,23 +652,19 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
   const rawTimestamp = new Date(device.lastSeen);
   const lastSeen = Number.isFinite(rawTimestamp.getTime()) ? rawTimestamp.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' }) : 'Timestamp unavailable';
 
-  const validatedPowerSamples = measurements.filter((s) => s.scalingStatus === 'validated' && (s.measurementKind === 'active-power' || s.measurementKind === 'dc-power'));
-  const rawPowerCount = measurements.filter((s) => s.scalingStatus === 'raw' && (s.measurementKind === 'active-power' || s.measurementKind === 'dc-power')).length;
+  const validatedPowerSamples = selectValidatedPowerSamples(measurements);
+  const rawPowerCount = countRawPowerSamples(measurements);
   
   const powerChartData = useMemo(() => {
-    const timeMap = new Map<string, { time: string; timestamp: number; ac?: number; dc?: number }>();
-    for (const sample of validatedPowerSamples) {
-      const timeKey = new Date(sample.observedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      if (!timeMap.has(timeKey)) timeMap.set(timeKey, { time: timeKey, timestamp: new Date(sample.observedAt).getTime() });
-      const entry = timeMap.get(timeKey)!;
-      if (sample.measurementKind === 'active-power') entry.ac = sample.value;
-      if (sample.measurementKind === 'dc-power') entry.dc = sample.value;
-    }
-    return Array.from(timeMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+    return buildPowerTrendSeries(validatedPowerSamples);
   }, [validatedPowerSamples]);
   
   const hasAcPower = powerChartData.some(d => d.ac !== undefined);
   const hasDcPower = powerChartData.some(d => d.dc !== undefined);
+  const powerEvidenceSamples = measurements.filter((sample) => sample.measurementKind === 'active-power' || sample.measurementKind === 'dc-power');
+  const powerSourceLabels = Array.from(new Set(powerEvidenceSamples.map((sample) => `${sample.sourceName} · ${sample.address}`)));
+  const powerParameterLabels = Array.from(new Set(powerEvidenceSamples.map((sample) => sample.displayLabel || sample.parameter)));
+  const powerTrendState = getPowerTrendState(measurements, measurementsState.loading);
 
   const newestArchivedParameters = useMemo(() => {
     const params = new Map<string, MeasurementSample>();
@@ -726,8 +723,15 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
 
             <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="inverter-power-trend">
               <div className="border-b border-[#1e293b] pb-4">
-                <h3 className="text-base font-bold text-slate-100">Power generation trend</h3>
-                <p className="mt-1 text-xs text-slate-500">Validated AC and DC power from device archives.</p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div><h3 className="text-base font-bold text-slate-100">Power generation trend</h3><p className="mt-1 text-xs text-slate-500">Selected inverter only · validated AC and explicitly reported DC power.</p></div>
+                  <CustomBadge tone={powerTrendState === 'validated' ? 'success' : powerTrendState === 'raw-only' ? 'warning' : 'neutral'}>{powerTrendState === 'validated' ? 'Validated history' : powerTrendState === 'raw-only' ? 'Raw only' : powerTrendState === 'loading' ? 'Loading' : 'No history'}</CustomBadge>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-slate-500">
+                  <span className="rounded-md border border-[#1e293b] bg-[#0f1423] px-2 py-1"><strong className="font-semibold text-slate-300">Range:</strong> {energyRangeLabel(range, selectedDate)}</span>
+                  {powerSourceLabels.length > 0 && <span className="min-w-0 max-w-full break-words rounded-md border border-[#1e293b] bg-[#0f1423] px-2 py-1"><strong className="font-semibold text-slate-300">Source:</strong> {powerSourceLabels.join(' · ')}</span>}
+                  {powerParameterLabels.length > 0 && <span className="min-w-0 max-w-full break-words rounded-md border border-[#1e293b] bg-[#0f1423] px-2 py-1"><strong className="font-semibold text-slate-300">Signals:</strong> {powerParameterLabels.join(', ')}</span>}
+                </div>
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end">
                 <div>
@@ -739,21 +743,26 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
                     {measurementsState.loading ? 'Loading power history…' : rawPowerCount ? `${rawPowerCount} raw power source sample${rawPowerCount === 1 ? '' : 's'} found; scaling required.` : powerChartData.length === 0 ? 'No per-inverter power samples available.' : 'Reported peak in period.'}
                   </p>
                 </div>
-                <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-[#334155] bg-[#0b0f19] px-5 text-center text-xs leading-5 text-slate-500" aria-label={powerChartData.length ? 'Validated power history chart' : 'Power history unavailable'}>
+                  <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-[#334155] bg-[#0b0f19] px-3 text-center text-xs leading-5 text-slate-500" aria-label={powerChartData.length ? 'Validated power history chart' : 'Power history unavailable'}>
                   {measurementsState.loading ? 'Loading per-inverter history…' : powerChartData.length > 1 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={powerChartData} margin={{ top: 10, right: 10, bottom: 4, left: 4 }}>
+                       <LineChart data={powerChartData} margin={{ top: 10, right: 8, bottom: 10, left: 4 }}>
                         <CartesianGrid strokeDasharray="2 4" stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="time" hide />
+                         <XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickLine={false} axisLine={false} minTickGap={16} interval="preserveStartEnd" />
                         <YAxis hide domain={['auto', 'auto']} />
                         <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} formatter={(value: any, name: any) => [`${Number(value).toLocaleString()} kW`, name === 'ac' ? 'AC Power' : 'DC Power']} />
                         {hasAcPower && <Line type="monotone" dataKey="ac" name="ac" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />}
                         {hasDcPower && <Line type="monotone" dataKey="dc" name="dc" stroke="#0ea5e9" strokeWidth={2} dot={false} isAnimationActive={false} />}
                       </LineChart>
                     </ResponsiveContainer>
-                  ) : measurements.length ? rawPowerCount ? 'Raw source samples available.' : 'One validated sample in this range.' : 'No power samples reported.'}
+                   ) : measurements.length ? rawPowerCount ? 'Raw source samples available.' : 'One validated sample in this range.' : 'No power samples reported.'}
                 </div>
               </div>
+               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-slate-500" aria-label="Power trend legend">
+                 {hasAcPower && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-blue-500" />AC Power · validated kW</span>}
+                 {hasDcPower && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-500" />DC Power · validated kW</span>}
+                 {!hasAcPower && !hasDcPower && <span>{powerTrendState === 'raw-only' ? 'Raw power is retained below; scaling is required before charting.' : 'Chart values appear only when source identity, semantic, unit, and scaling are validated.'}</span>}
+               </div>
             </section>
 
             <section className="rounded-2xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5" data-testid="inverter-energy-analysis">
