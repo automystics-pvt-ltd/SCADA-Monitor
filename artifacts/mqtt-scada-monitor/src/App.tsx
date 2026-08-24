@@ -1378,7 +1378,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
   const sourceInverters = rawInverterSignals(rows);
   const hasUnmappedPowerEvidence = !inverters.length && rawPower !== undefined;
   return (
-    <div className="scada-interactive-card bg-[#111827] border border-[#1e293b] rounded-xl p-5 flex flex-col h-full">
+    <div className="scada-interactive-card self-start w-full h-fit rounded-xl border border-[#1e293b] bg-[#111827] p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Layers3 size={16} className="text-slate-400" />
@@ -1387,7 +1387,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
         {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-xs text-slate-400 hover:text-slate-200 focus-ring rounded">View all</button>}
       </div>
       
-      <div className="flex-1 overflow-auto scrollbar-thin pr-1">
+      <div className="max-w-full overflow-x-auto overflow-y-visible scrollbar-thin pr-1">
         <table className="w-auto max-w-none text-left">
           <thead>
             <tr className="border-b border-[#1e293b]">
