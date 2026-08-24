@@ -1,0 +1,94 @@
+### Enhanced Prompt — Platform Admin DB & User Access Management
+
+Extend the **separate Platform Admin backend portal** to provide centralized **Database Management and User Access Management**, without disturbing the existing SCADA application, authentication, MQTT/Modbus communication, telemetry, or current functionality.
+
+#### Database Management
+
+Platform Admin should be able to securely manage and monitor:
+
+* Organizations
+* Plants/Sites
+* Devices/Inverters
+* Telemetry records
+* 15-minute saved records
+* Electrical parameters
+* Energy data
+* MPPT/String data
+* Alarms/Faults
+* User records
+* Roles & permissions
+* Site configurations
+* MQTT/device configurations
+* Audit logs
+
+Provide **search, filtering, sorting, record details, data validation, and controlled edit/update capabilities** where appropriate.
+
+Do not expose unrestricted database access. All database operations must be **permission-controlled, validated, audited, and protected against accidental deletion or modification**.
+
+#### User & Site Access Management
+
+Platform Admin should be able to:
+
+**Create → Configure → Assign → Monitor → Modify → Disable**
+
+user access.
+
+Manage:
+
+* User name
+* Email
+* Organization
+* Role
+* Assigned Plant/Site
+* Assigned Device/Inverter access
+* Feature/module permissions
+* Account status
+* Authentication status
+* Last login
+* Access history
+
+Support multiple roles such as:
+
+**Platform Admin → Organization Admin → Site Admin → Site Engineer → Viewer**
+
+Allow users to be assigned to **one or multiple authorized sites**, while strictly preventing access to unauthorized organizations/sites.
+
+#### Permission Structure
+
+Use granular access control:
+
+**User → Organization → Site → Device → Module → Permission**
+
+Permissions should include:
+
+* Dashboard
+* Live Telemetry
+* Electrical Analysis
+* Energy Analytics
+* MPPT/String Monitoring
+* Alarms/Faults
+* Historical Data
+* SCADA Reports
+* Data Export
+* Device Monitoring
+* Site Configuration
+* User Management
+
+### Critical Requirement
+
+The **Platform Admin backend is completely separate from the existing SCADA user application**.
+
+**Platform Admin Backend**
+→ Database Management
+→ Organization Management
+→ Site Configuration
+→ Device Management
+→ User Management
+→ Role & Permission Management
+→ Authentication Management
+→ Audit & System Management
+
+**Existing SCADA Application**
+→ Continues working exactly as it currently does.
+
+Do **not** modify or break existing SCADA functionality. The Platform Admin should control the platform centrally from the backend while normal users only see and access the **sites and SCADA features explicitly assigned to them**.
