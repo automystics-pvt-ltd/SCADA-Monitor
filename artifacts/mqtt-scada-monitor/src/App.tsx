@@ -330,7 +330,7 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
   };
 
   return (
-    <aside ref={navigationRef} id="primary-navigation" role={mobileOpen ? 'dialog' : undefined} aria-modal={mobileOpen ? true : undefined} aria-label="Primary navigation" tabIndex={mobileOpen ? -1 : undefined} className={`fixed inset-y-0 left-0 z-30 flex w-[min(86vw,260px)] flex-col overflow-hidden border-r border-[#1e293b] bg-[#0b0f19] transition-[width,transform] duration-300 md:static md:translate-x-0 ${collapsed ? 'md:w-[76px]' : 'md:w-[260px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+    <aside ref={navigationRef} id="primary-navigation" role={mobileOpen ? 'dialog' : undefined} aria-modal={mobileOpen ? true : undefined} aria-label="Primary navigation" tabIndex={mobileOpen ? -1 : undefined} className={`fixed inset-y-0 left-0 z-30 flex h-[100dvh] min-h-0 w-[min(86vw,260px)] shrink-0 flex-col overflow-hidden border-r border-[#1e293b] bg-[#0b0f19] transition-[width,transform] duration-300 md:sticky md:top-0 md:h-dvh md:translate-x-0 ${collapsed ? 'md:w-[76px]' : 'md:w-[260px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className={`flex h-[72px] shrink-0 items-center border-b border-[#1e293b] px-4 ${collapsed ? 'md:justify-center md:gap-2' : 'gap-3 md:px-5'}`}>
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-8 h-8 rounded bg-orange-500/20 text-orange-500">
@@ -349,7 +349,7 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
         </button>
       </div>
       
-      <div className="flex-1 overflow-y-auto px-3 py-6 scrollbar-thin">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-6 scrollbar-thin">
         <div className="mb-8">
           <p className={`px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'md:hidden' : ''}`}>Overview</p>
           <nav className="space-y-1.5">
@@ -394,6 +394,51 @@ function NavItem({ icon: Icon, label, active, hasArrow, onClick, collapsed }: an
   );
 }
 
+type ScrollLockSnapshot = {
+  bodyOverflow: string;
+  bodyPosition: string;
+  bodyTop: string;
+  bodyWidth: string;
+  htmlOverflow: string;
+  scrollY: number;
+};
+
+let activeScrollLocks = 0;
+let scrollLockSnapshot: ScrollLockSnapshot | null = null;
+
+function lockDocumentScroll() {
+  if (activeScrollLocks === 0) {
+    scrollLockSnapshot = {
+      bodyOverflow: document.body.style.overflow,
+      bodyPosition: document.body.style.position,
+      bodyTop: document.body.style.top,
+      bodyWidth: document.body.style.width,
+      htmlOverflow: document.documentElement.style.overflow,
+      scrollY: window.scrollY,
+    };
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollLockSnapshot.scrollY}px`;
+    document.body.style.width = '100%';
+  }
+  activeScrollLocks += 1;
+}
+
+function unlockDocumentScroll() {
+  activeScrollLocks = Math.max(0, activeScrollLocks - 1);
+  if (activeScrollLocks !== 0 || !scrollLockSnapshot) return;
+
+  const snapshot = scrollLockSnapshot;
+  document.documentElement.style.overflow = snapshot.htmlOverflow;
+  document.body.style.overflow = snapshot.bodyOverflow;
+  document.body.style.position = snapshot.bodyPosition;
+  document.body.style.top = snapshot.bodyTop;
+  document.body.style.width = snapshot.bodyWidth;
+  window.scrollTo(0, snapshot.scrollY);
+  scrollLockSnapshot = null;
+}
+
 function useModalAccessibility(onClose: () => void, enabled = true) {
   const dialogRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -402,8 +447,6 @@ function useModalAccessibility(onClose: () => void, enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    const previousHtmlOverflow = document.documentElement.style.overflow;
-    const previousBodyOverflow = document.body.style.overflow;
     const selector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
     const getFocusable = (dialog: HTMLElement) => Array.from(dialog.querySelectorAll<HTMLElement>(selector))
       .filter((element) => element.getClientRects().length > 0);
@@ -441,14 +484,12 @@ function useModalAccessibility(onClose: () => void, enabled = true) {
         first.focus();
       }
     };
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
+    lockDocumentScroll();
     window.addEventListener('keydown', trapFocus);
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener('keydown', trapFocus);
-      document.documentElement.style.overflow = previousHtmlOverflow;
-      document.body.style.overflow = previousBodyOverflow;
+      unlockDocumentScroll();
       if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
   }, [enabled]);
@@ -1664,7 +1705,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
   return (
     <>
       <button type="button" aria-label="Close broker settings" onClick={onClose} className="fixed inset-0 z-40 bg-[#0b0f19]/80 backdrop-blur-sm cursor-default" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="scada-safe-drawer fixed right-0 top-0 z-50 flex h-full w-full max-w-[min(400px,100vw)] flex-col border-l border-[#1e293b] bg-[#111827] shadow-2xl">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="telemetry-settings-title" tabIndex={-1} className="scada-safe-drawer fixed right-0 top-0 z-50 flex h-[100dvh] min-h-0 w-full max-w-[min(400px,100vw)] flex-col border-l border-[#1e293b] bg-[#111827] shadow-2xl">
         <div className="scada-safe-drawer-header flex items-center justify-between border-b border-[#1e293b] px-4 py-5 sm:px-6">
           <div>
             <h2 id="telemetry-settings-title" className="text-lg font-bold text-slate-100 tracking-tight">Settings</h2>
@@ -1675,7 +1716,7 @@ function BrokerPanel({ open, onClose, mode, setMode, connected, onConnect, onDis
           </button>
         </div>
         
-        <div className="scada-safe-drawer-content flex-1 space-y-6 overflow-y-auto px-4 py-6 scrollbar-thin sm:px-6">
+        <div className="scada-safe-drawer-content min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-6 scrollbar-thin sm:px-6">
           <div className="bg-[#0b0f19] border border-[#1e293b] p-1.5 rounded-lg flex gap-1">
              <button type="button" onClick={() => setMode('demo')} data-testid="button-mode-demo" className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors focus-ring ${mode === 'demo' ? 'bg-[#1e293b] text-blue-400' : 'text-slate-400 hover:text-slate-200'}`}><Play size={14} /> Demo Stream</button>
              <button type="button" onClick={() => setMode('live')} data-testid="button-mode-live" className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors focus-ring ${mode === 'live' ? 'bg-[#1e293b] text-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}><Wifi size={14} /> Live Broker</button>
@@ -1770,7 +1811,7 @@ function InverterDetailPanel({ device, onClose }: { device: Device; onClose: () 
   return (
     <>
       <button type="button" aria-label="Close inverter details" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-[#0b0f19]/75 backdrop-blur-sm" />
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="fixed inset-x-3 bottom-3 top-3 z-50 mx-auto flex max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827] shadow-2xl sm:inset-x-8 sm:bottom-8 sm:top-8">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${device.name} monitoring details`} tabIndex={-1} className="fixed inset-x-3 bottom-3 top-3 z-50 mx-auto flex min-h-0 max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#1e293b] bg-[#111827] shadow-2xl sm:inset-x-8 sm:bottom-8 sm:top-8">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1e293b] px-5 py-4 sm:px-6">
           <div>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Inverter fleet / {device.site}</p>
@@ -1784,7 +1825,7 @@ function InverterDetailPanel({ device, onClose }: { device: Device; onClose: () 
         <nav aria-label="Inverter detail sections" className="scrollbar-thin flex gap-1 overflow-x-auto border-b border-[#1e293b] px-4 py-2">
           {tabs.map((item) => <button key={item} type="button" onClick={() => setTab(item)} data-testid={`button-inverter-tab-${item.toLowerCase().replace(/\s+/g, '-')}`} className={`whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium transition-colors focus-ring ${tab === item ? 'bg-[#1e293b] text-slate-100' : 'text-slate-400 hover:bg-[#1e293b]/60 hover:text-slate-200'}`}>{item}</button>)}
         </nav>
-        <div className="scrollbar-thin flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
           {reportedTabs.includes(tab) ? (
             <div className="space-y-5">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -2062,6 +2103,7 @@ function AppShell() {
     setWeatherRefreshToken((token) => token + 1);
   };
   const openLocationSettings = () => {
+    setMobileNav(false);
     setSettingsOpen(true);
   };
   const exportTelemetry = () => {
@@ -2090,14 +2132,14 @@ function AppShell() {
   const activeAlarms = useMemo(() => devices.reduce((sum, d) => sum + (Array.isArray(d.telemetry.alarms) ? d.telemetry.alarms.length : 0), 0), [devices]);
 
   return (
-    <div className={`scada-theme ${theme === 'dark' ? 'dark' : 'light'} flex h-screen overflow-hidden bg-[#0b0f19] font-sans text-slate-200`}>
+    <div className={`scada-theme ${theme === 'dark' ? 'dark' : 'light'} flex min-h-[100dvh] bg-[#0b0f19] font-sans text-slate-200`}>
       {mobileNav && <button type="button" aria-label="Close navigation" data-testid="button-navigation-overlay" onClick={() => setMobileNav(false)} className="fixed inset-0 z-20 bg-black/40 backdrop-blur-[1px] md:hidden" />}
-      <Sidebar onSettings={() => setSettingsOpen(true)} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} activeSection={activeSection} onNavigate={navigateTo} collapsed={navigationCollapsed} onToggleCollapse={() => setNavigationCollapsed((current) => !current)} />
+      <Sidebar onSettings={() => { setMobileNav(false); setSettingsOpen(true); }} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} activeSection={activeSection} onNavigate={navigateTo} collapsed={navigationCollapsed} onToggleCollapse={() => setNavigationCollapsed((current) => !current)} />
       
       <div className="flex flex-col flex-1 min-w-0">
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} now={now} weather={weatherState} siteName={plantSiteName} />
         
-        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto space-y-6 p-3 scrollbar-thin sm:p-6">
+        <main className="min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden p-3 sm:p-6">
           <section id="overview" data-section="overview" className="scroll-mt-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div title="Current line frequency from the latest telemetry source.">

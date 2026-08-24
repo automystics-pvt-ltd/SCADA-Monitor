@@ -111,7 +111,8 @@
 @layer base {
   * { @apply border-border; }
   html, body, #root { width: 100%; min-width: 0; min-height: 100%; }
-  body { @apply font-sans antialiased bg-background text-foreground; margin: 0; overflow: hidden; overscroll-behavior: none; }
+  html { overflow-x: hidden; scroll-behavior: smooth; }
+  body { @apply font-sans antialiased bg-background text-foreground; margin: 0; min-height: 100dvh; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: none; }
   button, input, select { font: inherit; }
 }
 
@@ -131,14 +132,14 @@
 .focus-ring:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
-.scada-theme { isolation: isolate; }
+.scada-theme { isolation: isolate; min-height: 100dvh; }
 .scada-theme main > *,
 .scada-theme [data-section],
 .scada-theme .recharts-responsive-container { min-width: 0; }
 .scada-theme main .grid > *,
 .scada-theme .scada-chart-surface,
 .scada-theme .recharts-wrapper { min-width: 0; }
-.scada-theme main { overscroll-behavior-y: contain; scroll-behavior: smooth; }
+.scada-theme main { min-height: 0; }
 .scada-safe-drawer-header { padding-top: max(1.25rem, env(safe-area-inset-top)); }
 .scada-safe-drawer-footer { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 .scada-theme button,
@@ -315,7 +316,7 @@ button:not(:disabled):active,
 .scada-theme.light .scrollbar-thin::-webkit-scrollbar-thumb { background: #c0cbda; }
 
 @media (max-width: 640px) {
-  .scada-theme { height: 100dvh; }
+  .scada-theme { min-height: 100dvh; }
   .scada-theme main {
     padding: 0.875rem;
     padding-bottom: max(1.25rem, calc(env(safe-area-inset-bottom) + 1rem));
