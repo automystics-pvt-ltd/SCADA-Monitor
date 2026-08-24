@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
-import { isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { calculateVerifiedScadaKpis, selectVerifiedCalculation } from './verified-kpis';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
@@ -60,6 +60,8 @@ type CommunicationHealth = {
   subscriptionState?: 'idle' | 'pending' | 'active' | 'failed';
   deviceCommunication: 'live' | 'stale' | 'interrupted' | 'awaiting-first-data';
   lastReceivedAt?: string;
+  lastSourceTimestamp?: string;
+  sourceAgeMs?: number;
   dataFrequencySeconds?: number;
   freshnessAgeMs?: number;
   staleAfterMs?: number;
@@ -729,7 +731,65 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
   );
 }
 
-function KpiCard({ title, value, unit, subtext, icon: Icon, colorClass, borderClass, onClick, help }: any) {
+type RawKpiFallback = {
+  value: number | null;
+  unit: 'raw';
+  formula: string;
+  method: string;
+  inputs: RawTelemetryMetric[];
+  readiness: string;
+};
+
+function rawMetricFallback(metric: RawTelemetryMetric | null, formula: string, readiness: string): RawKpiFallback {
+  return {
+    value: metric?.value ?? null,
+    unit: 'raw',
+    formula,
+    method: metric ? 'latest source register' : 'not reported',
+    inputs: metric ? [metric] : [],
+    readiness,
+  };
+}
+
+function rawAggregateFallback(aggregate: ScadaAggregate, signal: 'power' | 'energy'): RawKpiFallback {
+  const formula = aggregate.method === 'inverter-sum'
+    ? 'Σ latest raw inverter active-power registers'
+    : aggregate.method === 'main-meter'
+      ? 'Latest raw active-power meter register'
+      : aggregate.method === 'inverter-energy-sum'
+        ? 'Σ latest raw inverter cumulative-energy registers'
+        : aggregate.method === 'totalizing-meter'
+          ? 'Latest raw cumulative-energy meter register'
+          : signal === 'power'
+            ? 'No active-power source register is currently available'
+            : 'No cumulative-energy source register is currently available';
+  return {
+    value: aggregate.value,
+    unit: 'raw',
+    formula,
+    method: aggregate.method.replaceAll('-', ' '),
+    inputs: aggregate.included,
+    readiness: aggregate.value === null
+      ? signal === 'power'
+        ? 'No raw active-power record has arrived from the broker.'
+        : 'No raw cumulative-energy record has arrived from the broker.'
+      : 'Exact raw source evidence is available; scaling and engineering units are not declared by the source.',
+  };
+}
+
+function rawKpiFallbacks(rows: TelemetryKpiRow[]): Record<'acPower' | 'dailyEnergy' | 'totalEnergy' | 'specificYield', RawKpiFallback> {
+  const aggregates = calculateScadaAggregates(rows);
+  const daily = latestRawMetric(rows, ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']);
+  const specificYield = latestRawMetric(rows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']);
+  return {
+    acPower: rawAggregateFallback(aggregates.acPower, 'power'),
+    dailyEnergy: rawMetricFallback(daily, 'Latest raw daily-energy counter', 'No raw daily-energy counter has arrived from the broker.'),
+    totalEnergy: rawAggregateFallback(aggregates.totalEnergy, 'energy'),
+    specificYield: rawMetricFallback(specificYield, 'Latest raw specific-yield register', 'Specific yield cannot be evaluated without a source register, or both daily-energy and installed-capacity records with declared units.'),
+  };
+}
+
+function KpiCard({ title, value, unit, subtext, formula, icon: Icon, colorClass, borderClass, onClick, help }: any) {
   return (
     <button type="button" onClick={onClick} title={help} aria-label={`${title}: ${value}${unit ? ` ${unit}` : ''}. ${help || 'Open related monitoring view.'}`} data-testid={`kpi-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} className={`scada-interactive-card scada-kpi-card group text-left w-full bg-[#111827] border ${borderClass || 'border-[#1e293b]'} rounded-xl p-4 flex flex-col justify-between hover:border-slate-600 hover:-translate-y-0.5 transition-all focus-ring`}>
       <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
@@ -745,6 +805,7 @@ function KpiCard({ title, value, unit, subtext, icon: Icon, colorClass, borderCl
           {unit && <span className="text-[11px] font-medium text-slate-500">{unit}</span>}
         </div>
         {subtext && <p className="text-[10px] text-slate-500 mt-1">{subtext}</p>}
+          {formula && <p className="mt-2 border-t border-[#1e293b]/70 pt-2 text-[9px] leading-4 text-slate-500" title={`Formula: ${formula}`}><span className="font-semibold text-slate-400">Formula:</span> {formula}</p>}
       </div>
     </button>
   );
@@ -1403,40 +1464,58 @@ function EnergySummaryChart({ mode, dailyEnergy }: { mode: 'demo' | 'live'; dail
   );
 }
 
-function CalculationSummaryPanel({ calculations, className = '' }: { calculations: VerifiedScadaKpis; className?: string }) {
+function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }: { calculations: VerifiedScadaKpis; rawRows?: TelemetryKpiRow[]; className?: string }) {
   const entries = [calculations.acPower, calculations.dailyEnergy, calculations.totalEnergy, calculations.specificYield];
+  const rawFallbacks = useMemo(() => rawKpiFallbacks(rawRows), [rawRows]);
   return (
     <section data-testid="panel-kpi-calculations" aria-label="Verified KPI calculations" className={`rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5 ${className}`}>
       <div className="flex flex-col gap-2 border-b border-[#1e293b] pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-300">Calculation evidence</p>
-          <h2 className="mt-1 text-sm font-bold text-slate-100">Verified plant KPI calculations</h2>
-          <p className="mt-1 text-xs leading-5 text-slate-400">Headline values appear only when the source supplies approved scaling, engineering units, and signal semantics. Raw Modbus evidence is never converted by inference.</p>
+          <h2 className="mt-1 text-sm font-bold text-slate-100">Plant KPI calculations & source evidence</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Cards always show the latest raw source evidence when it exists. Engineering units and converted KPI values appear only when the source supplies approved scaling, units, and signal semantics.</p>
         </div>
         <span className="shrink-0 rounded-md border border-[#1e293b] bg-[#0b0f19] px-2 py-1 text-[10px] font-semibold text-slate-400">Profile {entries[0].profileVersion}</span>
       </div>
       <div className="mt-3 grid gap-2 lg:grid-cols-2">
-        {entries.map((calculation) => (
+        {entries.map((calculation) => {
+          const rawFallback = rawFallbacks[calculation.key];
+          const verified = calculation.quality === 'verified';
+          const displayValue = verified
+            ? `${calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${calculation.unit}`
+            : rawFallback.value === null
+              ? 'Not reported'
+              : `${rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 })} raw`;
+          const inputs = verified ? calculation.inputs : rawFallback.inputs;
+          const formula = verified ? calculation.formula : rawFallback.formula;
+          const method = verified ? calculation.method.replaceAll('-', ' ') : rawFallback.method;
+          const readiness = verified ? calculation.readiness : rawFallback.readiness;
+          return (
           <details key={calculation.key} className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
             <summary className="cursor-pointer list-none focus-ring rounded">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{calculation.label}</p>
-                  <p className={`mt-1 text-sm font-bold ${calculation.quality === 'verified' ? 'text-emerald-400' : 'text-amber-300'}`}>{calculation.quality === 'verified' ? `${calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${calculation.unit}` : 'Awaiting approval'}</p>
+                  <p className={`mt-1 text-sm font-bold ${verified ? 'text-emerald-400' : rawFallback.value === null ? 'text-slate-400' : 'text-amber-300'}`}>{displayValue}</p>
                 </div>
-                <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase ${calculation.quality === 'verified' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-300'}`}>{calculation.quality === 'verified' ? 'Verified' : 'Not calculated'}</span>
+                <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase ${verified ? 'bg-emerald-500/10 text-emerald-400' : rawFallback.value === null ? 'bg-slate-800 text-slate-400' : 'bg-amber-500/10 text-amber-300'}`}>{verified ? 'Verified' : rawFallback.value === null ? 'Not reported' : 'Raw evidence'}</span>
               </div>
             </summary>
             <div className="mt-3 border-t border-[#1e293b] pt-3 text-[11px] leading-5 text-slate-400">
-              <p><strong className="text-slate-300">Formula:</strong> {calculation.formula}</p>
-              <p className="mt-1"><strong className="text-slate-300">Method:</strong> {calculation.method.replaceAll('-', ' ')}</p>
-              <p className="mt-1"><strong className="text-slate-300">Quality:</strong> {calculation.readiness}</p>
+              <p><strong className="text-slate-300">Formula:</strong> {formula}</p>
+              <p className="mt-1"><strong className="text-slate-300">Method:</strong> {method}</p>
+              <p className="mt-1"><strong className="text-slate-300">Quality:</strong> {readiness}</p>
               {calculation.snapshotWindow && <p className="mt-1"><strong className="text-slate-300">Saved window:</strong> {new Date(calculation.snapshotWindow.startedAt).toLocaleString()} – {new Date(calculation.snapshotWindow.endedAt).toLocaleString()}</p>}
-              {calculation.inputs.length > 0 && <div className="mt-2"><strong className="text-slate-300">Included evidence:</strong><ul className="mt-1 space-y-1">{calculation.inputs.map((source) => <li key={`${source.parameter}-${source.address}-${source.observedAt}`} className="rounded bg-[#111827] px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {source.unit} · register {source.address}{source.observedAt ? ` · ${new Date(source.observedAt).toLocaleString()}` : ''}</li>)}</ul></div>}
+              {inputs.length > 0 && <div className="mt-2"><strong className="text-slate-300">Included evidence:</strong><ul className="mt-1 space-y-1">{inputs.map((source) => {
+                const observedAt = verified ? (source as VerifiedKpiCalculation['inputs'][number]).observedAt : undefined;
+                const unit = verified ? (source as VerifiedKpiCalculation['inputs'][number]).unit : 'raw';
+                return <li key={`${source.parameter}-${source.address}-${observedAt ?? 'raw'}`} className="rounded bg-[#111827] px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {unit} · register {source.address}{observedAt ? ` · ${new Date(observedAt).toLocaleString()}` : ''}</li>;
+              })}</ul></div>}
               {calculation.excluded.length > 0 && <div className="mt-2"><strong className="text-amber-300">Excluded outliers:</strong><ul className="mt-1 space-y-1">{calculation.excluded.map((source) => <li key={`${source.parameter}-${source.address}-${source.observedAt}`} className="rounded bg-amber-500/5 px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {source.unit} · register {source.address}</li>)}</ul></div>}
             </div>
           </details>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -1502,10 +1581,10 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
     </div>
   );
   if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Search, sort, filter, and export the latest Modbus telemetry while preserving raw values, timestamps, and source provenance." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
-  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} /><PowerTrendChart calculation={calculations.acPower} mode={mode} /></div><div className="mt-5"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} mode={mode} /></div></div>;
+  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={rows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} /><PowerTrendChart calculation={calculations.acPower} mode={mode} /></div><div className="mt-5"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} mode={mode} /></div></div>;
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
   if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><SidePanels devices={devices} rows={rows} liveState={liveState} /><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
-  if (section === 'raw-data') return <div data-testid="screen-reports"><WorkspaceHeader eyebrow="Reporting" title="Reports & raw evidence" description="Create a client-ready view of verified KPI calculations alongside the original payload, filters, timestamps, and export controls." action={<span className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300">Traceable evidence</span>} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} className="mb-5" /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
+  if (section === 'raw-data') return <div data-testid="screen-reports"><WorkspaceHeader eyebrow="Reporting" title="Reports & raw evidence" description="Create a client-ready view of verified KPI calculations alongside the original payload, filters, timestamps, and export controls." action={<span className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300">Traceable evidence</span>} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={rows} className="mb-5" /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
   return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} /></div></div>;
 }
 
@@ -2740,12 +2819,13 @@ function AppShell() {
   const alarmTelemetryReported = useMemo(() => operationalDevices.some((device) => Array.isArray(device.telemetry.alarms)), [operationalDevices]);
   const rawKpis = useMemo(() => ({
     activePower: latestRawMetric(modbusRows, ['actpow']),
-    dailyEnergy: latestRawMetric(modbusRows, ['dailyeneregykwh']),
-    totalEnergy: latestRawMetric(modbusRows, ['totalenergy']),
-    specificYield: latestRawMetric(modbusRows, ['todayyield']),
-    alarms: latestRawMetric(modbusRows, ['alarm']),
+    dailyEnergy: latestRawMetric(modbusRows, ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']),
+    totalEnergy: latestRawMetric(modbusRows, ['totalenergy', 'totalenergykwh', 'lifetimeenergy', 'lifetimeenergykwh']),
+    specificYield: latestRawMetric(modbusRows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']),
+    alarms: latestRawMetric(modbusRows, ['alarm', 'alarms', 'alarmcode', 'fault', 'faultcode']),
     inverters: rawInverterSignals(modbusRows),
   }), [modbusRows]);
+  const rawFallbacks = useMemo(() => rawKpiFallbacks(modbusRows), [modbusRows]);
   const liveKpiCalculations = useMemo(() => calculateVerifiedScadaKpis(
     mode === 'live' ? modbusRows.filter((row) => row.provenance === 'live') : modbusRows,
     { asOf: now, maximumAgeMs: DEVICE_STALE_MAX_AGE_MS },
@@ -2780,6 +2860,35 @@ function AppShell() {
     const saved = calculation.snapshotWindow ? ` · saved ${formatInPlantTimezone(calculation.snapshotWindow.scheduledFor, persistence.timezone)}` : '';
     return `${calculation.method.replaceAll('-', ' ')} · ${calculation.inputs.length} approved source input${calculation.inputs.length === 1 ? '' : 's'}${outliers}${saved}`;
   };
+  const calculationCard = (calculation: VerifiedKpiCalculation, rawFallback: RawKpiFallback) => {
+    if (calculation.quality === 'verified') {
+      return {
+        value: calculationValue(calculation),
+        unit: calculationUnit(calculation),
+        subtext: calculationContext(calculation),
+        formula: calculation.formula,
+      };
+    }
+    if (rawFallback.value === null) {
+      return {
+        value: 'Not reported',
+        unit: '',
+        subtext: rawFallback.readiness,
+        formula: rawFallback.formula,
+      };
+    }
+    const registerList = rawFallback.inputs.map((input) => `${input.parameter} (${input.address})`).join(' + ');
+    return {
+      value: rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+      unit: rawFallback.unit,
+      subtext: `${rawFallback.method} · ${registerList} · scaling required`,
+      formula: rawFallback.formula,
+    };
+  };
+  const acPowerCard = calculationCard(calculations.acPower, rawFallbacks.acPower);
+  const dailyEnergyCard = calculationCard(calculations.dailyEnergy, rawFallbacks.dailyEnergy);
+  const totalEnergyCard = calculationCard(calculations.totalEnergy, rawFallbacks.totalEnergy);
+  const specificYieldCard = calculationCard(calculations.specificYield, rawFallbacks.specificYield);
   const deviceCommunication = mode === 'demo'
     ? 'live'
     : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');
@@ -2844,7 +2953,7 @@ function AppShell() {
                 </div>
                 <CustomBadge tone={communicationTone(deviceCommunication)}>{communicationLabel(deviceCommunication)}</CustomBadge>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
                 <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Broker transport</p>
                   <p className={`mt-1 text-xs font-bold ${communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}`}>{brokerTransportLabel}</p>
@@ -2866,6 +2975,11 @@ function AppShell() {
                   <p className="mt-1 text-xs font-bold text-slate-200">{formatElapsed(communication?.freshnessAgeMs ?? telemetryAge ?? undefined)}</p>
                 </div>
                 <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Source age</p>
+                  <p className="mt-1 text-xs font-bold text-slate-200">{formatElapsed(communication?.sourceAgeMs)}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-slate-500" title={communication?.lastSourceTimestamp}>source clock</p>
+                </div>
+                <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Received messages</p>
                   <p className="mt-1 text-xs font-bold text-slate-200">{communication?.receivedMessageCount?.toLocaleString() ?? '0'}</p>
                   {communication?.lastReceivedSequence !== undefined && <p className="mt-0.5 text-[10px] text-slate-500">seq {communication.lastReceivedSequence}</p>}
@@ -2882,14 +2996,14 @@ function AppShell() {
               </div>
             </section>
             <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : calculationValue(calculations.acPower)} unit={mode === 'demo' ? 'kW' : calculationUnit(calculations.acPower)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : calculationContext(calculations.acPower)} onClick={() => navigateTo('power')} help="Only approved source scaling, units, and power semantics may produce this engineering value. Open Calculation evidence for the formula and source registers." />
-              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : calculationValue(calculations.dailyEnergy)} unit={mode === 'demo' ? 'MWh' : calculationUnit(calculations.dailyEnergy)} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : calculationContext(calculations.dailyEnergy)} onClick={() => navigateTo('energy')} help="Only an approved daily energy counter may produce this value; raw power is never integrated." />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : calculationValue(calculations.totalEnergy)} unit={mode === 'demo' ? 'kWh' : calculationUnit(calculations.totalEnergy)} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : calculationContext(calculations.totalEnergy)} onClick={() => navigateTo('energy')} help="Only approved cumulative inverter counters or a totalizing meter may produce this value." />
-              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : calculationValue(calculations.specificYield)} unit={mode === 'demo' ? 'kWh/kWp' : calculationUnit(calculations.specificYield)} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : calculationContext(calculations.specificYield)} onClick={() => navigateTo('power')} help="Specific yield is shown only when verified daily energy and approved installed DC capacity are both available." />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : acPowerCard.subtext} formula={mode === 'demo' ? 'Σ demo inverter active-power values' : acPowerCard.formula} onClick={() => navigateTo('power')} help="The card shows exact source evidence whenever it is available. kW is shown only after source-provided scaling, units, and power semantics are approved." />
+              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : dailyEnergyCard.subtext} formula={mode === 'demo' ? 'Demo daily energy counter' : dailyEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact daily-energy source register if provided. It never creates energy by integrating unvalidated power records." />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : totalEnergyCard.subtext} formula={mode === 'demo' ? 'Demo cumulative energy counter' : totalEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact raw cumulative-energy evidence when it is available. kWh appears only after approved scaling and units are supplied." />
+              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : specificYieldCard.subtext} formula={mode === 'demo' ? 'Demo daily energy ÷ installed capacity' : specificYieldCard.formula} onClick={() => navigateTo('power')} help="The card shows a source-provided raw specific-yield register if present. An engineering-specific yield is calculated only from verified daily energy and installed DC capacity." />
               <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
               <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpiValue(rawKpis.alarms)} unit={mode === 'demo' ? '' : rawKpiUnit(rawKpis.alarms)} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')} onClick={() => navigateTo('alarms')} help="The raw alarm register is displayed exactly as received; alarm-code mapping is required for an active-alarm count." />
             </div>
-            {mode === 'live' && <CalculationSummaryPanel calculations={calculations} className="mt-4" />}
+            {mode === 'live' && <CalculationSummaryPanel calculations={calculations} rawRows={modbusRows} className="mt-4" />}
           </section>
           
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">

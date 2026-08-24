@@ -15,6 +15,41 @@ export function telemetryParameterFromRawPayload(rawPayload: string): Record<str
   }
 }
 
+export function sourceTimestampMilliseconds(value: unknown) {
+  let candidateMs: number | undefined;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    candidateMs = value < 1_000_000_000_000 ? value * 1_000 : value;
+  } else if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      candidateMs = numeric < 1_000_000_000_000 ? numeric * 1_000 : numeric;
+    } else {
+      const parsed = new Date(value).getTime();
+      candidateMs = Number.isFinite(parsed) ? parsed : undefined;
+    }
+  }
+
+  return candidateMs !== undefined && Number.isFinite(new Date(candidateMs).getTime())
+    ? candidateMs
+    : undefined;
+}
+
+export function sourceTimestampIso(value: unknown) {
+  const timestampMs = sourceTimestampMilliseconds(value);
+  return timestampMs === undefined ? undefined : new Date(timestampMs).toISOString();
+}
+
+/**
+ * Preserve the last source observation that JavaScript can safely represent.
+ * Device clocks are evidence, not a reason to interrupt live delivery: an
+ * invalid timestamp stays in the raw payload but cannot poison health status.
+ */
+export function retainValidSourceTimestamp(previousTimestampMs: number | undefined, parameter: Record<string, unknown> | undefined) {
+  if (!parameter) return previousTimestampMs;
+  const value = parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date;
+  return sourceTimestampMilliseconds(value) ?? previousTimestampMs;
+}
+
 export function medianCadenceMs(intervals: number[]) {
   if (!intervals.length) return undefined;
   const sorted = [...intervals].sort((left, right) => left - right);

@@ -12,7 +12,7 @@ import {
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
-import { deviceCommunicationState, heartbeatWindows, medianCadenceMs, recoveryNeedsResync, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
+import { deviceCommunicationState, heartbeatWindows, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterEnergyObservationFromParameter } from "../lib/inverter-energy";
 
 const router: IRouter = Router();
@@ -118,6 +118,7 @@ let communicationPersistenceRetryTimer: NodeJS.Timeout | undefined;
 let communicationPersistenceError: string | undefined;
 let receivedMessageCount = 0;
 let lastTelemetryReceivedAtMs: number | undefined;
+let lastTelemetrySourceTimestampMs: number | undefined;
 let lastTelemetrySequence: number | undefined;
 let observedIntervalsMs: number[] = [];
 let previousCommunicationState: CommunicationState = "awaiting-first-data";
@@ -454,21 +455,12 @@ function numericParameterValue(parameter: Record<string, unknown>) {
 
 function parameterObservationTime(parameter: Record<string, unknown>) {
   const value = parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date;
-  if (typeof value === "string" && value.trim()) return value;
-  if (typeof value === "number" && Number.isFinite(value)) return new Date(value < 1_000_000_000_000 ? value * 1_000 : value).toISOString();
-  return undefined;
+  return sourceTimestampIso(value);
 }
 
 function parameterObservationMilliseconds(parameter: Record<string, unknown>) {
   const value = parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date;
-  if (typeof value === "number" && Number.isFinite(value)) return value < 1_000_000_000_000 ? value * 1_000 : value;
-  if (typeof value === "string") {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric)) return numeric < 1_000_000_000_000 ? numeric * 1_000 : numeric;
-    const parsed = new Date(value).getTime();
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return 0;
+  return sourceTimestampMilliseconds(value) ?? 0;
 }
 
 function observedCadenceMs() {
@@ -966,6 +958,8 @@ function status() {
       subscriptionState,
       deviceCommunication: communication.deviceCommunication,
       lastReceivedAt: lastTelemetryReceivedAtMs === undefined ? undefined : new Date(lastTelemetryReceivedAtMs).toISOString(),
+      lastSourceTimestamp: lastTelemetrySourceTimestampMs === undefined ? undefined : new Date(lastTelemetrySourceTimestampMs).toISOString(),
+      sourceAgeMs: lastTelemetrySourceTimestampMs === undefined ? undefined : Math.max(0, Date.now() - lastTelemetrySourceTimestampMs),
       dataFrequencySeconds: communication.cadenceMs === undefined ? undefined : Number((communication.cadenceMs / 1_000).toFixed(2)),
       freshnessAgeMs: communication.freshnessAgeMs,
       staleAfterMs: communication.staleAfterMs,
@@ -1147,6 +1141,7 @@ async function captureMqttMessage(topic: string, payload: Buffer) {
     sourceTimestamp: parameter ? parameterObservationTime(parameter) : undefined,
   };
   latestMessage = message;
+  lastTelemetrySourceTimestampMs = retainValidSourceTimestamp(lastTelemetrySourceTimestampMs, parameter);
 
   // The live screen is an operational path. Sequence reservation is the only
   // durable coordination it waits for; archival writes run independently so a
