@@ -163,7 +163,12 @@
   }
 }
 
-.focus-ring:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.focus-ring:focus-visible,
+.focus-ring:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ring) 22%, transparent);
+}
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
 .scada-theme { isolation: isolate; min-height: 100dvh; }
@@ -393,11 +398,55 @@ button:not(:disabled):active,
 .scada-theme.light [class~="text-purple-400"] { color: #6d28d9 !important; }
 .scada-theme.light [class*="bg-slate-800"],
 .scada-theme.light [class*="bg-slate-900"] { background-color: var(--scada-surface-raised) !important; }
+.scada-theme.light [class*="border-slate-700"],
+.scada-theme.light [class*="border-slate-600"],
+.scada-theme.light [class*="border-slate-800"] { border-color: var(--scada-border) !important; }
 .scada-theme.light select option { background: var(--scada-surface); color: var(--scada-text); }
 .scada-theme.light .scada-table-row:hover { background-color: #eff6ff !important; }
 .scada-theme.light .scada-interactive-card::after,
 .scada-theme.light .scada-chart-surface::after { background: linear-gradient(135deg, rgba(255,255,255,.92), transparent 48%); }
 .scada-theme.light .scrollbar-thin::-webkit-scrollbar-thumb { background: #c0cbda; }
+
+/* Tailwind's dark transport colors are still present in a few legacy
+   className strings. Keep their light-mode hover states semantic instead of
+   allowing a navy flash over the light surface. */
+.scada-theme.light [class*="hover:bg-[#1e293b]"]:hover {
+  background-color: var(--scada-hover) !important;
+}
+.scada-theme.light [class*="hover:bg-[#0b0f19]"]:hover {
+  background-color: color-mix(in srgb, var(--scada-hover) 72%, transparent) !important;
+}
+.scada-theme.light [class*="hover:bg-slate-700"]:hover,
+.scada-theme.light [class*="hover:bg-gray-700"]:hover {
+  background-color: var(--scada-hover) !important;
+}
+.scada-theme.light [class*="hover:text-slate-100"]:hover,
+.scada-theme.light [class*="hover:text-slate-200"]:hover,
+.scada-theme.light [class*="hover:text-slate-300"]:hover {
+  color: var(--scada-text) !important;
+}
+.scada-theme.light [class*="hover:text-blue-200"]:hover,
+.scada-theme.light [class*="hover:text-blue-300"]:hover {
+  color: #1d4ed8 !important;
+}
+.scada-theme.light .scada-power-flow {
+  background: radial-gradient(ellipse at top, rgba(249, 115, 22, .12), transparent 55%), var(--scada-surface-raised) !important;
+}
+.scada-theme.light .scada-power-flow [fill="#111827"] { fill: #ffffff !important; }
+.scada-theme.light .scada-power-flow [fill="#172033"] { fill: #f8fafc !important; }
+.scada-theme.light .scada-power-flow [fill="#1e293b"],
+.scada-theme.light .scada-power-flow [fill="#182332"] { fill: #e8eef7 !important; }
+.scada-theme.light .scada-power-flow [fill="#0f172a"] { fill: #dbe3ef !important; }
+.scada-theme.light .scada-power-flow [fill="#334155"] { fill: #cbd5e1 !important; }
+.scada-theme.light .scada-power-flow [stroke="#334155"] { stroke: #94a3b8 !important; }
+.scada-theme.light .scada-power-flow [stroke="#94a3b8"] { stroke: #64748b !important; }
+.scada-theme.light .scada-power-flow [stroke="#cbd5e1"] { stroke: #475569 !important; }
+.scada-theme.light .scada-power-flow text { fill: #475569 !important; }
+.scada-theme.light .recharts-default-tooltip {
+  background-color: var(--scada-tooltip) !important;
+  border-color: var(--scada-border) !important;
+  color: var(--scada-text) !important;
+}
 
 @media (max-width: 640px) {
   .scada-theme { min-height: 100dvh; }

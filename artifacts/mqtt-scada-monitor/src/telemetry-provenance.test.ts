@@ -5,8 +5,9 @@ import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceT
 test('SSE history replay never promotes a payload into operational telemetry', () => {
   const replayedPayload = { receivedAt: Date.now(), devices: ['INV-01'], rows: ['phaseCAvoltage'] };
 
-  assert.equal(promotesOperationalTelemetry(true), false);
-  assert.equal(promotesOperationalTelemetry(false), true);
+  assert.equal(promotesOperationalTelemetry('replay'), false);
+  assert.equal(promotesOperationalTelemetry('recovered'), false);
+  assert.equal(promotesOperationalTelemetry('live'), true);
   assert.ok(replayedPayload.receivedAt > 0, 'a recent replay timestamp must not alter the replay decision');
 });
 
@@ -24,5 +25,5 @@ test('historical replay cannot overwrite newer live evidence', () => {
   const recovered = { timestamp: '2026-08-24T04:00:20.000Z', provenance: 'recovered' };
 
   assert.equal(shouldReplaceTelemetryRow(live, olderReplay), false);
-  assert.equal(shouldReplaceTelemetryRow(live, recovered), true);
+  assert.equal(shouldReplaceTelemetryRow(live, recovered), false);
 });

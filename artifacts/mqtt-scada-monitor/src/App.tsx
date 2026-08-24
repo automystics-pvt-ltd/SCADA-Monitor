@@ -5,7 +5,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type SavedSnapshotMetric, type ScadaAggregate } from './telemetry-kpis';
+import { isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, type RawTelemetryMetric, type SavedKpiSnapshot, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
+import { calculateVerifiedScadaKpis, selectVerifiedCalculation } from './verified-kpis';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
@@ -55,7 +56,8 @@ type PersistenceStatus = {
   error?: string;
 };
 type CommunicationHealth = {
-  brokerTransport: 'connected' | 'disconnected';
+  brokerTransport: 'subscribed' | 'connected' | 'disconnected' | 'standby';
+  subscriptionState?: 'idle' | 'pending' | 'active' | 'failed';
   deviceCommunication: 'live' | 'stale' | 'interrupted' | 'awaiting-first-data';
   lastReceivedAt?: string;
   dataFrequencySeconds?: number;
@@ -358,14 +360,8 @@ function telemetryCategory(row: ModbusRow) {
 }
 
 function telemetryUnit(row: ModbusRow) {
-  const name = String(row.name || '').toLowerCase();
-  if (name.includes('voltage')) return 'V';
-  if (name.includes('current')) return 'A';
-  if (name.includes('frequency')) return 'Hz';
-  if (name.includes('power')) return 'kW';
-  if (name.includes('temperature') || name.includes('temp')) return '°C';
-  if (name.includes('energy')) return 'kWh';
-  return '—';
+  const sourceUnit = row.engineering_unit ?? row.engineeringUnit ?? row.unit ?? row.units;
+  return typeof sourceUnit === 'string' && sourceUnit.trim() ? sourceUnit.trim() : 'Raw / not declared';
 }
 
 function telemetryDateTime(row: ModbusRow) {
@@ -1373,7 +1369,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
   );
 }
 
-function EnergySummaryChart({ mode }: { mode: 'demo' | 'live' }) {
+function EnergySummaryChart({ mode, dailyEnergy }: { mode: 'demo' | 'live'; dailyEnergy: VerifiedKpiCalculation }) {
   const [range, setRange] = useState<keyof typeof energyDataByRange>('daily');
   const data = mode === 'demo' ? energyDataByRange[range] : [];
   return (
@@ -1383,14 +1379,14 @@ function EnergySummaryChart({ mode }: { mode: 'demo' | 'live' }) {
            <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2 mb-1">
              <Activity size={14} className="text-slate-400" /> Energy Summary
            </h3>
-           <p className="text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration trend' : 'Persisted energy history unavailable'}</p>
+           <p className="text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration trend' : dailyEnergy.quality === 'verified' ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter` : 'Verified energy history unavailable'}</p>
         </div>
         <div role="tablist" aria-label="Energy time range" className="flex bg-[#0f1423] p-0.5 rounded border border-[#1e293b]">
            {(['daily', 'monthly', 'yearly'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-energy-range-${option}`} className={`px-2 py-1 text-[10px] rounded font-medium capitalize focus-ring ${range === option ? 'bg-[#1e293b] text-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>{option}</button>)}
         </div>
       </div>
       <div className="mb-6">
-        <span className={`text-2xl font-bold tracking-tight ${mode === 'demo' ? 'text-slate-100' : 'text-slate-500'}`}>{mode === 'demo' ? (range === 'daily' ? '14.13' : range === 'monthly' ? '96.1' : '3,862') : 'Data unavailable'}</span> <span className="text-[11px] text-slate-500">{mode === 'demo' ? (range === 'yearly' ? 'MWh this year' : `MWh ${range === 'daily' ? 'today' : 'this month'}`) : 'no persisted energy series'}</span>
+         <span className={`text-2xl font-bold tracking-tight ${mode === 'demo' || dailyEnergy.quality === 'verified' ? 'text-slate-100' : 'text-slate-500'}`}>{mode === 'demo' ? (range === 'daily' ? '14.13' : range === 'monthly' ? '96.1' : '3,862') : dailyEnergy.quality === 'verified' ? dailyEnergy.value!.toLocaleString(undefined, { maximumFractionDigits: 2 }) : 'Data unavailable'}</span> <span className="text-[11px] text-slate-500">{mode === 'demo' ? (range === 'yearly' ? 'MWh this year' : `MWh ${range === 'daily' ? 'today' : 'this month'}`) : dailyEnergy.quality === 'verified' ? `${dailyEnergy.unit} from current counter` : 'no verified daily counter'}</span>
       </div>
       <div className="flex-1 min-h-[140px]">
         {data.length ? <ResponsiveContainer width="100%" height="100%">
@@ -1404,6 +1400,45 @@ function EnergySummaryChart({ mode }: { mode: 'demo' | 'live' }) {
         <span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span>
       </div>
     </div>
+  );
+}
+
+function CalculationSummaryPanel({ calculations, className = '' }: { calculations: VerifiedScadaKpis; className?: string }) {
+  const entries = [calculations.acPower, calculations.dailyEnergy, calculations.totalEnergy, calculations.specificYield];
+  return (
+    <section data-testid="panel-kpi-calculations" aria-label="Verified KPI calculations" className={`rounded-xl border border-[#1e293b] bg-[#111827] p-4 sm:p-5 ${className}`}>
+      <div className="flex flex-col gap-2 border-b border-[#1e293b] pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-300">Calculation evidence</p>
+          <h2 className="mt-1 text-sm font-bold text-slate-100">Verified plant KPI calculations</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Headline values appear only when the source supplies approved scaling, engineering units, and signal semantics. Raw Modbus evidence is never converted by inference.</p>
+        </div>
+        <span className="shrink-0 rounded-md border border-[#1e293b] bg-[#0b0f19] px-2 py-1 text-[10px] font-semibold text-slate-400">Profile {entries[0].profileVersion}</span>
+      </div>
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        {entries.map((calculation) => (
+          <details key={calculation.key} className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
+            <summary className="cursor-pointer list-none focus-ring rounded">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{calculation.label}</p>
+                  <p className={`mt-1 text-sm font-bold ${calculation.quality === 'verified' ? 'text-emerald-400' : 'text-amber-300'}`}>{calculation.quality === 'verified' ? `${calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${calculation.unit}` : 'Awaiting approval'}</p>
+                </div>
+                <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase ${calculation.quality === 'verified' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-300'}`}>{calculation.quality === 'verified' ? 'Verified' : 'Not calculated'}</span>
+              </div>
+            </summary>
+            <div className="mt-3 border-t border-[#1e293b] pt-3 text-[11px] leading-5 text-slate-400">
+              <p><strong className="text-slate-300">Formula:</strong> {calculation.formula}</p>
+              <p className="mt-1"><strong className="text-slate-300">Method:</strong> {calculation.method.replaceAll('-', ' ')}</p>
+              <p className="mt-1"><strong className="text-slate-300">Quality:</strong> {calculation.readiness}</p>
+              {calculation.snapshotWindow && <p className="mt-1"><strong className="text-slate-300">Saved window:</strong> {new Date(calculation.snapshotWindow.startedAt).toLocaleString()} – {new Date(calculation.snapshotWindow.endedAt).toLocaleString()}</p>}
+              {calculation.inputs.length > 0 && <div className="mt-2"><strong className="text-slate-300">Included evidence:</strong><ul className="mt-1 space-y-1">{calculation.inputs.map((source) => <li key={`${source.parameter}-${source.address}-${source.observedAt}`} className="rounded bg-[#111827] px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {source.unit} · register {source.address}{source.observedAt ? ` · ${new Date(source.observedAt).toLocaleString()}` : ''}</li>)}</ul></div>}
+              {calculation.excluded.length > 0 && <div className="mt-2"><strong className="text-amber-300">Excluded outliers:</strong><ul className="mt-1 space-y-1">{calculation.excluded.map((source) => <li key={`${source.parameter}-${source.address}-${source.observedAt}`} className="rounded bg-amber-500/5 px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {source.unit} · register {source.address}</li>)}</ul></div>}
+            </div>
+          </details>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1427,13 +1462,14 @@ function WorkspaceHeader({ eyebrow, title, description, action, onBack }: {
   );
 }
 
-function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now }: {
+function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, calculations, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now }: {
   section: string;
   devices: Device[];
   rows: ModbusRow[];
   mode: 'demo' | 'live';
   liveState: 'fresh' | 'stale' | 'unavailable';
   persistence: PersistenceStatus;
+  calculations: VerifiedScadaKpis;
   rawPayload: string;
   rawJson: JsonValue | null;
   rawTopic: string;
@@ -1466,14 +1502,14 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
     </div>
   );
   if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Search, sort, filter, and export the latest Modbus telemetry while preserving raw values, timestamps, and source provenance." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
-  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} /><PowerTrendChart currentKw={null} mode={mode} /></div><div className="mt-5"><PowerDistributionChart inverters={devices.filter((device) => device.type === 'Power inverter')} mode={mode} /></div></div>;
+  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} /><PowerTrendChart calculation={calculations.acPower} mode={mode} /></div><div className="mt-5"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} mode={mode} /></div></div>;
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
   if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><SidePanels devices={devices} rows={rows} liveState={liveState} /><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
-  if (section === 'raw-data') return <div data-testid="screen-reports"><WorkspaceHeader eyebrow="Reporting" title="Reports & raw evidence" description="Create a client-ready view of the telemetry record with the original payload, filters, timestamps, and export controls." action={<span className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300">Traceable evidence</span>} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
-  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart currentKw={null} mode={mode} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} /></div></div>;
+  if (section === 'raw-data') return <div data-testid="screen-reports"><WorkspaceHeader eyebrow="Reporting" title="Reports & raw evidence" description="Create a client-ready view of verified KPI calculations alongside the original payload, filters, timestamps, and export controls." action={<span className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300">Traceable evidence</span>} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} className="mb-5" /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
+  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} /></div></div>;
 }
 
-function PowerTrendChart({ currentKw, mode }: { currentKw: number | null; mode: 'demo' | 'live' }) {
+function PowerTrendChart({ calculation, mode }: { calculation: VerifiedKpiCalculation; mode: 'demo' | 'live' }) {
   const [range, setRange] = useState<keyof typeof powerTrendByRange>('today');
   const data = mode === 'demo' ? powerTrendByRange[range] : [];
   return (
@@ -1488,7 +1524,7 @@ function PowerTrendChart({ currentKw, mode }: { currentKw: number | null; mode: 
         </div>
       </div>
       <div className="mb-6">
-        <span className={`text-2xl font-bold tracking-tight ${currentKw === null ? 'text-slate-500' : 'text-slate-100'}`}>{currentKw === null ? 'Data unavailable' : currentKw.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> <span className="text-[11px] text-slate-500">{currentKw === null ? 'no validated live power' : 'kW right now'}</span>
+         <span className={`text-2xl font-bold tracking-tight ${calculation.quality === 'verified' ? 'text-slate-100' : 'text-slate-500'}`}>{calculation.quality === 'verified' ? calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 2 }) : 'Data unavailable'}</span> <span className="text-[11px] text-slate-500">{calculation.quality === 'verified' ? `${calculation.unit} · ${calculation.provenance === 'snapshot' ? 'saved window' : 'right now'}` : 'no verified live power'}</span>
       </div>
       <div className="flex-1 min-h-[140px]">
         {data.length ? <ResponsiveContainer width="100%" height="100%">
@@ -1920,8 +1956,8 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
           <thead className="bg-[#0b0f19]">
             <tr>
               {[
-                ['category', 'Category'], ['parameter', 'Parameter'], ['raw', 'Raw Value'], ['scaled', 'Customer Value'],
-                ['unit', 'Unit'], ['address', 'Register Address'], ['date', 'Date'], ['time', 'Time'], ['source', 'Source'],
+                ['category', 'Category'], ['parameter', 'Parameter'], ['raw', 'Raw Value'], ['scaled', 'Reported Value'],
+                ['unit', 'Source Unit'], ['address', 'Register Address'], ['date', 'Date'], ['time', 'Time'], ['source', 'Source'],
               ].map(([key, label]) => <th key={key} className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">{sortButton(key as TelemetrySortKey, label)}</th>)}
               <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Data Quality</th>
             </tr>
@@ -1932,7 +1968,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
                const scaledValue = formatValue(row.data);
                const dateTime = telemetryDateTime(row);
                return (
-                   <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-live-data-${index}`} title={`${String(row.name || 'Parameter')}\nCustomer value: ${scaledValue} ${telemetryUnit(row)}\nRaw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-[#1e293b]/40 transition-colors">
+                   <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-live-data-${index}`} title={`${String(row.name || 'Parameter')}\nSource-reported value: ${scaledValue} ${telemetryUnit(row)}\nRaw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-[#1e293b]/40 transition-colors">
                    <td className="px-5 py-2.5 text-[11px] text-slate-300 flex items-center gap-2">
                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                       {telemetryCategory(row)}
@@ -2430,7 +2466,7 @@ function AppShell() {
           return next;
         });
       }
-      if (!promotesOperationalTelemetry(replay)) return;
+      if (!promotesOperationalTelemetry(provenance)) return;
       const receivedAtMs = receivedAt ? new Date(receivedAt).getTime() : NaN;
       const observedAt = Number.isFinite(receivedAtMs) ? receivedAtMs : Date.now();
       setLastTelemetryAt((current) => current === null || observedAt > current ? observedAt : current);
@@ -2450,10 +2486,10 @@ function AppShell() {
         };
         return existing ? next.map((item) => item.id === identity ? { ...item, ...device } : item) : [device, ...next];
       }, current));
-      if (!replay) setError('');
+      if (provenance === 'live') setError('');
     } catch {
       setRawJson(null);
-      if (!replay) setError('A broker message arrived, but its payload was not valid JSON. The raw payload is still shown below.');
+      if (provenance === 'live') setError('A broker message arrived, but its payload was not valid JSON. The raw payload is still shown below.');
     }
     return true;
   };
@@ -2496,6 +2532,8 @@ function AppShell() {
         if (status.persistence) setPersistence(status.persistence);
         if (status.communication) setCommunication(status.communication);
         if (status.connected) setError('');
+        else if (status.communication?.subscriptionState === 'pending') setError('Connected to the broker and waiting for topic subscription confirmation.');
+        else if (status.communication?.subscriptionState === 'failed') setError(status.error ?? 'The broker connection opened, but the telemetry topic subscription failed.');
         else if (status.error === 'connack timeout') setError('The MQTT broker is not responding to the connection handshake. The dashboard will retry automatically.');
         else setError('MQTT broker transport is reconnecting. Device freshness is tracked separately below.');
       } catch {
@@ -2599,15 +2637,35 @@ function AppShell() {
     setSettingsOpen(true);
   };
   const exportTelemetry = () => {
-    const columns = ['parameter', 'raw_value', 'customer_value', 'unit', 'modbus_address', 'source', 'timestamp'];
+    const columns = ['record_type', 'kpi', 'calculated_value', 'unit', 'quality', 'method', 'formula', 'calculated_at', 'profile_version', 'included_inputs', 'excluded_outliers', 'snapshot_window'];
     const escapeCell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const lines = modbusRows.map((row) => {
-      const name = String(row.name || '');
-      const lowerName = name.toLowerCase();
-      const unit = lowerName.includes('voltage') ? 'V' : lowerName.includes('current') ? 'A' : lowerName.includes('frequency') ? 'Hz' : lowerName.includes('power') ? 'kW' : lowerName.includes('temp') ? '°C' : '';
-      return [name, row.raw_data ?? row.data, row.data, unit, row.full_addr ?? row.addr, row.server_name ?? 'Modbus', row.date_iso_8601 ?? row.timestamp ?? row.date].map(escapeCell).join(',');
-    });
-    const blob = new Blob([[columns.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+    const calculationRows = Object.values(calculations).map((calculation) => [
+      'verified_kpi',
+      calculation.label,
+      calculation.value ?? '',
+      calculation.unit ?? '',
+      calculation.quality,
+      calculation.method,
+      calculation.formula,
+      calculation.calculatedAt ?? '',
+      calculation.profileVersion,
+      calculation.inputs.map((source) => `${source.parameter} (${source.address})`).join(' | '),
+      calculation.excluded.map((source) => `${source.parameter} (${source.address})`).join(' | '),
+      calculation.snapshotWindow ? `${calculation.snapshotWindow.startedAt}/${calculation.snapshotWindow.endedAt}` : '',
+    ].map(escapeCell).join(','));
+    const evidenceColumns = ['record_type', 'parameter', 'raw_value', 'source_engineering_value', 'source_unit', 'modbus_address', 'source', 'timestamp', 'provenance'];
+    const evidenceRows = modbusRows.map((row) => [
+      'raw_modbus_evidence',
+      row.name ?? '',
+      row.raw_data ?? row.data,
+      row.data,
+      row.engineering_unit ?? row.engineeringUnit ?? row.unit ?? row.units ?? '',
+      row.full_addr ?? row.addr ?? '',
+      row.server_name ?? 'Modbus',
+      row.date_iso_8601 ?? row.timestamp ?? row.date ?? '',
+      row.provenance ?? 'live',
+    ].map(escapeCell).join(','));
+    const blob = new Blob([[columns.join(','), ...calculationRows, '', evidenceColumns.join(','), ...evidenceRows].join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -2688,51 +2746,59 @@ function AppShell() {
     alarms: latestRawMetric(modbusRows, ['alarm']),
     inverters: rawInverterSignals(modbusRows),
   }), [modbusRows]);
-  const calculatedTotals = useMemo(() => calculateScadaAggregates(modbusRows), [modbusRows]);
+  const liveKpiCalculations = useMemo(() => calculateVerifiedScadaKpis(
+    mode === 'live' ? modbusRows.filter((row) => row.provenance === 'live') : modbusRows,
+    { asOf: now, maximumAgeMs: DEVICE_STALE_MAX_AGE_MS },
+  ), [modbusRows, mode, now]);
+  const savedKpiCalculations = useMemo(() => calculateVerifiedScadaKpis(
+    savedKpiSnapshot?.parameters ?? [],
+    savedKpiSnapshot ? {
+      snapshotWindow: {
+        startedAt: savedKpiSnapshot.windowStartedAt,
+        endedAt: savedKpiSnapshot.windowEndedAt,
+        scheduledFor: savedKpiSnapshot.scheduledFor,
+      },
+    } : undefined,
+  ), [savedKpiSnapshot]);
+  const savedSnapshotScheduledAt = savedKpiSnapshot ? new Date(savedKpiSnapshot.scheduledFor).getTime() : NaN;
+  const latestSavedSnapshotIsFresh = savedKpiSnapshot?.saveStatus === 'saved'
+    && Number.isFinite(savedSnapshotScheduledAt)
+    && savedSnapshotScheduledAt >= now - 20 * 60_000;
+  const calculations = useMemo<VerifiedScadaKpis>(() => ({
+    acPower: latestSavedSnapshotIsFresh ? selectVerifiedCalculation(liveKpiCalculations.acPower, savedKpiCalculations.acPower) : liveKpiCalculations.acPower,
+    dailyEnergy: latestSavedSnapshotIsFresh ? selectVerifiedCalculation(liveKpiCalculations.dailyEnergy, savedKpiCalculations.dailyEnergy) : liveKpiCalculations.dailyEnergy,
+    totalEnergy: latestSavedSnapshotIsFresh ? selectVerifiedCalculation(liveKpiCalculations.totalEnergy, savedKpiCalculations.totalEnergy) : liveKpiCalculations.totalEnergy,
+    specificYield: latestSavedSnapshotIsFresh ? selectVerifiedCalculation(liveKpiCalculations.specificYield, savedKpiCalculations.specificYield) : liveKpiCalculations.specificYield,
+  }), [latestSavedSnapshotIsFresh, liveKpiCalculations, savedKpiCalculations]);
   const rawKpiValue = (metric: RawTelemetryMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
   const rawKpiUnit = (metric: RawTelemetryMetric | null) => metric ? 'raw' : '';
-  const savedKpiValue = (metric: SavedSnapshotMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
-  const savedKpiUnit = (metric: SavedSnapshotMetric | null) => metric ? 'raw' : '';
-  const savedKpiContext = (metric: SavedSnapshotMetric | null, fallback: string) => {
-    if (!savedKpiSnapshot) return fallback;
-    const scheduledAt = formatInPlantTimezone(savedKpiSnapshot.scheduledFor, savedKpiSnapshot.timezone);
-    if (!metric) {
-      const reason = savedKpiSnapshot.saveStatus === 'saved'
-        ? 'required parameter missing or invalid'
-        : savedKpiSnapshot.missingReason ?? `${savedKpiSnapshot.saveStatus} scheduled window`;
-      return `Saved ${scheduledAt} · ${reason}`;
-    }
-    const capturedAt = formatInPlantTimezone(savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone);
-    const observedAt = metric.sourceTimestamp ? ` · source ${formatInPlantTimezone(metric.sourceTimestamp, savedKpiSnapshot.timezone)}` : '';
-    return `Saved ${scheduledAt} · captured ${capturedAt}${observedAt} · raw ${metric.parameter} · register ${metric.address} · scaling required`;
+  const calculationValue = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 }) : '—';
+  const calculationUnit = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.unit ?? '' : '';
+  const calculationContext = (calculation: VerifiedKpiCalculation) => {
+    if (calculation.quality !== 'verified') return calculation.readiness;
+    const outliers = calculation.excluded.length ? ` · ${calculation.excluded.length} outlier${calculation.excluded.length === 1 ? '' : 's'} excluded` : '';
+    const saved = calculation.snapshotWindow ? ` · saved ${formatInPlantTimezone(calculation.snapshotWindow.scheduledFor, persistence.timezone)}` : '';
+    return `${calculation.method.replaceAll('-', ' ')} · ${calculation.inputs.length} approved source input${calculation.inputs.length === 1 ? '' : 's'}${outliers}${saved}`;
   };
-  const aggregateLabel = (aggregate: ScadaAggregate) => {
-    if (aggregate.method === 'inverter-sum') return `Inverter summation · ${aggregate.included.length} source tag${aggregate.included.length === 1 ? '' : 's'} included`;
-    if (aggregate.method === 'main-meter') return `Main meter active-power register · ${aggregate.source?.parameter ?? 'source register'}`;
-    if (aggregate.method === 'three-phase') return 'Validated √3 × line voltage × current × power factor';
-    if (aggregate.method === 'inverter-energy-sum') return `Inverter cumulative-energy sum · ${aggregate.included.length} source counter${aggregate.included.length === 1 ? '' : 's'} included`;
-    if (aggregate.method === 'totalizing-meter') return `Totalizing energy meter · ${aggregate.source?.parameter ?? 'source register'}`;
-    return 'No eligible source calculation is available';
-  };
-  const aggregateContext = (aggregate: ScadaAggregate, fallback: SavedSnapshotMetric | null, unavailable: string) => {
-    if (aggregate.value === null) return savedKpiContext(fallback, unavailable);
-    const excluded = aggregate.excluded.length ? ` · ${aggregate.excluded.length} extreme outlier${aggregate.excluded.length === 1 ? '' : 's'} excluded` : '';
-    const quality = aggregate.unit === 'W' ? 'validated scaling' : 'raw · scaling required';
-    const source = aggregate.source ? ` · register ${aggregate.source.address}` : '';
-    return `${aggregateLabel(aggregate)}${source}${excluded} · ${quality}`;
-  };
-  const aggregateValue = (aggregate: ScadaAggregate, fallback: SavedSnapshotMetric | null) => aggregate.value === null
-    ? savedKpiValue(fallback)
-    : aggregate.value.toLocaleString(undefined, { maximumFractionDigits: 4 });
-  const aggregateUnit = (aggregate: ScadaAggregate, fallback: SavedSnapshotMetric | null) => aggregate.value === null
-    ? savedKpiUnit(fallback)
-    : aggregate.unit;
   const deviceCommunication = mode === 'demo'
     ? 'live'
     : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');
   const telemetryLabel = mode === 'demo'
     ? 'Demo telemetry'
-    : `${communicationLabel(deviceCommunication)} device telemetry${connected ? '' : ' · broker reconnecting'}`;
+    : communication?.subscriptionState === 'pending'
+      ? 'Broker connected · confirming telemetry topic'
+      : communication?.subscriptionState === 'failed'
+        ? 'Broker connected · telemetry topic unavailable'
+        : `${communicationLabel(deviceCommunication)} device telemetry${connected ? '' : ' · broker reconnecting'}`;
+  const brokerTransportLabel = mode === 'demo'
+    ? 'Demo broker'
+    : communication?.brokerTransport === 'subscribed'
+      ? 'Topic subscribed'
+      : communication?.brokerTransport === 'connected'
+        ? 'Broker connected'
+        : communication?.brokerTransport === 'standby'
+          ? 'Standby consumer'
+          : 'Disconnected';
   const connectionBadgeLabel = mode === 'demo'
     ? 'DEMO'
     : deviceCommunication === 'awaiting-first-data'
@@ -2755,7 +2821,7 @@ function AppShell() {
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} now={now} weather={weatherState} siteName={plantSiteName} />
         
         <main className="min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden p-3 sm:p-6">
-          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
+          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -2781,7 +2847,7 @@ function AppShell() {
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Broker transport</p>
-                  <p className={`mt-1 text-xs font-bold ${connected ? 'text-emerald-400' : 'text-amber-400'}`}>{connected ? 'Connected' : 'Disconnected'}</p>
+                  <p className={`mt-1 text-xs font-bold ${communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}`}>{brokerTransportLabel}</p>
                 </div>
                 <div className="rounded-lg border border-[#1e293b] bg-[#0b0f19]/60 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Device communication</p>
@@ -2816,13 +2882,14 @@ function AppShell() {
               </div>
             </section>
             <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : aggregateValue(calculatedTotals.acPower, savedKpiSnapshot?.metrics.activePower ?? null)} unit={mode === 'demo' ? 'kW' : aggregateUnit(calculatedTotals.acPower, savedKpiSnapshot?.metrics.activePower ?? null)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : aggregateContext(calculatedTotals.acPower, savedKpiSnapshot?.metrics.activePower ?? null, 'Awaiting live inverter tags or a saved main-meter snapshot')} onClick={() => navigateTo('power')} help="Priority: safe inverter summation, then main-meter active power, then the three-phase formula only with validated scaling. Extreme inverter outliers are excluded from a source-tag sum." />
-              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : savedKpiValue(savedKpiSnapshot?.metrics.dailyEnergy ?? null)} unit={mode === 'demo' ? 'MWh' : savedKpiUnit(savedKpiSnapshot?.metrics.dailyEnergy ?? null)} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : savedKpiContext(savedKpiSnapshot?.metrics.dailyEnergy ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('energy')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : aggregateValue(calculatedTotals.totalEnergy, savedKpiSnapshot?.metrics.totalEnergy ?? null)} unit={mode === 'demo' ? 'kWh' : aggregateUnit(calculatedTotals.totalEnergy, savedKpiSnapshot?.metrics.totalEnergy ?? null)} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : aggregateContext(calculatedTotals.totalEnergy, savedKpiSnapshot?.metrics.totalEnergy ?? null, 'Awaiting inverter energy counters or a saved totalizing-meter snapshot')} onClick={() => navigateTo('energy')} help="Priority: source-backed per-inverter cumulative energy counters, then the plant totalizing meter. This card never integrates raw power samples to manufacture energy." />
-              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : savedKpiValue(savedKpiSnapshot?.metrics.specificYield ?? null)} unit={mode === 'demo' ? 'kWh/kWp' : savedKpiUnit(savedKpiSnapshot?.metrics.specificYield ?? null)} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : savedKpiContext(savedKpiSnapshot?.metrics.specificYield ?? null, 'Awaiting first saved 15-minute snapshot')} onClick={() => navigateTo('power')} help="This card uses the newest saved database snapshot and remains raw until engineering scaling is approved." />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : calculationValue(calculations.acPower)} unit={mode === 'demo' ? 'kW' : calculationUnit(calculations.acPower)} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : calculationContext(calculations.acPower)} onClick={() => navigateTo('power')} help="Only approved source scaling, units, and power semantics may produce this engineering value. Open Calculation evidence for the formula and source registers." />
+              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : calculationValue(calculations.dailyEnergy)} unit={mode === 'demo' ? 'MWh' : calculationUnit(calculations.dailyEnergy)} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : calculationContext(calculations.dailyEnergy)} onClick={() => navigateTo('energy')} help="Only an approved daily energy counter may produce this value; raw power is never integrated." />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : calculationValue(calculations.totalEnergy)} unit={mode === 'demo' ? 'kWh' : calculationUnit(calculations.totalEnergy)} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : calculationContext(calculations.totalEnergy)} onClick={() => navigateTo('energy')} help="Only approved cumulative inverter counters or a totalizing meter may produce this value." />
+              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : calculationValue(calculations.specificYield)} unit={mode === 'demo' ? 'kWh/kWp' : calculationUnit(calculations.specificYield)} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : calculationContext(calculations.specificYield)} onClick={() => navigateTo('power')} help="Specific yield is shown only when verified daily energy and approved installed DC capacity are both available." />
               <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
               <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpiValue(rawKpis.alarms)} unit={mode === 'demo' ? '' : rawKpiUnit(rawKpis.alarms)} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarms need review' : 'No active alarms reported') : rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')} onClick={() => navigateTo('alarms')} help="The raw alarm register is displayed exactly as received; alarm-code mapping is required for an active-alarm count." />
             </div>
+            {mode === 'live' && <CalculationSummaryPanel calculations={calculations} className="mt-4" />}
           </section>
           
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -2836,13 +2903,13 @@ function AppShell() {
           
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               <div id="energy" data-section="energy" className="min-w-0 scroll-mt-6 xl:col-span-1">
-                <EnergySummaryChart mode={mode} />
+                <EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} />
              </div>
               <div id="power" data-section="power" className="min-w-0 scroll-mt-6 xl:col-span-2">
-                <PowerTrendChart currentKw={totalAcPower} mode={mode} />
+                <PowerTrendChart calculation={calculations.acPower} mode={mode} />
              </div>
              <div className="min-w-0 xl:col-span-1">
-                <PowerDistributionChart inverters={electricalLiveState === 'fresh' ? inverters : []} mode={mode} />
+                <PowerDistributionChart inverters={mode === 'demo' ? inverters : []} mode={mode} />
              </div>
               <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6 xl:col-span-1">
                  <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} />

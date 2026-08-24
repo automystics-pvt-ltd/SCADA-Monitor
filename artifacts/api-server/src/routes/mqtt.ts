@@ -87,6 +87,7 @@ type SavedSnapshotEvidence = {
   missingReason?: string;
   messageCount: number;
   parameterCount: number;
+  parameters: Record<string, unknown>[];
   metrics: {
     activePower: SavedKpiMetric | null;
     dailyEnergy: SavedKpiMetric | null;
@@ -107,6 +108,7 @@ const SSE_PENDING_FRAME_LIMIT = 250;
 let deliverySequenceInitialization: Promise<void> | undefined;
 let inboundMessageChain: Promise<void> = Promise.resolve();
 let consumerLeaseHeld = false;
+let subscriptionState: "idle" | "pending" | "active" | "failed" = "idle";
 let consumerLeaseTimer: NodeJS.Timeout | undefined;
 const MQTT_CONSUMER_LEASE_MS = 45_000;
 const MQTT_CONSUMER_LEASE_RENEWAL_MS = 15_000;
@@ -625,6 +627,10 @@ function snapshotEvidence(snapshot: {
     missingReason: typeof data.missingReason === "string" ? data.missingReason : undefined,
     messageCount: snapshot.messageCount,
     parameterCount: snapshot.parameterCount,
+    // Preserve the exact scheduled-window parameter evidence alongside the
+    // legacy raw KPI hints. Clients calculate engineering KPIs from this
+    // immutable evidence only when source scaling, unit, and semantics agree.
+    parameters,
     metrics: {
       activePower: latestSavedMetric(parameters, ["actpow"]),
       dailyEnergy: latestSavedMetric(parameters, ["dailyeneregykwh"]),
@@ -883,11 +889,11 @@ function startCommunicationTimer() {
 }
 
 function stopClientForLeaseLoss() {
-  if (!client) return;
   const activeClient = client;
   client = undefined;
   connected = false;
-  activeClient.end(true);
+  subscriptionState = "idle";
+  activeClient?.end(true);
 }
 
 async function renewConsumerLease() {
@@ -945,12 +951,19 @@ function status() {
   const schedule = persistenceSchedule(new Date());
   const communication = refreshCommunicationHealth();
   return {
-    connected,
+    connected: connected && subscriptionState === "active" && consumerLeaseHeld,
     brokerUrl,
     topic: subscriptionTopic,
     error: lastError,
     communication: {
-      brokerTransport: consumerLeaseHeld ? (connected ? "connected" : "disconnected") : "standby",
+      brokerTransport: consumerLeaseHeld
+        ? subscriptionState === "active"
+          ? "subscribed"
+          : connected
+            ? "connected"
+            : "disconnected"
+        : "standby",
+      subscriptionState,
       deviceCommunication: communication.deviceCommunication,
       lastReceivedAt: lastTelemetryReceivedAtMs === undefined ? undefined : new Date(lastTelemetryReceivedAtMs).toISOString(),
       dataFrequencySeconds: communication.cadenceMs === undefined ? undefined : Number((communication.cadenceMs / 1_000).toFixed(2)),
@@ -992,7 +1005,7 @@ function status() {
 function startClient() {
   if (!consumerLeaseHeld || client) return;
 
-  client = mqtt.connect(brokerUrl, {
+  const mqttClient = mqtt.connect(brokerUrl, {
     clientId: mqttClientId,
     username,
     password,
@@ -1003,9 +1016,12 @@ function startClient() {
     clean: false,
     resubscribe: true,
   });
+  client = mqttClient;
 
-  client.on("connect", () => {
+  mqttClient.on("connect", () => {
+    if (client !== mqttClient || !consumerLeaseHeld) return;
     connected = true;
+    subscriptionState = "pending";
     lastError = undefined;
     logger.info({ brokerUrl, subscriptionTopic }, "MQTT broker connected");
     recordCommunicationEvent({
@@ -1019,8 +1035,10 @@ function startClient() {
       },
     });
     broadcast("status", status());
-    client?.subscribe(subscriptionTopic, { qos: 1 }, (error) => {
+    mqttClient.subscribe(subscriptionTopic, { qos: 1 }, (error) => {
+      if (client !== mqttClient || !consumerLeaseHeld) return;
       if (error) {
+        subscriptionState = "failed";
         lastError = `Subscription failed: ${error.message}`;
         recordCommunicationEvent({
           eventType: "subscription-failed",
@@ -1030,12 +1048,24 @@ function startClient() {
         });
         logger.error({ err: error, subscriptionTopic }, "MQTT subscription failed");
         broadcast("status", status());
+        return;
       }
+      subscriptionState = "active";
+      recordCommunicationEvent({
+        eventType: "subscription-confirmed",
+        topic: subscriptionTopic,
+        receivedAt: new Date(),
+        metadata: { qos: 1 },
+      });
+      logger.info({ subscriptionTopic }, "MQTT topic subscription confirmed");
+      broadcast("status", status());
     });
   });
 
-  client.on("reconnect", () => {
+  mqttClient.on("reconnect", () => {
+    if (client !== mqttClient || !consumerLeaseHeld) return;
     connected = false;
+    subscriptionState = "idle";
     recordCommunicationEvent({
       eventType: "broker-reconnecting",
       topic: subscriptionTopic,
@@ -1045,8 +1075,10 @@ function startClient() {
     broadcast("status", status());
   });
 
-  client.on("close", () => {
+  mqttClient.on("close", () => {
+    if (client !== mqttClient || !consumerLeaseHeld) return;
     connected = false;
+    subscriptionState = "idle";
     recordCommunicationEvent({
       eventType: "broker-closed",
       topic: subscriptionTopic,
@@ -1056,8 +1088,10 @@ function startClient() {
     broadcast("status", status());
   });
 
-  client.on("error", (error) => {
+  mqttClient.on("error", (error) => {
+    if (client !== mqttClient || !consumerLeaseHeld) return;
     connected = false;
+    subscriptionState = "idle";
     lastError = error.message;
     recordCommunicationEvent({
       eventType: "broker-error",
@@ -1068,9 +1102,8 @@ function startClient() {
     logger.warn({ err: error }, "MQTT client error");
     broadcast("status", status());
     if (error.message === "connack timeout") {
-      const failedClient = client;
       client = undefined;
-      failedClient?.end(true);
+      mqttClient.end(true);
       if (!reconnectTimer) {
         reconnectTimer = setTimeout(() => {
           reconnectTimer = undefined;
@@ -1080,7 +1113,8 @@ function startClient() {
     }
   });
 
-  client.on("message", (topic, payload) => {
+  mqttClient.on("message", (topic, payload) => {
+    if (client !== mqttClient || !consumerLeaseHeld || subscriptionState !== "active") return;
     const payloadCopy = Buffer.from(payload);
     inboundMessageChain = inboundMessageChain.then(async () => {
       await captureMqttMessage(topic, payloadCopy);
@@ -1102,27 +1136,41 @@ function startClient() {
 }
 
 async function captureMqttMessage(topic: string, payload: Buffer) {
-    const rawPayload = payload.toString("utf8");
-    const parameter = parameterFromPayload(rawPayload);
-    latestMessage = {
-      topic,
-      payload: rawPayload,
-      receivedAt: new Date().toISOString(),
-      sequence: await allocateDeliverySequence(),
-      sourceTimestamp: parameter ? parameterObservationTime(parameter) : undefined,
-    };
-    await db.insert(mqttCommunicationEventsTable).values({
-      eventType: "telemetry",
-      topic,
-      deliverySequence: latestMessage.sequence,
-      rawPayload,
-      sourceTimestamp: latestMessage.sourceTimestamp,
-      receivedAt: new Date(latestMessage.receivedAt),
-      metadata: { qos: 1, preservedRawPayload: true },
-    });
-    const energy = parameter ? inverterEnergyObservationFromParameter(parameter, configuredMqttPlantSite) : undefined;
-    if (energy) {
-      await db.insert(mqttInverterEnergyHistoryTable).values({
+  const rawPayload = payload.toString("utf8");
+  const parameter = parameterFromPayload(rawPayload);
+  const receivedAt = new Date().toISOString();
+  const message: StoredMessage = {
+    topic,
+    payload: rawPayload,
+    receivedAt,
+    sequence: await allocateDeliverySequence(),
+    sourceTimestamp: parameter ? parameterObservationTime(parameter) : undefined,
+  };
+  latestMessage = message;
+
+  // The live screen is an operational path. Sequence reservation is the only
+  // durable coordination it waits for; archival writes run independently so a
+  // slow history database never holds back the original MQTT payload.
+  recordCommunicationEvent({
+    eventType: "telemetry",
+    topic,
+    deliverySequence: message.sequence,
+    rawPayload,
+    sourceTimestamp: message.sourceTimestamp,
+    receivedAt: new Date(receivedAt),
+    metadata: { qos: 1, preservedRawPayload: true, delivery: "immediate" },
+  });
+  recordTelemetryHeartbeat(message);
+  queueSnapshotMessage(message);
+  requestSnapshotScheduleRun();
+  messageHistory.push(message);
+  if (messageHistory.length > MESSAGE_HISTORY_LIMIT) messageHistory.splice(0, messageHistory.length - MESSAGE_HISTORY_LIMIT);
+  broadcast("message", message, message.sequence);
+  broadcast("status", status());
+
+  const energy = parameter ? inverterEnergyObservationFromParameter(parameter, configuredMqttPlantSite) : undefined;
+  if (energy) {
+    void db.insert(mqttInverterEnergyHistoryTable).values({
         topic,
         siteName: energy.siteName,
         inverterId: energy.inverterId,
@@ -1134,7 +1182,7 @@ async function captureMqttMessage(topic: string, payload: Buffer) {
         address: energy.address,
         sourceName: energy.sourceName,
         observedAt: new Date(energy.observedAt),
-        receivedAt: new Date(latestMessage.receivedAt),
+        receivedAt: new Date(receivedAt),
         scalingStatus: energy.scalingStatus,
         sourcePayload: rawPayload,
         metadata: energy.metadata,
@@ -1147,15 +1195,10 @@ async function captureMqttMessage(topic: string, payload: Buffer) {
           mqttInverterEnergyHistoryTable.address,
           mqttInverterEnergyHistoryTable.observedAt,
         ],
+      }).catch((error) => {
+        logger.error({ err: error, sequence: message.sequence }, "MQTT inverter-energy archive write failed after live delivery");
       });
-    }
-    recordTelemetryHeartbeat(latestMessage);
-    queueSnapshotMessage(latestMessage);
-    requestSnapshotScheduleRun();
-    messageHistory.push(latestMessage);
-    if (messageHistory.length > MESSAGE_HISTORY_LIMIT) messageHistory.splice(0, messageHistory.length - MESSAGE_HISTORY_LIMIT);
-    broadcast("message", latestMessage, latestMessage.sequence);
-    broadcast("status", status());
+  }
 }
 
 router.get("/mqtt/status", (_req, res) => {
@@ -1447,6 +1490,10 @@ async function replayableMessagesAfter(lastEventId: number, replayHighWater: num
   return [...recovered.values()].sort((left, right) => left.sequence - right.sequence);
 }
 
+function inMemoryDeliveryHighWater() {
+  return messageHistory.at(-1)?.sequence;
+}
+
 router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
   const requestedLimit = Number(req.query.limit);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 200) : 50;
@@ -1494,8 +1541,9 @@ router.get("/mqtt/stream", (req, res) => {
   void (async () => {
     try {
       await initializeDeliverySequence();
-      replayHighWater = await deliveryHighWater();
-      const highWater = replayHighWater ?? 0;
+      const persistedHighWater = await deliveryHighWater();
+      replayHighWater = Math.max(persistedHighWater ?? 0, inMemoryDeliveryHighWater() ?? 0);
+      const highWater = replayHighWater;
       if (requestedAfter === undefined) {
         for (const message of messageHistory) {
           if (message.sequence <= highWater) {

@@ -36,6 +36,7 @@ export type SavedKpiSnapshot = {
   missingReason?: string;
   messageCount: number;
   parameterCount: number;
+  parameters: TelemetryKpiRow[];
   metrics: {
     activePower: SavedSnapshotMetric | null;
     dailyEnergy: SavedSnapshotMetric | null;
@@ -43,6 +44,45 @@ export type SavedKpiSnapshot = {
     specificYield: SavedSnapshotMetric | null;
   };
 };
+
+export type CalculationKey = "acPower" | "dailyEnergy" | "totalEnergy" | "specificYield";
+export type CalculationQuality = "verified" | "awaiting-validation";
+export type CalculationMethod =
+  | "inverter-sum"
+  | "main-meter"
+  | "three-phase"
+  | "daily-counter"
+  | "inverter-energy-sum"
+  | "totalizing-meter"
+  | "specific-yield"
+  | "unavailable";
+
+export type CalculationInput = RawTelemetryMetric & {
+  unit: string;
+  observedAt?: string;
+  semantic: string;
+};
+
+export type VerifiedKpiCalculation = {
+  key: CalculationKey;
+  label: string;
+  value: number | null;
+  unit: "kW" | "kWh" | "kWh/kWp" | null;
+  quality: CalculationQuality;
+  method: CalculationMethod;
+  formula: string;
+  inputs: CalculationInput[];
+  excluded: CalculationInput[];
+  calculatedAt?: string;
+  provenance: "live" | "replay" | "snapshot" | "unavailable";
+  profileVersion: string;
+  readiness: string;
+  snapshotWindow?: { startedAt: string; endedAt: string; scheduledFor: string };
+};
+
+export type VerifiedScadaKpis = Record<CalculationKey, VerifiedKpiCalculation>;
+
+export const SCADA_CALCULATION_PROFILE_VERSION = "source-metadata-v1";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -85,6 +125,7 @@ export function parseSavedKpiSnapshot(value: unknown): SavedKpiSnapshot | null {
     missingReason: typeof value.missingReason === "string" ? value.missingReason : undefined,
     messageCount,
     parameterCount,
+    parameters: Array.isArray(value.parameters) ? value.parameters.filter(isRecord) : [],
     metrics: {
       activePower: parseSavedMetric(value.metrics.activePower),
       dailyEnergy: parseSavedMetric(value.metrics.dailyEnergy),
@@ -92,6 +133,18 @@ export function parseSavedKpiSnapshot(value: unknown): SavedKpiSnapshot | null {
       specificYield: parseSavedMetric(value.metrics.specificYield),
     },
   };
+}
+
+function calculationInput(row: TelemetryKpiRow, unit: string, semantic: string): CalculationInput | null {
+  const raw = asRawMetric(row);
+  if (!raw) return null;
+  const timestamp = row.date_iso_8601 ?? row.timestamp ?? row.date;
+  const observedAt = typeof timestamp === "string"
+    ? timestamp
+    : typeof timestamp === "number" && Number.isFinite(timestamp)
+      ? new Date(timestamp < 1_000_000_000_000 ? timestamp * 1_000 : timestamp).toISOString()
+      : undefined;
+  return { ...raw, unit, observedAt, semantic };
 }
 
 export function isNewerSavedKpiSnapshot(next: SavedKpiSnapshot, current: SavedKpiSnapshot | null) {

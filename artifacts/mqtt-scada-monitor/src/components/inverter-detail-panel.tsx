@@ -259,7 +259,7 @@ function FlowLabel({ label, metric, className }: { label: string; metric: Metric
 function PowerFlow({ power, status }: { power: Metric; status: DeviceStatus }) {
   const isFlowing = power.value !== null && power.value > 0 && status === 'online' && power.quality !== 'raw';
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-[#1e293b] bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,.14),transparent_55%),#0f1423] px-3 py-5 sm:px-6" data-testid="inverter-power-flow">
+      <section className="scada-power-flow relative overflow-hidden rounded-2xl border border-[#1e293b] bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,.14),transparent_55%),#0f1423] px-3 py-5 sm:px-6" data-testid="inverter-power-flow">
       <div className="pointer-events-none absolute inset-0 opacity-50 [background-image:linear-gradient(rgba(148,163,184,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,.06)_1px,transparent_1px)] [background-size:24px_24px]" />
       <div className="relative mx-auto h-[255px] max-w-2xl sm:h-[290px]">
         <svg viewBox="0 0 720 310" role="img" aria-label="Solar power flow from array through selected inverter to grid export" className="h-full w-full overflow-visible">

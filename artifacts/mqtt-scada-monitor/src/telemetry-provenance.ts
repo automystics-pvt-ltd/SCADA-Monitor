@@ -1,13 +1,12 @@
-/**
- * Replay events are evidence from a previous SSE session, never new MQTT
- * observations. They may be shown in the raw inspector but cannot promote
- * operational state.
- */
-export function promotesOperationalTelemetry(replay: boolean) {
-  return !replay;
-}
-
 export type TelemetryProvenance = "live" | "recovered" | "replay";
+
+/**
+ * Replayed and recovered events retain raw traceability, but only a payload
+ * received directly on the active broker subscription can advance live state.
+ */
+export function promotesOperationalTelemetry(provenance: TelemetryProvenance) {
+  return provenance === "live";
+}
 
 function timestampFromRow(row: Record<string, unknown>) {
   const value = row.date_iso_8601 ?? row.timestamp ?? row.date ?? row.serverReceivedAt;
@@ -22,14 +21,15 @@ function timestampFromRow(row: Record<string, unknown>) {
 }
 
 function provenanceRank(value: unknown) {
-  return value === "replay" ? 0 : 1;
+  return value === "live" ? 2 : value === "recovered" ? 1 : 0;
 }
 
 /**
- * Replay must never overwrite a newer live observation. Recovered delivery is
- * current server evidence, so it is allowed to advance a row when newer.
+ * Recovered and replay evidence must never displace a current live row.
  */
 export function shouldReplaceTelemetryRow(existing: Record<string, unknown>, incoming: Record<string, unknown>) {
+  if (existing.provenance === "live" && incoming.provenance !== "live") return false;
+  if (incoming.provenance === "live" && existing.provenance !== "live") return true;
   const existingTimestamp = timestampFromRow(existing);
   const incomingTimestamp = timestampFromRow(incoming);
   if (incomingTimestamp !== existingTimestamp) return incomingTimestamp > existingTimestamp;
