@@ -1,4 +1,4 @@
-export type TelemetryProvenance = "live" | "recovered" | "replay";
+export type TelemetryProvenance = "live" | "retained" | "recovered" | "replay";
 
 /**
  * Replayed and recovered events retain raw traceability, but only a payload
@@ -21,7 +21,7 @@ function timestampFromRow(row: Record<string, unknown>) {
 }
 
 function provenanceRank(value: unknown) {
-  return value === "live" ? 2 : value === "recovered" ? 1 : 0;
+  return value === "live" ? 3 : value === "recovered" ? 2 : value === "retained" ? 1 : 0;
 }
 
 /**

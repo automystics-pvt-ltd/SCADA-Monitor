@@ -13,6 +13,22 @@ export type InverterEnergyObservation = {
   metadata: Record<string, unknown>;
 };
 
+export type InverterActivePowerObservation = {
+  siteName: string;
+  inverterId: string;
+  inverterName: string;
+  parameter: string;
+  value: number;
+  rawValue: string;
+  unit: "kW";
+  activePowerSemantic: "active-power";
+  scalingStatus: "validated";
+  address: string;
+  sourceName: string;
+  observedAt: string;
+  metadata: Record<string, unknown>;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -74,6 +90,44 @@ function inverterIdentity(parameter: Record<string, unknown>, parameterName: str
   const compactName = normalized(parameterName);
   const match = compactName.match(/^(?:inverter|inv)(\d+)(?:energy|kwh|daily|today|total)?$/);
   return match ? `inv${match[1]}` : undefined;
+}
+
+function explicitInverterIdentity(parameter: Record<string, unknown>) {
+  return [
+    parameter.inverter_id,
+    parameter.inverterId,
+    parameter.device_id,
+    parameter.deviceId,
+    parameter.asset_id,
+    parameter.assetId,
+  ].map(stringValue).find(Boolean);
+}
+
+function activePowerSemantic(parameter: Record<string, unknown>) {
+  const declared = normalized(String(
+    parameter.measurement_type
+    ?? parameter.measurementType
+    ?? parameter.semantic
+    ?? parameter.metric
+    ?? parameter.kind
+    ?? parameter.engineering_semantic
+    ?? parameter.engineeringSemantic
+    ?? "",
+  ));
+  return ["activepower", "acpower", "realpower"].includes(declared) ? "active-power" as const : undefined;
+}
+
+function activePowerUnit(parameter: Record<string, unknown>) {
+  const sourceUnit = stringValue(parameter.engineering_unit)
+    ?? stringValue(parameter.engineeringUnit)
+    ?? stringValue(parameter.unit)
+    ?? stringValue(parameter.units);
+  if (!sourceUnit) return undefined;
+  const unit = normalized(sourceUnit);
+  if (["w", "watt", "watts"].includes(unit)) return { sourceUnit, multiplier: 1 / 1_000 };
+  if (["kw", "kilowatt", "kilowatts"].includes(unit)) return { sourceUnit, multiplier: 1 };
+  if (["mw", "megawatt", "megawatts"].includes(unit)) return { sourceUnit, multiplier: 1_000 };
+  return undefined;
 }
 
 function isInverterEnergyName(parameterName: string) {
@@ -142,6 +196,53 @@ export function inverterEnergyObservationFromParameter(parameter: Record<string,
       serverId: parameter.server_id ?? parameter.serverId,
       sourceTimestamp: parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date,
       sourceMapping: trustedBareInverterYield ? "ana/305003/invN" : "explicit-inverter-energy",
+    },
+  };
+}
+
+/**
+ * Returns an operationally usable inverter active-power record only when the
+ * source makes every safety-critical part of the mapping explicit. Bare invN
+ * register names are intentionally not enough to create a live fleet asset.
+ */
+export function inverterActivePowerObservationFromParameter(parameter: Record<string, unknown>, siteName: string): InverterActivePowerObservation | undefined {
+  const parameterName = stringValue(parameter.name) ?? stringValue(parameter.parameter) ?? stringValue(parameter.tag);
+  const inverterId = explicitInverterIdentity(parameter);
+  const semantic = activePowerSemantic(parameter);
+  const unit = activePowerUnit(parameter);
+  const sourceSite = siteNameFrom(parameter);
+  if (!parameterName || !inverterId || !semantic || !unit || !explicitScalingValidated(parameter)) return undefined;
+  if (sourceSite && sourceSite !== siteName) return undefined;
+
+  const rawValue = numericValue(parameter.data ?? parameter.value ?? parameter.currentValue ?? parameter.current_value);
+  const observedAt = observationTime(parameter);
+  if (rawValue === undefined || !observedAt) return undefined;
+  if (Date.parse(observedAt) > Date.now()) return undefined;
+
+  const address = String(parameter.full_addr ?? parameter.address ?? parameter.register ?? parameter.addr ?? "—");
+  const sourceName = String(parameter.server_name ?? parameter.source ?? parameter.device ?? parameter.server ?? "MQTT source");
+  const inverterName = stringValue(parameter.inverter_name)
+    ?? stringValue(parameter.inverterName)
+    ?? inverterId;
+
+  return {
+    siteName,
+    inverterId,
+    inverterName,
+    parameter: parameterName,
+    value: rawValue * unit.multiplier,
+    rawValue: String(parameter.raw_data ?? parameter.rawValue ?? parameter.raw_value ?? parameter.data ?? parameter.value ?? ""),
+    unit: "kW",
+    activePowerSemantic: semantic,
+    scalingStatus: "validated",
+    address,
+    sourceName,
+    observedAt,
+    metadata: {
+      sourceUnit: unit.sourceUnit,
+      serverId: parameter.server_id ?? parameter.serverId,
+      sourceTimestamp: parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date,
+      sourceMapping: "explicit-inverter-identity-active-power",
     },
   };
 }

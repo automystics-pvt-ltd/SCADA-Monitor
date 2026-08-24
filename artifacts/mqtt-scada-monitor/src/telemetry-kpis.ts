@@ -4,7 +4,7 @@ export type RawTelemetryMetric = {
   parameter: string;
   value: number;
   address: string;
-  provenance: "live" | "replay";
+  provenance: "live" | "retained" | "recovered" | "replay";
 };
 
 export type ScadaAggregate = {
@@ -374,6 +374,6 @@ export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
 
 export function rawMetricContext(metric: RawTelemetryMetric | null, fallback: string) {
   if (!metric) return fallback;
-  const source = metric.provenance === "live" ? "Live" : "Replay";
+  const source = metric.provenance === "live" ? "Live" : metric.provenance === "retained" ? "Retained broker evidence" : metric.provenance === "recovered" ? "Recovered evidence" : "Replay";
   return `${source} raw ${metric.parameter} · register ${metric.address} · scaling required`;
 }

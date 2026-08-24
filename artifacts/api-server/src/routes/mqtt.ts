@@ -13,7 +13,7 @@ import {
 import { logger } from "../lib/logger";
 import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
 import { deviceCommunicationState, heartbeatWindows, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
-import { inverterEnergyObservationFromParameter } from "../lib/inverter-energy";
+import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 
 const router: IRouter = Router();
 const brokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
@@ -39,7 +39,15 @@ const DEFAULT_PLANT_TIMEZONE = "Asia/Kolkata";
 const configuredTimezone = process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? DEFAULT_PLANT_TIMEZONE;
 const configuredMqttPlantSite = process.env.MQTT_PLANT_SITE?.trim() || subscriptionTopic;
 
-type StoredMessage = { topic: string; payload: string; receivedAt: string; sequence: number; sourceTimestamp?: string };
+type StoredMessage = {
+  topic: string;
+  payload: string;
+  receivedAt: string;
+  sequence: number;
+  sourceTimestamp?: string;
+  inverterRecords?: InverterActivePowerObservation[];
+  delivery: "immediate" | "retained";
+};
 type CommunicationState = "live" | "stale" | "interrupted" | "awaiting-first-data";
 type DeliveryGap = {
   detectedAt: string;
@@ -1107,11 +1115,11 @@ function startClient() {
     }
   });
 
-  mqttClient.on("message", (topic, payload) => {
+  mqttClient.on("message", (topic, payload, packet) => {
     if (client !== mqttClient || !consumerLeaseHeld || subscriptionState !== "active") return;
     const payloadCopy = Buffer.from(payload);
     inboundMessageChain = inboundMessageChain.then(async () => {
-      await captureMqttMessage(topic, payloadCopy);
+      await captureMqttMessage(topic, payloadCopy, packet.retain === true);
     }).catch((error) => {
       lastError = "Telemetry delivery could not be durably sequenced; a resync is required when the ledger recovers.";
       confirmedDeliveryGap = {
@@ -1129,16 +1137,21 @@ function startClient() {
   });
 }
 
-async function captureMqttMessage(topic: string, payload: Buffer) {
+async function captureMqttMessage(topic: string, payload: Buffer, retained = false) {
   const rawPayload = payload.toString("utf8");
   const parameter = parameterFromPayload(rawPayload);
   const receivedAt = new Date().toISOString();
+  const inverterRecord = parameter
+    ? inverterActivePowerObservationFromParameter(parameter, configuredMqttPlantSite)
+    : undefined;
   const message: StoredMessage = {
     topic,
     payload: rawPayload,
     receivedAt,
     sequence: await allocateDeliverySequence(),
     sourceTimestamp: parameter ? parameterObservationTime(parameter) : undefined,
+    inverterRecords: inverterRecord ? [inverterRecord] : undefined,
+    delivery: retained ? "retained" : "immediate",
   };
   latestMessage = message;
   lastTelemetrySourceTimestampMs = retainValidSourceTimestamp(lastTelemetrySourceTimestampMs, parameter);
@@ -1153,11 +1166,13 @@ async function captureMqttMessage(topic: string, payload: Buffer) {
     rawPayload,
     sourceTimestamp: message.sourceTimestamp,
     receivedAt: new Date(receivedAt),
-    metadata: { qos: 1, preservedRawPayload: true, delivery: "immediate" },
+    metadata: { qos: 1, preservedRawPayload: true, delivery: message.delivery },
   });
-  recordTelemetryHeartbeat(message);
-  queueSnapshotMessage(message);
-  requestSnapshotScheduleRun();
+  if (!retained) {
+    recordTelemetryHeartbeat(message);
+    queueSnapshotMessage(message);
+    requestSnapshotScheduleRun();
+  }
   messageHistory.push(message);
   if (messageHistory.length > MESSAGE_HISTORY_LIMIT) messageHistory.splice(0, messageHistory.length - MESSAGE_HISTORY_LIMIT);
   broadcast("message", message, message.sequence);
@@ -1471,12 +1486,18 @@ async function replayableMessagesAfter(lastEventId: number, replayHighWater: num
   const recovered = new Map<number, StoredMessage>();
   for (const event of persisted) {
     if (event.deliverySequence === null || !event.rawPayload) continue;
+    const parameter = parameterFromPayload(event.rawPayload);
+    const inverterRecord = parameter
+      ? inverterActivePowerObservationFromParameter(parameter, configuredMqttPlantSite)
+      : undefined;
     recovered.set(event.deliverySequence, {
       topic: event.topic,
       payload: event.rawPayload,
       receivedAt: event.receivedAt.toISOString(),
       sequence: event.deliverySequence,
       sourceTimestamp: event.sourceTimestamp ?? undefined,
+      inverterRecords: inverterRecord ? [inverterRecord] : undefined,
+      delivery: isRecord(event.metadata) && event.metadata.delivery === "retained" ? "retained" : "immediate",
     });
   }
   for (const message of messageHistory) {

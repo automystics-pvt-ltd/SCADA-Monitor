@@ -16,6 +16,74 @@ type CalculationOptions = {
   maximumAgeMs?: number;
 };
 
+export type ValidatedInverterPowerRecord = {
+  inverterId: string;
+  inverterName: string;
+  parameter: string;
+  value: number;
+  rawValue: string;
+  unit: "kW";
+  semantic: "active-power";
+  scalingStatus: "validated";
+  sourceName: string;
+  address: string;
+  sourceTimestamp: string;
+  provenance: "live";
+};
+
+export type InverterPowerExclusion = {
+  parameter: string;
+  inverterId?: string;
+  sourceName: string;
+  address: string;
+  reason: string;
+};
+
+export type ValidatedInverterFleet = {
+  records: ValidatedInverterPowerRecord[];
+  excluded: InverterPowerExclusion[];
+  totalKw: number;
+};
+
+/**
+ * Assess canonical records emitted by the API after plant-site validation.
+ * Unlike raw MQTT rows, these records are the only eligible operational input
+ * for fleet contribution and health views.
+ */
+export function assessSourceBackedInverterFleet(records: ValidatedInverterPowerRecord[], options: { asOf: number; maximumAgeMs: number }): ValidatedInverterFleet {
+  const latest = new Map<string, ValidatedInverterPowerRecord>();
+  const excluded: InverterPowerExclusion[] = [];
+  for (const record of records) {
+    const evidence = {
+      parameter: record.parameter,
+      inverterId: record.inverterId,
+      sourceName: record.sourceName,
+      address: record.address,
+    };
+    if (record.provenance !== "live") {
+      excluded.push({ ...evidence, reason: "Saved, retained, replayed, or recovered evidence is not operational live data." });
+      continue;
+    }
+    const observed = Date.parse(record.sourceTimestamp);
+    if (!Number.isFinite(observed)) {
+      excluded.push({ ...evidence, reason: "Source timestamp is unavailable." });
+      continue;
+    }
+    if (observed > options.asOf) {
+      excluded.push({ ...evidence, reason: "Source timestamp is in the future and excluded from live health." });
+      continue;
+    }
+    if (observed < options.asOf - options.maximumAgeMs) {
+      excluded.push({ ...evidence, reason: "Source reading is stale and excluded from live health." });
+      continue;
+    }
+    const current = latest.get(record.inverterId);
+    if (!current || observed >= Date.parse(current.sourceTimestamp)) latest.set(record.inverterId, record);
+  }
+  const freshRecords = [...latest.values()].sort((left, right) => left.inverterName.localeCompare(right.inverterName));
+  return { records: freshRecords, excluded, totalKw: freshRecords.reduce((total, record) => total + record.value, 0) };
+}
+
 const UNAVAILABLE_FORMULAS: Record<CalculationKey, string> = {
   acPower: "Awaiting an approved active-power source.",
   dailyEnergy: "Awaiting a verified daily energy counter.",
@@ -95,6 +163,105 @@ function semantic(row: TelemetryKpiRow): Semantic | null {
   if (["acurrent", "phaseacurrent", "iacurrent"].includes(name) && ["phasecurrent", "current"].includes(declared)) return "phase-current";
   if (["pf", "powerfactor"].includes(name) && ["powerfactor", "pf"].includes(declared)) return "power-factor";
   return null;
+}
+
+function declaredActivePowerSemantic(row: TelemetryKpiRow) {
+  const declared = normalized(row.measurement_type ?? row.measurementType ?? row.semantic ?? row.metric ?? row.kind ?? row.engineering_semantic ?? row.engineeringSemantic);
+  return ["activepower", "acpower", "realpower"].includes(declared);
+}
+
+function explicitInverterId(row: TelemetryKpiRow) {
+  const candidate = row.inverter_id ?? row.inverterId ?? row.device_id ?? row.deviceId ?? row.asset_id ?? row.assetId;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
+}
+
+function inverterDisplayName(row: TelemetryKpiRow, inverterId: string) {
+  const candidate = row.inverter_name ?? row.inverterName;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : inverterId;
+}
+
+function sourceName(row: TelemetryKpiRow) {
+  const candidate = row.server_name ?? row.source ?? row.device ?? row.server;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : "MQTT source";
+}
+
+function sourceAddress(row: TelemetryKpiRow) {
+  return String(row.full_addr ?? row.addr ?? row.address ?? "—");
+}
+
+function isInverterPowerCandidate(row: TelemetryKpiRow) {
+  const name = normalized(row.name);
+  return Boolean(explicitInverterId(row)) || /^inv\d+(activepower|acpower|power)?$/.test(name);
+}
+
+export function assessValidatedLiveInverterFleet(rows: TelemetryKpiRow[], options: { asOf: number; maximumAgeMs: number }): ValidatedInverterFleet {
+  const latest = new Map<string, { row: TelemetryKpiRow; value: number; inverterId: string }>();
+  const excluded: InverterPowerExclusion[] = [];
+  for (const row of rows) {
+    if (!isInverterPowerCandidate(row)) continue;
+    const parameter = String(row.name ?? "register");
+    const inverterId = explicitInverterId(row);
+    const evidence = {
+      parameter,
+      inverterId,
+      sourceName: sourceName(row),
+      address: sourceAddress(row),
+    };
+    if (row.provenance !== "live") {
+      excluded.push({ ...evidence, reason: "Saved, retained, replayed, or recovered evidence is not operational live data." });
+      continue;
+    }
+    if (!inverterId) {
+      excluded.push({ ...evidence, reason: "Stable inverter identity is not declared by the source." });
+      continue;
+    }
+    if (!validated(row)) {
+      excluded.push({ ...evidence, reason: "Scaling validation is not approved." });
+      continue;
+    }
+    if (!declaredActivePowerSemantic(row)) {
+      excluded.push({ ...evidence, reason: "Approved active-power semantic is missing." });
+      continue;
+    }
+    const value = convertedValue(row, "kW");
+    if (value === null) {
+      excluded.push({ ...evidence, reason: "Approved engineering power unit is missing or incompatible." });
+      continue;
+    }
+    const observed = observedMs(row);
+    if (!observed) {
+      excluded.push({ ...evidence, reason: "Source timestamp is unavailable." });
+      continue;
+    }
+    if (observed < options.asOf - options.maximumAgeMs) {
+      excluded.push({ ...evidence, reason: "Source reading is stale and excluded from live health." });
+      continue;
+    }
+    if (observed > options.asOf) {
+      excluded.push({ ...evidence, reason: "Source timestamp is in the future and excluded from live health." });
+      continue;
+    }
+    const current = latest.get(inverterId);
+    if (!current || observed >= observedMs(current.row)) latest.set(inverterId, { row, value, inverterId });
+  }
+
+  const records = [...latest.values()]
+    .map(({ row, value, inverterId }) => ({
+      inverterId,
+      inverterName: inverterDisplayName(row, inverterId),
+      parameter: String(row.name ?? "register"),
+      value,
+      rawValue: String(row.raw_data ?? row.rawValue ?? row.raw_value ?? row.data ?? ""),
+      unit: "kW" as const,
+      semantic: "active-power" as const,
+      scalingStatus: "validated" as const,
+      sourceName: sourceName(row),
+      address: sourceAddress(row),
+      sourceTimestamp: observedAt(row)!,
+      provenance: "live" as const,
+    }))
+    .sort((left, right) => left.inverterName.localeCompare(right.inverterName));
+  return { records, excluded, totalKw: records.reduce((total, record) => total + record.value, 0) };
 }
 
 function input(row: TelemetryKpiRow, value: number, unit: string, semanticName: string): CalculationInput {

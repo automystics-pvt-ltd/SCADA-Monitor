@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
-import { calculateVerifiedScadaKpis, selectVerifiedCalculation } from "./verified-kpis.ts";
+import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, selectVerifiedCalculation } from "./verified-kpis.ts";
 
 test("selects the newest named raw register and keeps replay provenance", () => {
   const metric = latestRawMetric([
@@ -232,4 +232,47 @@ test("requires an explicit semantic mapping and rejects stale live evidence", ()
 
   assert.equal(unlabelled.acPower.quality, "awaiting-validation");
   assert.equal(stale.acPower.quality, "awaiting-validation");
+});
+
+test("uses only fresh, explicitly mapped validated inverter records for live contribution", () => {
+  const fleet = assessValidatedLiveInverterFleet([
+    { name: "inv1", inverter_id: "INV-01", inverter_name: "Inverter 01", data: 3.2, unit: "kW", semantic: "active_power", scaling_validated: true, timestamp: 1_000, provenance: "live" },
+    { name: "inv2", inverter_id: "INV-02", data: 1_800, unit: "W", semantic: "active_power", scaling_validated: true, timestamp: 1_000, provenance: "live" },
+    { name: "inv3", inverter_id: "INV-03", data: 4, unit: "kW", semantic: "active_power", timestamp: 1_000, provenance: "live" },
+    { name: "inv4", inverter_id: "INV-04", data: 4, unit: "kW", semantic: "active_power", scaling_validated: true, timestamp: 100, provenance: "live" },
+    { name: "inv5", data: 4, unit: "kW", semantic: "active_power", scaling_validated: true, timestamp: 1_000, provenance: "live" },
+    { name: "inv6", inverter_id: "INV-06", data: 4, unit: "kW", semantic: "active_power", scaling_validated: true, timestamp: 1_000, provenance: "replay" },
+    { name: "inv7", inverter_id: "INV-07", data: 4, unit: "kW", semantic: "active_power", scaling_validated: true, timestamp: 1_000, provenance: "retained" },
+    { name: "inv8", inverter_id: "INV-08", data: 4, unit: "kW", semantic: "active_power", scaling_validated: true, timestamp: 1_001, provenance: "live" },
+  ], { asOf: 1_000_000, maximumAgeMs: 100 });
+
+  assert.equal(fleet.records.length, 2);
+  assert.equal(fleet.totalKw, 5);
+  assert.deepEqual(fleet.records.map((record) => record.inverterId).sort(), ["INV-01", "INV-02"]);
+  assert.equal(fleet.excluded.length, 6);
+  assert.ok(fleet.excluded.some((item) => item.reason.includes("Scaling")));
+  assert.ok(fleet.excluded.some((item) => item.reason.includes("stale")));
+  assert.ok(fleet.excluded.some((item) => item.reason.includes("identity")));
+  assert.ok(fleet.excluded.some((item) => item.reason.includes("replayed")));
+  assert.ok(fleet.excluded.some((item) => item.reason.includes("retained")));
+  assert.ok(fleet.excluded.some((item) => item.reason.includes("future")));
+});
+
+test("keeps the fleet operational model on API-validated source records only", () => {
+  const fleet = assessSourceBackedInverterFleet([
+    {
+      inverterId: "INV-01", inverterName: "Inverter 01", parameter: "inv1", value: 3.2, rawValue: "3200",
+      unit: "kW", semantic: "active-power", scalingStatus: "validated", sourceName: "MQTT", address: "305003",
+      sourceTimestamp: new Date(1_000_000).toISOString(), provenance: "live",
+    },
+    {
+      inverterId: "INV-02", inverterName: "Inverter 02", parameter: "inv2", value: 4, rawValue: "4000",
+      unit: "kW", semantic: "active-power", scalingStatus: "validated", sourceName: "MQTT", address: "305004",
+      sourceTimestamp: new Date(1_000_000).toISOString(), provenance: "retained",
+    },
+  ], { asOf: 1_000_000, maximumAgeMs: 100 });
+
+  assert.deepEqual(fleet.records.map((record) => record.inverterId), ["INV-01"]);
+  assert.equal(fleet.totalKw, 3.2);
+  assert.ok(fleet.excluded.some((item) => item.inverterId === "INV-02"));
 });
