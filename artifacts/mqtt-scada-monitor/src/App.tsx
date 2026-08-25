@@ -4234,7 +4234,7 @@ function AppShell() {
             <ElectricalParametersChart rows={currentLiveRows} mode={mode} liveState={electricalLiveState} savedSnapshot={dashboardSavedSnapshot} siteName={plantSiteName} />
           </div>
 
-              <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,1fr)]">
+              <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-3">
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
               <InverterOverviewTable devices={inverterDisplayDevices} rows={dashboardEvidenceRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
