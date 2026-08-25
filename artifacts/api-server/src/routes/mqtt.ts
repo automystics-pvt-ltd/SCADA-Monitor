@@ -1241,6 +1241,7 @@ async function loadRuntimeConfiguration() {
 }
 
 function requestMqttConsumer() {
+  if (process.env.NODE_ENV === "test") return;
   void loadRuntimeConfiguration().then(() => {
   startSnapshotTimer();
   startCommunicationTimer();
@@ -2403,6 +2404,10 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
   let siteName = requestedSite && requestedSite !== "all" ? requestedSite : "";
   const granted = await grantedSiteNames(req);
   if (granted && !siteName) {
+    if (granted.size === 0) {
+      res.status(403).json({ message: "Select one of your assigned sites before requesting a report." });
+      return;
+    }
     if (granted.size !== 1) {
       res.status(400).json({ message: "Select one assigned plant/site before requesting a report." });
       return;
