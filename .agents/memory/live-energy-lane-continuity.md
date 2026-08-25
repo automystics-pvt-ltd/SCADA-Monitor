@@ -8,3 +8,9 @@ Direct MQTT/SSE daily-energy samples must survive a reconnect or manual live ref
 **Why:** Clearing the lane for a transport reconnect makes a working plant-energy trend appear to stop until the next counter publication. Keeping it across site changes risks mixing one plant's evidence into another.
 
 **How to apply:** Scope the client energy buffer to the authenticated site, retain it across same-site connection recovery, and distinguish current live samples from recent last-live samples using the source receipt time. Do not synthesize energy samples from power values.
+
+The Dashboard plant-energy lane may keep a dim animated path running while the live monitoring channel is active but awaiting a fresh power sample. Reserve bright flow animation for fresh power evidence, and pause movement for a confirmed interruption or saved historical snapshot.
+
+**Why:** Operators need a persistent visual indication that the monitoring channel is alive, but a decorative “power flow” animation during an outage or saved-data fallback would misrepresent plant operation.
+
+**How to apply:** Treat monitoring-channel animation as a separate state from actual energy/power flow, and label each state clearly in the Dashboard.

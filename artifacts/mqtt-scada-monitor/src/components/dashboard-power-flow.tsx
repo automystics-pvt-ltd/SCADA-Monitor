@@ -1,8 +1,10 @@
 import type { CSSProperties } from 'react';
 import { inverterFlowState, type InverterFlowProvenance, type InverterFlowQuality, type InverterFlowStatus } from '../inverter-flow-state';
+import { dashboardFlowAnimationState, type DashboardMonitoringStatus } from '../dashboard-flow-animation-state';
 
 type DashboardPowerFlowProps = {
   mode: 'demo' | 'live';
+  monitoringStatus?: DashboardMonitoringStatus;
   value: number | null;
   unit: string;
   quality: InverterFlowQuality;
@@ -22,6 +24,7 @@ function formatFlowReading(value: number | null, unit: string) {
 
 export function DashboardPowerFlow({
   mode,
+  monitoringStatus = mode === 'demo' ? 'live' : 'awaiting-first-data',
   value,
   unit,
   quality,
@@ -33,7 +36,13 @@ export function DashboardPowerFlow({
   inverterCount,
 }: DashboardPowerFlowProps) {
   const flow = inverterFlowState({ value, quality, status, mode, provenance });
-  const statusTone = provenance === 'snapshot' ? 'saved' : flow.rawLiveTelemetry ? 'raw' : flow.streaming ? 'active' : 'paused';
+  const { monitoringChannelActive, movement, statusTone } = dashboardFlowAnimationState({
+    mode,
+    monitoringStatus,
+    provenance,
+    streaming: flow.streaming,
+    rawLiveTelemetry: flow.rawLiveTelemetry,
+  });
   const reading = formatFlowReading(value, unit);
   const timestampLabel = observedAt
     ? (() => {
@@ -51,7 +60,9 @@ export function DashboardPowerFlow({
         : normalizedUnit === 'mw'
         ? value * 1000
         : 0;
-  const flowIntensity = flow.streaming ? Math.min(1, Math.max(0.16, Math.log10(1 + powerInKw) / 4)) : 0;
+  const flowIntensity = flow.streaming
+    ? Math.min(1, Math.max(0.16, Math.log10(1 + powerInKw) / 4))
+    : monitoringChannelActive ? 0.1 : 0;
   const flowStyle = {
     '--dashboard-flow-speed': `${Math.max(0.48, 1.65 - flowIntensity * 1.1)}s`,
     '--dashboard-flow-opacity': `${0.48 + flowIntensity * 0.52}`,
@@ -60,13 +71,26 @@ export function DashboardPowerFlow({
   const inverterLabel = inverterCount
     ? `${inverterCount} inverter${inverterCount === 1 ? '' : 's'}`
     : 'Inverter';
+  const animatedPathClass = movement !== 'paused'
+    ? `dashboard-flow-path${flow.streaming ? '' : ' dashboard-flow-path--monitoring'}`
+    : '';
+  const animatedPathStroke = flow.streaming ? '#00E5FF' : 'var(--dashboard-flow-monitoring)';
+  const statusLabel = provenance === 'snapshot'
+    ? flow.statusLabel
+    : flow.streaming
+      ? flow.statusLabel
+      : monitoringStatus === 'awaiting-first-data'
+        ? 'Awaiting live telemetry'
+        : monitoringChannelActive
+          ? 'Live channel monitoring'
+          : flow.statusLabel;
 
   return (
     <section
       aria-label="Plant power-flow visualization"
       className="scada-dashboard-flow relative isolate overflow-hidden rounded-2xl border px-3 py-4 sm:px-5 sm:py-5"
       data-testid="dashboard-power-flow"
-      data-flow-state={flow.streaming ? 'streaming' : value === 0 ? 'zero' : provenance === 'snapshot' ? 'saved' : 'paused'}
+       data-flow-state={movement === 'power' ? 'streaming' : movement === 'monitoring' ? 'monitoring' : value === 0 ? 'zero' : provenance === 'snapshot' ? 'saved' : 'paused'}
       data-stream-mode={mode}
       data-quality={quality}
       data-flow-provenance={provenance ?? 'unavailable'}
@@ -78,7 +102,7 @@ export function DashboardPowerFlow({
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Plant energy lane</p>
           <p className="mt-1 text-sm font-bold text-slate-100">
-            {mode === 'demo'
+           {mode === 'demo'
               ? 'Demo power flow'
               : provenance === 'snapshot'
                 ? 'Last saved power record'
@@ -88,19 +112,21 @@ export function DashboardPowerFlow({
                   ? 'Raw source-tag evidence'
                   : flow.streaming
                     ? 'Live broker power flow'
+                    : monitoringChannelActive
+                      ? 'Live monitoring channel'
                     : 'Power flow awaiting fresh telemetry'}
           </p>
         </div>
         <span className={`scada-dashboard-flow-state scada-dashboard-flow-state--${statusTone}`}>
           <span className="scada-dashboard-flow-state-dot" />
-          {flow.statusLabel}
+           {statusLabel}
         </span>
       </div>
 
       <div className="relative z-10 mt-3 h-[180px] sm:h-[225px] lg:h-[255px]">
         <svg viewBox="0 0 1000 280" role="img" aria-label={`Power movement from solar array through inverter to grid: ${reading}`} className="h-full w-full">
-          <path d="M300 120 H425 Q450 120 450 147 V158" fill="none" className={flow.streaming ? 'dashboard-flow-path' : ''} stroke={flow.streaming ? '#00E5FF' : 'var(--dashboard-flow-idle)'} strokeDasharray={flow.streaming ? '14 9' : undefined} strokeWidth="5" strokeLinecap="round" />
-          <path d="M550 158 V147 Q550 120 575 120 H782" fill="none" className={flow.streaming ? 'dashboard-flow-path dashboard-flow-path-delayed' : ''} stroke={flow.streaming ? '#00E5FF' : 'var(--dashboard-flow-idle)'} strokeDasharray={flow.streaming ? '14 9' : undefined} strokeWidth="5" strokeLinecap="round" />
+           <path d="M300 120 H425 Q450 120 450 147 V158" fill="none" className={animatedPathClass} stroke={monitoringChannelActive ? animatedPathStroke : 'var(--dashboard-flow-idle)'} strokeDasharray={monitoringChannelActive ? '14 9' : undefined} strokeWidth="5" strokeLinecap="round" />
+           <path d="M550 158 V147 Q550 120 575 120 H782" fill="none" className={monitoringChannelActive ? `${animatedPathClass} dashboard-flow-path-delayed` : ''} stroke={monitoringChannelActive ? animatedPathStroke : 'var(--dashboard-flow-idle)'} strokeDasharray={monitoringChannelActive ? '14 9' : undefined} strokeWidth="5" strokeLinecap="round" />
           <path d="M500 212 V244 H340" fill="none" stroke="var(--dashboard-flow-idle)" strokeWidth="3.5" strokeLinecap="round" />
 
           <g transform="translate(66 34)">
@@ -115,7 +141,7 @@ export function DashboardPowerFlow({
             <rect width="86" height="86" rx="13" fill="var(--dashboard-flow-inverter)" stroke="#00E5FF" strokeWidth="3" filter="drop-shadow(0 0 9px rgba(0,229,255,0.32))" />
             <rect x="15" y="15" width="56" height="28" rx="5" fill="var(--dashboard-flow-node)" stroke="var(--dashboard-flow-idle)" />
             <path d="M23 28h40" stroke="var(--dashboard-flow-grid-stroke)" strokeWidth="1.5" opacity=".7" />
-            <circle cx="43" cy="63" r="8" className={flow.streaming ? 'scada-flow-live-beacon' : undefined} fill={flow.rawLiveTelemetry ? '#F59E0B' : flow.streaming ? '#00F2A6' : 'var(--dashboard-flow-stroke)'} />
+           <circle cx="43" cy="63" r="8" className={monitoringChannelActive ? 'scada-flow-live-beacon' : undefined} fill={flow.rawLiveTelemetry ? '#F59E0B' : flow.streaming ? '#00F2A6' : monitoringChannelActive ? '#38BDF8' : 'var(--dashboard-flow-stroke)'} />
             <path d="M37 76 h12" stroke="var(--dashboard-flow-stroke)" strokeWidth="2.5" strokeLinecap="round" />
           </g>
 
@@ -158,7 +184,7 @@ export function DashboardPowerFlow({
         <div className="scada-dashboard-flow-reading min-[480px]:text-right">
           <span>Telemetry source</span>
           <strong className={`block truncate ${quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}`} title={sourceLabel}>{sourceLabel}</strong>
-          <small>{inverterCount ? `${inverterLabel} contributing` : provenance === 'snapshot' ? 'Saved evidence — animation paused' : flow.streaming ? 'Fresh telemetry — animation active' : 'No fresh power flow'}</small>
+           <small>{inverterCount ? `${inverterLabel} contributing` : provenance === 'snapshot' ? 'Saved evidence — animation paused' : flow.streaming ? 'Fresh telemetry — animation active' : monitoringChannelActive ? 'Monitoring channel active — awaiting fresh power flow' : 'No fresh power flow'}</small>
         </div>
       </div>
     </section>

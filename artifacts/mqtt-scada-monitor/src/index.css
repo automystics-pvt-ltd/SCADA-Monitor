@@ -252,13 +252,15 @@
 }
 
 /* Dashboard energy lane: a provenance-aware visual layer, not decorative
-   telemetry. Its animation is enabled only when the rendered value is live. */
+   telemetry. Bright movement means fresh power; dim movement means the live
+   monitoring channel is still active while it awaits a fresh power sample. */
 .scada-dashboard-flow {
   --dashboard-flow-node: #0F1322;
   --dashboard-flow-inverter: #090B13;
   --dashboard-flow-stroke: #334155;
   --dashboard-flow-grid-stroke: #475569;
   --dashboard-flow-idle: #1E293B;
+  --dashboard-flow-monitoring: #38BDF8;
   --dashboard-flow-label: #94A3B8;
   --dashboard-flow-muted: #64748B;
   border-color: var(--scada-border);
@@ -282,6 +284,11 @@
   animation: inverter-flow var(--dashboard-flow-speed, 1s) linear infinite;
   filter: drop-shadow(0 0 4px rgba(0, 229, 255, .6));
   opacity: var(--dashboard-flow-opacity, 1);
+}
+.dashboard-flow-path--monitoring {
+  animation-duration: 2.6s;
+  filter: drop-shadow(0 0 3px rgba(56, 189, 248, .3));
+  opacity: .58;
 }
 .dashboard-flow-path-delayed { animation-delay: -.5s; }
 .scada-dashboard-flow-state {
