@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
@@ -41,11 +41,13 @@ type Device = {
     value: number;
     address: string;
     provenance: TelemetryProvenance;
+    inverterId?: string;
     sourceName?: string;
     observedAt?: string;
     unit?: string;
     semantic?: string;
     scalingStatus?: 'validated' | 'raw';
+    reportingState?: 'live' | 'stale' | 'saved';
   };
 };
 type ModbusRow = Record<string, JsonValue>;
@@ -299,6 +301,7 @@ function sourceBackedInverterDevice(record: ValidatedInverterPowerRecord, site: 
       },
     },
     sourceEvidence: {
+        inverterId: record.inverterId,
       parameter: record.parameter,
       value: record.value,
       address: record.address,
@@ -1448,14 +1451,21 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
   const sourceInverters = rawInverterSignals(rows);
   const hasUnmappedPowerEvidence = !inverters.length && rawPower !== undefined;
   const statusLabel = (inverter: Device) => {
-    if (inverter.sourceEvidence?.scalingStatus === 'validated') return 'Validated live';
-    if (inverter.sourceEvidence) return 'Source tag';
+    if (inverter.sourceEvidence?.reportingState === 'saved') return 'Saved source';
+    if (inverter.sourceEvidence?.scalingStatus === 'validated') return inverter.status === 'online' ? 'Validated live' : 'Validated stale';
+    if (inverter.sourceEvidence) return inverter.status === 'online' ? 'Live source tag' : 'Stale source tag';
     return inverter.status;
   };
   const statusClass = (inverter: Device) => inverter.sourceEvidence?.scalingStatus === 'validated'
-    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+    ? inverter.status === 'online'
+      ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+      : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
     : inverter.sourceEvidence
-      ? 'border-blue-500/20 bg-blue-500/10 text-blue-300'
+      ? inverter.sourceEvidence.reportingState === 'saved'
+        ? 'border-slate-600 bg-slate-800 text-slate-300'
+        : inverter.status === 'online'
+          ? 'border-blue-500/20 bg-blue-500/10 text-blue-300'
+          : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
       : inverter.status === 'online'
         ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
         : inverter.status === 'offline'
@@ -1472,8 +1482,12 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
   const deviceFaults = (inverter: Device) => collectAlarmFaultEvidence(inverter.telemetry).faults;
   const deviceAlarms = (inverter: Device) => collectAlarmFaultEvidence(inverter.telemetry).alarms;
   const deviceIdentity = (inverter: Device) => inverter.sourceEvidence
-    ? `${inverter.sourceEvidence.parameter} · ${inverter.sourceEvidence.address}`
+    ? `${inverter.sourceEvidence.inverterId ? `${inverter.sourceEvidence.inverterId} · ` : ''}${inverter.sourceEvidence.sourceName ?? 'MQTT source'} · ${inverter.sourceEvidence.parameter} · ${inverter.sourceEvidence.address}`
     : inverter.id;
+  const observedLabel = (inverter: Device) => {
+    const observedAt = inverter.sourceEvidence?.observedAt ?? new Date(inverter.lastSeen).toISOString();
+    return formatInPlantTimezone(observedAt, undefined);
+  };
   return (
     <div className="scada-inverter-fleet scada-interactive-card self-start h-fit w-full min-w-0 rounded-xl border border-[#1E293B] bg-[#090B13] p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[#1E293B] pb-3">
@@ -1510,12 +1524,13 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
               <span className={`rounded-full px-2 py-1 font-bold ${hasIssue ? 'bg-rose-500/10 text-rose-300' : 'bg-emerald-500/10 text-emerald-400'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span>
               <span className="font-semibold text-slate-500 group-hover:text-blue-300">View details →</span>
             </div>
+             <p className="mt-2 truncate text-[9px] text-slate-500" title={`Observed ${observedLabel(inverter)}`}>Observed {observedLabel(inverter)}</p>
           </button>;
         })}
       </div>}
       {inverters.length && view === 'grid' && <div data-testid="inverter-fleet-grid" className="max-w-full overflow-x-auto scrollbar-thin">
-        <table className="min-w-[880px] w-full text-left">
-          <thead className="border-b border-[#1E293B] text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-3">Inverter</th><th className="px-3 py-3">Reporting state</th><th className="px-3 py-3">Daily generation</th><th className="px-3 py-3">Active power</th><th className="px-3 py-3">Alarm / fault</th><th className="px-3 py-3 text-right">Details</th></tr></thead>
+        <table className="min-w-[1040px] w-full text-left">
+          <thead className="border-b border-[#1E293B] text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-3">Inverter</th><th className="px-3 py-3">Reporting state</th><th className="px-3 py-3">Last observation</th><th className="px-3 py-3">Daily generation</th><th className="px-3 py-3">Active power</th><th className="px-3 py-3">Alarm / fault</th><th className="px-3 py-3 text-right">Details</th></tr></thead>
           <tbody className="divide-y divide-[#1E293B]/70">{inverters.map((inverter) => {
             const faults = deviceFaults(inverter);
             const alarms = deviceAlarms(inverter);
@@ -1523,6 +1538,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
             return <tr key={inverter.id} data-testid={`row-inverter-${inverter.id}`} role="button" tabIndex={0} aria-label={`Open details for ${inverter.name}`} onClick={() => onOpenInverter(inverter)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenInverter(inverter); } }} className="scada-table-row scada-inverter-row cursor-pointer hover:bg-[#1E293B]/40 focus-visible:bg-[#1E293B]/40 focus-visible:outline-none">
               <td className="px-3 py-3"><p className="font-semibold text-slate-200">{inverter.name}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{deviceIdentity(inverter)}</p></td>
               <td className="px-3 py-3"><span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}>{statusLabel(inverter)}</span></td>
+              <td className="px-3 py-3 text-[10px] text-slate-400">{observedLabel(inverter)}</td>
               <td className="px-3 py-3 font-mono text-xs font-semibold text-slate-300">{dailyEnergyValue(inverter)}</td>
               <td className={`px-3 py-3 font-mono text-xs font-semibold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-300' : 'text-slate-300'}`}>{powerValue(inverter)}</td>
               <td className="px-3 py-3"><span className={`text-xs font-semibold ${hasIssue ? 'text-rose-300' : 'text-emerald-400'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span></td>
@@ -1870,7 +1886,7 @@ function InverterHealthHeatmap({ fleet, onOpenInverter }: { fleet: ValidatedInve
 
 function PowerDistributionChart({ inverters, rawInverters = [], validatedFleet, mode, savedLabel, onOpenInverter }: {
   inverters: Device[];
-  rawInverters?: RawTelemetryMetric[];
+  rawInverters?: RawInverterSignal[];
   validatedFleet?: ValidatedInverterFleet;
   mode: 'demo' | 'live';
   savedLabel?: string;
@@ -1912,7 +1928,7 @@ function PowerDistributionChart({ inverters, rawInverters = [], validatedFleet, 
         <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
           <Activity size={16} />
         </div>
-        <div><h3 className="text-sm font-bold tracking-wide text-slate-200 uppercase">Power Distribution</h3><p className="mt-1 text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration allocation' : distributionData.length ? 'Fresh validated active-power contribution' : rawDistributionData.length ? 'Latest raw inverter tags · scaling required' : 'Fresh validated active-power contribution only'}</p></div>
+        <div><h3 className="text-sm font-bold tracking-wide text-slate-200 uppercase">Power Distribution</h3><p className="mt-1 text-[10px] text-slate-500">{mode === 'demo' ? 'Demonstration allocation' : distributionData.length ? 'Fresh validated active-power contribution' : rawDistributionData.length ? savedLabel ? `Last saved raw inverter tags · ${savedLabel} · scaling required` : 'Latest raw inverter tags · scaling required' : 'Fresh validated active-power contribution only'}</p></div>
       </div>
       
       <div className="flex-1 flex flex-col md:flex-row items-center gap-8 relative z-10">
@@ -1953,14 +1969,15 @@ function PowerDistributionChart({ inverters, rawInverters = [], validatedFleet, 
                <span className="text-slate-300 font-bold mono shrink-0">{entry.value.toFixed(1)}%</span>
             </button>
              )) : rawDistributionData.length ? rawDistributionData.map((entry, i) => (
-               <div key={`${entry.parameter}-${entry.address}`} data-testid={`row-raw-inverter-contribution-${entry.parameter}`} className="space-y-1.5 rounded-md px-1.5 py-1.5">
+               <div key={`${entry.inverterId ?? entry.parameter}-${entry.sourceName}-${entry.address}`} data-testid={`row-raw-inverter-contribution-${entry.parameter}`} className="space-y-1.5 rounded-md px-1.5 py-1.5">
                  <div className="flex items-center justify-between gap-3 text-[11px]">
                    <div className="flex min-w-0 items-center gap-3">
                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                     <span className="truncate font-semibold text-slate-400">{entry.parameter}</span>
+                      <span className="truncate font-semibold text-slate-400">{entry.inverterId ?? entry.parameter}</span>
                    </div>
                    <span className="shrink-0 font-mono font-bold text-amber-300">{entry.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} raw</span>
                  </div>
+                  <p className="truncate text-[9px] text-slate-500" title={`${entry.sourceName} · ${entry.parameter} · ${entry.address}${entry.observedAt ? ` · ${formatInPlantTimezone(entry.observedAt, undefined)}` : ''}`}>{entry.sourceName} · {entry.parameter} · {entry.address}{entry.observedAt ? ` · ${formatInPlantTimezone(entry.observedAt, undefined)}` : ''}</p>
                  <div className="h-1.5 overflow-hidden rounded-full bg-amber-500/10">
                    <div className="h-full rounded-full bg-amber-500/60" style={{ width: `${rawTotalPower > 0 ? entry.value / rawTotalPower * 100 : 0}%` }} />
                  </div>
@@ -1968,7 +1985,7 @@ function PowerDistributionChart({ inverters, rawInverters = [], validatedFleet, 
              )) : <p className="text-[11px] leading-5 text-slate-500">{mode === 'demo' ? 'Demo inverter power will appear here.' : `Contribution is withheld until fresh inverter records declare identity, active-power semantics, engineering units, and scaling validation. ${validatedFleet?.excluded.length ? `${validatedFleet.excluded.length} raw, stale, saved, replayed, or incompletely mapped record${validatedFleet.excluded.length === 1 ? '' : 's'} remain excluded.` : rawInverters.length ? `${rawInverters.length} raw inverter tag${rawInverters.length === 1 ? '' : 's'} remain available in source evidence.` : 'No inverter tags are currently available.'}`}</p>}
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[#1E293B]/50 pt-3 text-[10px] text-slate-500"><span>{mode === 'live' ? distributionData.length ? 'Legend: live source · kW · active power · scaling validated' : 'Legend: raw source tags · scaling required' : 'Legend: demonstration values'}</span>{savedLabel && <span className="font-bold tracking-widest">LAST SAVED EXCLUDED: {savedLabel}</span>}</div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[#1E293B]/50 pt-3 text-[10px] text-slate-500"><span>{mode === 'live' ? distributionData.length ? 'Legend: live source · kW · active power · scaling validated' : 'Legend: raw source tags · scaling required' : 'Legend: demonstration values'}</span>{savedLabel && <span className="font-bold tracking-widest">{rawDistributionData.length ? `LAST SAVED SOURCE: ${savedLabel}` : `LAST SAVED EXCLUDED: ${savedLabel}`}</span>}</div>
     </div>
   );
 }
@@ -3425,16 +3442,22 @@ function AppShell() {
         ? new Date(numericTime < 1_000_000_000_000 ? numericTime * 1000 : numericTime).getTime()
         : Date.parse(String(sourceTime ?? ''));
       const observedAt = telemetryDateTime(row).full;
-      const sourceKey = `${sourceName}|${signal.parameter.toLowerCase()}|${signal.address.toLowerCase()}`;
+      const rawAge = Number.isFinite(parsedTime) ? now - parsedTime : Number.POSITIVE_INFINITY;
+      const reportingState = showingSavedRecord
+        ? 'saved' as const
+        : mode === 'live' && signal.provenance === 'live' && rawAge >= 0 && rawAge <= DEVICE_ONLINE_MAX_AGE_MS
+          ? 'live' as const
+          : 'stale' as const;
+      const sourceKey = `${sourceName}|${signal.address.toLowerCase()}|${signal.inverterId ?? signal.parameter.toLowerCase()}`;
       const discoveryDeviceId = discoveryDeviceIdFromSourceRecord(row, sourceName);
       const candidate: Device = {
         id: `source-${encodeURIComponent(sourceKey)}`,
-        energyInverterId: signal.parameter.toLowerCase(),
-        discoveryDeviceId,
-        name: signal.parameter.toUpperCase(),
+        energyInverterId: signal.inverterId ?? signal.parameter.toLowerCase(),
+        discoveryDeviceId: signal.inverterId ?? discoveryDeviceId,
+        name: signal.inverterId ?? signal.parameter.toUpperCase(),
         site: persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site',
         type: 'Power inverter',
-        status: 'stale',
+        status: reportingState === 'live' ? 'online' : 'stale',
         lastSeen: Number.isFinite(parsedTime) ? parsedTime : now,
         telemetry: {
           source_tag: {
@@ -3447,16 +3470,20 @@ function AppShell() {
           },
           raw_modbus_row: row,
         },
-          sourceEvidence: { ...signal, sourceName, observedAt },
+          sourceEvidence: { ...signal, sourceName, observedAt, reportingState },
       };
       const current = latestBySource.get(sourceKey);
       if (!current || candidate.lastSeen >= current.lastSeen) latestBySource.set(sourceKey, candidate);
     }
     return [...latestBySource.values()];
-  }, [dashboardEvidenceRows, now, persistence.inverterEnergySite, plantSiteName]);
+  }, [dashboardEvidenceRows, mode, now, persistence.inverterEnergySite, plantSiteName, showingSavedRecord]);
   const inverterDisplayDevices = useMemo(() => {
-    const validatedParameters = new Set(validatedInverterDevices.map((device) => device.sourceEvidence?.parameter.toLowerCase()));
-    return [...operationalDevices, ...validatedInverterDevices, ...sourceTagInverters.filter((device) => !validatedParameters.has(device.sourceEvidence?.parameter.toLowerCase()))];
+    const sourceIdentity = (device: Device) => {
+      const evidence = device.sourceEvidence;
+      return evidence ? `${evidence.sourceName ?? ''}|${evidence.address.toLowerCase()}|${evidence.inverterId ?? evidence.parameter.toLowerCase()}` : '';
+    };
+    const validatedSources = new Set(validatedInverterDevices.map(sourceIdentity));
+    return [...operationalDevices, ...validatedInverterDevices, ...sourceTagInverters.filter((device) => !validatedSources.has(sourceIdentity(device)))];
   }, [operationalDevices, sourceTagInverters, validatedInverterDevices]);
   const inverters = useMemo(() => operationalDevices.filter(d => d.type === 'Power inverter'), [operationalDevices]);
   const onlinePowerReadings = useMemo(() => electricalLiveState === 'fresh' ? inverters.filter((device) => device.status === 'online').map((device) => {
@@ -3607,6 +3634,20 @@ function AppShell() {
         inverterCount: onlinePowerReadings.length || undefined,
       };
     }
+    if (validatedInverterFleet.records.length) {
+      const contributingRows = validatedInverterFleet.records.map((record) => ({ date_iso_8601: record.sourceTimestamp }));
+      return {
+        value: validatedInverterFleet.totalKw,
+        unit: 'kW',
+        quality: 'reported' as const,
+        provenance: 'live' as const,
+        status: 'online' as const,
+        sourceLabel: `Validated live inverter aggregate · ${validatedInverterFleet.records.length} contributing source record${validatedInverterFleet.records.length === 1 ? '' : 's'}`,
+        observedAt: observationRange(contributingRows),
+        observationLabel: validatedInverterFleet.records.length > 1 ? 'Contributing timestamps' : 'Observed',
+        inverterCount: validatedInverterFleet.records.length,
+      };
+    }
     if (calculations.acPower.quality === 'verified') {
       const liveInputsFresh = calculations.acPower.inputs.length > 0
         && calculations.acPower.inputs.every((input) => isFreshTimestamp(input.observedAt));
@@ -3681,7 +3722,7 @@ function AppShell() {
       observationLabel: showingSavedRecord ? 'Saved snapshot' : rawInputRows.length > 1 ? 'Contributing timestamps' : 'Observed',
       inverterCount: rawFallbacks.acPower.method === 'inverter sum' ? rawFallbacks.acPower.inputs.length : undefined,
     };
-  }, [calculations.acPower, dashboardEvidenceRows, electricalLiveState, latestApprovedPlantPower, mode, now, onlinePowerReadings.length, rawFallbacks.acPower, savedKpiSnapshot, showingSavedRecord, totalAcPower]);
+  }, [calculations.acPower, dashboardEvidenceRows, electricalLiveState, latestApprovedPlantPower, mode, now, onlinePowerReadings.length, rawFallbacks.acPower, savedKpiSnapshot, showingSavedRecord, totalAcPower, validatedInverterFleet]);
   const deviceCommunication = mode === 'demo'
     ? 'live'
     : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');

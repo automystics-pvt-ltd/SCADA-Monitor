@@ -28,6 +28,48 @@ test("reports only numeric inverter register signals", () => {
   assert.deepEqual(signals.map((signal) => signal.parameter), ["inv1", "inv2"]);
 });
 
+test("keeps the latest generic source tag when an explicit inverter identity is declared", () => {
+  const signals = rawInverterSignals([
+    { name: "ac_output", inverter_id: "INV-A", data: "2200", full_addr: "305003", server_name: "north-array", timestamp: 100, provenance: "live" },
+    { name: "ac_output", inverter_id: "INV-A", data: "2350", full_addr: "305003", server_name: "north-array", timestamp: 200, provenance: "live" },
+    { name: "meter_output", data: "99", full_addr: "305030", server_name: "north-array", timestamp: 200, provenance: "live" },
+  ]);
+
+  assert.equal(signals.length, 1);
+  assert.deepEqual(signals[0], {
+    parameter: "ac_output",
+    value: 2350,
+    address: "305003",
+    provenance: "live",
+    inverterId: "INV-A",
+    sourceName: "north-array",
+    observedAt: new Date(200_000).toISOString(),
+  });
+});
+
+test("keeps distinct explicitly identified inverter tags sharing one source register", () => {
+  const signals = rawInverterSignals([
+    { name: "ac_output", inverter_id: "INV-A", data: "2200", full_addr: "305003", server_name: "north-array", timestamp: 200, provenance: "live" },
+    { name: "ac_output", inverter_id: "INV-B", data: "2100", full_addr: "305003", server_name: "north-array", timestamp: 200, provenance: "live" },
+  ]);
+
+  assert.equal(signals.length, 2);
+  assert.deepEqual(signals.map((signal) => signal.inverterId).sort(), ["INV-A", "INV-B"]);
+});
+
+test("excludes explicitly identified non-power and non-inverter source rows from raw inverter evidence", () => {
+  const signals = rawInverterSignals([
+    { name: "ac_output", inverter_id: "INV-A", data: "2200", full_addr: "305003", server_name: "north-array", timestamp: 200, provenance: "live" },
+    { name: "temperature", inverter_id: "INV-A", data: "44", full_addr: "305010", server_name: "north-array", timestamp: 200, provenance: "live" },
+    { name: "status", inverter_id: "INV-A", data: "1", full_addr: "305011", server_name: "north-array", timestamp: 200, provenance: "live" },
+    { name: "daily_energy", inverter_id: "INV-A", data: "90", full_addr: "305012", server_name: "north-array", timestamp: 200, provenance: "live" },
+    { name: "ac_output", device_id: "SENSOR-01", data: "999", full_addr: "305013", server_name: "north-array", timestamp: 200, provenance: "live" },
+    { name: "temperature", inverter_id: "INV-A", data: "44", full_addr: "305014", server_name: "north-array", timestamp: 200, provenance: "live", semantic: "active_power" },
+  ]);
+
+  assert.deepEqual(signals.map((signal) => signal.parameter), ["ac_output"]);
+});
+
 test("parses a saved snapshot and accepts a newer window without carrying missing metrics", () => {
   const snapshot = parseSavedKpiSnapshot({
     id: 9,
@@ -136,6 +178,18 @@ test("sums inverter power tags while rejecting an isolated communication outlier
   assert.equal(totals.acPower.included.length, 3);
   assert.equal(totals.acPower.excluded.length, 1);
   assert.equal(totals.acPower.excluded[0]?.parameter, "inv4");
+});
+
+test("uses explicitly identified generic inverter source tags in the raw aggregate without promoting their units", () => {
+  const totals = calculateScadaAggregates([
+    { name: "ac_output", inverter_id: "INV-01", data: "3300", full_addr: "305003", timestamp: 100, provenance: "live" },
+    { name: "ac_output", inverter_id: "INV-02", data: "3450", full_addr: "305004", timestamp: 100, provenance: "live" },
+  ]);
+
+  assert.equal(totals.acPower.method, "inverter-sum");
+  assert.equal(totals.acPower.value, 6750);
+  assert.equal(totals.acPower.unit, "raw");
+  assert.equal(totals.acPower.included.length, 2);
 });
 
 test("uses main meter and totalizing meter fallbacks without inventing an energy integral", () => {

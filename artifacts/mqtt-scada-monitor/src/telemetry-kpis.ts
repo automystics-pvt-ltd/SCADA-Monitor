@@ -7,6 +7,12 @@ export type RawTelemetryMetric = {
   provenance: "live" | "retained" | "recovered" | "replay";
 };
 
+export type RawInverterSignal = RawTelemetryMetric & {
+  inverterId?: string;
+  sourceName: string;
+  observedAt?: string;
+};
+
 export type CalibrationRole = "acPower" | "dailyEnergy" | "totalEnergy";
 export type CalibrationCounterRole = "instantaneous-power" | "daily-counter" | "cumulative-counter";
 export type CalibrationEngineeringUnit = "W" | "kW" | "MW" | "Wh" | "kWh" | "MWh";
@@ -282,6 +288,28 @@ function asRawMetric(row: TelemetryKpiRow): RawTelemetryMetric | null {
   };
 }
 
+function declaredInverterIdentity(row: TelemetryKpiRow) {
+  const candidate = row.inverter_id ?? row.inverterId;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
+}
+
+function isInverterSourceSignal(row: TelemetryKpiRow) {
+  const name = normalizedKey(row.name ?? row.parameter ?? row.tag);
+  const declaredSemantic = normalizedKey(row.measurement_type ?? row.measurementType ?? row.semantic ?? row.metric ?? row.kind);
+  const hasActivePowerSemantic = ["activepower", "acpower", "realpower"].includes(declaredSemantic);
+  const conventionalInverterTag = /^inv\d+(activepower|acpower|power)?$/.test(name);
+  const documentedRawPowerTag = ["acoutput", "activepower", "acpower", "inverteracoutput", "inverteroutputpower"].includes(name);
+  const identity = declaredInverterIdentity(row);
+
+  if (declaredSemantic) return hasActivePowerSemantic && (conventionalInverterTag || documentedRawPowerTag);
+  return conventionalInverterTag || (Boolean(identity) && documentedRawPowerTag);
+}
+
+function sourceName(row: TelemetryKpiRow) {
+  const candidate = row.server_name ?? row.source ?? row.device ?? row.server;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : "MQTT source";
+}
+
 export function latestRawMetric(rows: TelemetryKpiRow[], parameterNames: string[]) {
   const names = new Set(parameterNames.map((name) => name.toLowerCase()));
   const matches = rows
@@ -293,13 +321,28 @@ export function latestRawMetric(rows: TelemetryKpiRow[], parameterNames: string[
   return matches.reduce((latest, candidate) => rowTimestamp(candidate.row) > rowTimestamp(latest.row) ? candidate : latest).metric;
 }
 
-export function rawInverterSignals(rows: TelemetryKpiRow[]) {
-  return rows
-    .filter((row) => /^inv\d+$/i.test(normalizedParameter(row)) && normalizedKey(row.measurement_type ?? row.semantic) !== "inverteridentity")
-    .map((row) => ({ row, metric: asRawMetric(row) }))
-    .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null)
+export function rawInverterSignals(rows: TelemetryKpiRow[]): RawInverterSignal[] {
+  const newest = new Map<string, { row: TelemetryKpiRow; metric: RawTelemetryMetric; inverterId?: string }>();
+  for (const row of rows) {
+    if (!isInverterSourceSignal(row) || normalizedKey(row.measurement_type ?? row.semantic) === "inverteridentity") continue;
+    const metric = asRawMetric(row);
+    if (!metric) continue;
+    const inverterId = declaredInverterIdentity(row);
+    const identity = `${sourceName(row)}|${metric.address}|${inverterId ?? normalizedKey(metric.parameter)}`;
+    const current = newest.get(identity);
+    if (!current || rowTimestamp(row) >= rowTimestamp(current.row)) newest.set(identity, { row, metric, inverterId });
+  }
+  return [...newest.values()]
     .sort((left, right) => left.metric.parameter.localeCompare(right.metric.parameter))
-    .map((item) => item.metric);
+    .map(({ row, metric, inverterId }) => {
+      const observed = rowTimestamp(row);
+      return {
+        ...metric,
+        inverterId,
+        sourceName: sourceName(row),
+        observedAt: observed ? new Date(observed).toISOString() : undefined,
+      };
+    });
 }
 
 function latestMetricMatching(rows: TelemetryKpiRow[], predicate: (name: string) => boolean) {
@@ -363,10 +406,7 @@ function latestValidatedMetric(rows: TelemetryKpiRow[], names: string[]) {
 }
 
 export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
-  const inverterPower = latestMetricsByParameter(
-    rows.filter((row) => normalizedKey(row.measurement_type ?? row.semantic) !== "inverteridentity"),
-    (name) => /^inv\d+$/.test(name),
-  );
+  const inverterPower = rawInverterSignals(rows);
   const powerSelection = rejectPowerOutliers(inverterPower);
   const acPower: ScadaAggregate = powerSelection.included.length
     ? {
