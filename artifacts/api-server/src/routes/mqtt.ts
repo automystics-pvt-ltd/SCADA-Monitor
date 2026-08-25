@@ -2332,24 +2332,29 @@ router.get("/mqtt/site-locations", async (req, res) => {
 });
 
 router.get("/mqtt/site-access", async (req, res) => {
-  const access = await siteAccess(req);
-  const managedSites = await db
-    .select({ siteName: platformSitesTable.siteName, activationStatus: platformSitesTable.activationStatus })
-    .from(platformSitesTable)
-    .where(eq(platformSitesTable.status, "active"));
-  const visibleManagedSites = access.global
-    ? managedSites
-    : managedSites.filter((site) => access.roles.has(site.siteName));
-  const visibleSiteNames = access.global
-    ? visibleManagedSites.map((site) => site.siteName)
-    : [...access.sites];
-  res.set("Cache-Control", "no-store").json({
-    sites: visibleSiteNames.sort(),
-    roles: Object.fromEntries(access.roles),
-    global: access.global,
-    policy: access.global ? "global" : "assigned-sites",
-    activations: Object.fromEntries(visibleManagedSites.map((site) => [site.siteName, site.activationStatus])),
-  });
+  try {
+    const access = await siteAccess(req);
+    const managedSites = await db
+      .select({ siteName: platformSitesTable.siteName, activationStatus: platformSitesTable.activationStatus })
+      .from(platformSitesTable)
+      .where(eq(platformSitesTable.status, "active"));
+    const visibleManagedSites = access.global
+      ? managedSites
+      : managedSites.filter((site) => access.roles.has(site.siteName));
+    const visibleSiteNames = access.global
+      ? visibleManagedSites.map((site) => site.siteName)
+      : [...access.sites];
+    res.set("Cache-Control", "no-store").json({
+      sites: visibleSiteNames.sort(),
+      roles: Object.fromEntries(access.roles),
+      global: access.global,
+      policy: access.global ? "global" : "assigned-sites",
+      activations: Object.fromEntries(visibleManagedSites.map((site) => [site.siteName, site.activationStatus])),
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "SCADA site access query failed");
+    res.status(500).json({ message: "Site access could not be loaded. Please retry." });
+  }
 });
 
 router.get("/mqtt/calibration-profile", async (req, res): Promise<void> => {

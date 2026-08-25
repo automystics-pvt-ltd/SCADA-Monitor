@@ -203,6 +203,31 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function apiResponseMessage(payload: unknown, fallback: string) {
+  if (!isUnknownRecord(payload)) return fallback;
+  const message = typeof payload.message === 'string' ? payload.message : payload.error;
+  return typeof message === 'string' && message.trim() ? message : fallback;
+}
+
+async function readApiJson<T>(response: Response, context: string): Promise<T> {
+  const body = await response.text();
+  let payload: unknown;
+  if (body.trim()) {
+    try {
+      payload = JSON.parse(body);
+    } catch {
+      throw new Error(`${context} The service returned an invalid response (HTTP ${response.status}).`);
+    }
+  }
+  if (!response.ok) {
+    throw new Error(apiResponseMessage(payload, `${context} Request failed (HTTP ${response.status}).`));
+  }
+  if (payload === undefined) {
+    throw new Error(`${context} The service returned an empty response. Please retry.`);
+  }
+  return payload as T;
+}
+
 function findWeatherLocation(siteName: string, siteLocations: Record<string, PlantLocation>): WeatherLocation | null {
   const configuredLocation = siteLocations[siteName];
   if (configuredLocation && Number.isFinite(configuredLocation.latitude) && configuredLocation.latitude >= -90 && configuredLocation.latitude <= 90 && Number.isFinite(configuredLocation.longitude) && configuredLocation.longitude >= -180 && configuredLocation.longitude <= 180) {
@@ -1574,19 +1599,19 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
   };
   const statusClass = (inverter: Device) => inverter.sourceEvidence?.scalingStatus === 'validated'
     ? inverter.status === 'online'
-      ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
-      : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+      ? 'scada-inverter-status--validated'
+      : 'scada-inverter-status--stale'
     : inverter.sourceEvidence
       ? inverter.sourceEvidence.reportingState === 'saved'
-        ? 'border-slate-600 bg-slate-800 text-slate-300'
+        ? 'scada-inverter-status--saved'
         : inverter.status === 'online'
-          ? 'border-blue-500/20 bg-blue-500/10 text-blue-300'
-          : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+          ? 'scada-inverter-status--source'
+          : 'scada-inverter-status--stale'
       : inverter.status === 'online'
-        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+        ? 'scada-inverter-status--mapped'
         : inverter.status === 'offline'
-          ? 'border-rose-500/20 bg-rose-500/10 text-rose-400'
-          : 'border-amber-500/20 bg-amber-500/10 text-amber-400';
+          ? 'scada-inverter-status--offline'
+          : 'scada-inverter-status--stale';
   const metricValue = (inverter: Device, paths: string[][], unit: string) => {
     const value = paths.map((path) => numberFrom(inverter, path, NaN)).find(Number.isFinite);
     return value === undefined ? 'Not reported' : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`;
@@ -1607,70 +1632,82 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
     const observedAt = inverter.sourceEvidence?.observedAt ?? new Date(inverter.lastSeen).toISOString();
     return formatInPlantTimezone(observedAt, undefined);
   };
+  const validatedCount = inverters.filter((inverter) => inverter.sourceEvidence?.scalingStatus === 'validated').length;
+  const attentionCount = inverters.filter((inverter) => deviceFaults(inverter).length > 0 || deviceAlarms(inverter).length > 0).length;
+  const savedCount = inverters.filter((inverter) => inverter.sourceEvidence?.reportingState === 'saved').length;
   return (
-    <div className="scada-inverter-fleet scada-interactive-card self-start h-fit w-full min-w-0 rounded-xl border border-[#1E293B] bg-[#090B13] p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[#1E293B] pb-3">
+    <div className="scada-inverter-fleet scada-interactive-card flex h-full min-h-0 w-full min-w-0 flex-col rounded-xl border border-[var(--scada-border)] bg-[var(--scada-surface)] p-4 sm:p-5">
+      <div className="scada-inverter-fleet-header mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--scada-border)] pb-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="p-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+          <div className="scada-inverter-fleet-mark grid h-9 w-9 shrink-0 place-items-center rounded-lg border">
             <Layers3 size={16} />
           </div>
-          <div className="min-w-0"><h3 className="truncate text-sm font-bold tracking-wide text-slate-200 uppercase">Inverter fleet</h3><p className="mt-0.5 text-[10px] text-slate-500">Source-backed device status and reported output.</p></div>
+          <div className="min-w-0"><h3 className="truncate text-sm font-bold uppercase tracking-[0.12em] text-[var(--scada-text)]">Inverter fleet</h3><p className="mt-0.5 truncate text-[10px] text-[var(--scada-muted)]">Asset register · reporting state · source-backed output</p></div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="hidden rounded-md border border-indigo-500/20 bg-indigo-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-indigo-300 min-[420px]:inline-flex">{inverters.length ? `${inverters.length} asset${inverters.length === 1 ? '' : 's'}` : 'No mapped assets'}</span>
-          <div role="group" aria-label="Inverter fleet display mode" className="flex rounded-lg border border-[#1E293B] bg-[#0b0f19] p-1">
-            <button type="button" onClick={() => setView('tiles')} aria-pressed={view === 'tiles'} data-testid="button-inverter-view-tiles" title="Show informative inverter tiles" className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide focus-ring ${view === 'tiles' ? 'bg-blue-500/15 text-blue-300' : 'text-slate-500 hover:text-slate-200'}`}><Grid2X2 size={13} />Tiles</button>
-            <button type="button" onClick={() => setView('grid')} aria-pressed={view === 'grid'} data-testid="button-inverter-view-grid" title="Show informative inverter grid" className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide focus-ring ${view === 'grid' ? 'bg-blue-500/15 text-blue-300' : 'text-slate-500 hover:text-slate-200'}`}><LayoutGrid size={13} />Grid</button>
+        <div className="scada-inverter-fleet-toolbar flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <div className="scada-inverter-fleet-summary hidden items-center gap-1.5 sm:flex">
+            <span className="scada-inverter-fleet-summary-item"><strong>{inverters.length}</strong><span>assets</span></span>
+            <span className="scada-inverter-fleet-summary-item scada-inverter-fleet-summary-item--validated"><strong>{validatedCount}</strong><span>validated</span></span>
+            {attentionCount > 0 && <span className="scada-inverter-fleet-summary-item scada-inverter-fleet-summary-item--alert"><strong>{attentionCount}</strong><span>attention</span></span>}
           </div>
-          {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-200 focus-ring rounded-md px-2 py-1 transition-colors bg-[#1E293B]/50 hover:bg-[#1E293B]">View All</button>}
+          <div role="group" aria-label="Inverter fleet display mode" className="scada-inverter-view-toggle flex rounded-lg border border-[var(--scada-border)] bg-[var(--scada-surface-raised)] p-1">
+            <button type="button" onClick={() => setView('tiles')} aria-pressed={view === 'tiles'} data-testid="button-inverter-view-tiles" title="Show informative inverter tiles" className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide focus-ring ${view === 'tiles' ? 'scada-inverter-view-toggle__active' : 'scada-inverter-view-toggle__inactive'}`}><Grid2X2 size={13} />Tiles</button>
+            <button type="button" onClick={() => setView('grid')} aria-pressed={view === 'grid'} data-testid="button-inverter-view-grid" title="Show informative inverter grid" className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide focus-ring ${view === 'grid' ? 'scada-inverter-view-toggle__active' : 'scada-inverter-view-toggle__inactive'}`}><LayoutGrid size={13} />Grid</button>
+          </div>
+          {onViewAll && <button type="button" onClick={onViewAll} data-testid="button-view-all-inverters" title="Open the inverter fleet" className="scada-inverter-view-all rounded-md px-2.5 py-2 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors focus-ring">View all</button>}
         </div>
       </div>
-      {inverters.length && view === 'tiles' && <div data-testid="inverter-fleet-tiles" className="scada-inverter-fleet-tiles grid gap-3">
+      <div className="scada-inverter-fleet-mobile-summary mb-3 flex items-center gap-1.5 sm:hidden">
+        <span className="scada-inverter-fleet-summary-item"><strong>{inverters.length}</strong><span>assets</span></span>
+        <span className="scada-inverter-fleet-summary-item scada-inverter-fleet-summary-item--validated"><strong>{validatedCount}</strong><span>validated</span></span>
+        {attentionCount > 0 && <span className="scada-inverter-fleet-summary-item scada-inverter-fleet-summary-item--alert"><strong>{attentionCount}</strong><span>attention</span></span>}
+      </div>
+      {inverters.length > 0 && view === 'tiles' && <div data-testid="inverter-fleet-tiles" className="scada-inverter-fleet-tiles grid min-w-0 flex-1 gap-3">
         {inverters.map((inverter) => {
           const faults = deviceFaults(inverter);
           const alarms = deviceAlarms(inverter);
           const hasIssue = faults.length > 0 || alarms.length > 0;
-          return <button key={inverter.id} type="button" data-testid={`card-inverter-${inverter.id}`} onClick={() => onOpenInverter(inverter)} className="group min-w-0 rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-500/35 hover:bg-[#111827] focus-ring">
+          return <button key={inverter.id} type="button" data-testid={`card-inverter-${inverter.id}`} onClick={() => onOpenInverter(inverter)} className="scada-inverter-tile group flex h-full min-w-0 flex-col rounded-xl border p-3.5 text-left transition focus-ring sm:p-4">
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0"><h4 className="truncate text-sm font-bold text-slate-100 group-hover:text-blue-300">{inverter.name}</h4><p className="mt-1 truncate font-mono text-[10px] text-slate-500" title={deviceIdentity(inverter)}>{deviceIdentity(inverter)}</p></div>
-              <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}>{statusLabel(inverter)}</span>
+              <div className="min-w-0"><h4 className="truncate text-sm font-bold text-[var(--scada-text)]">{inverter.name}</h4><p className="mt-1 truncate font-mono text-[10px] text-[var(--scada-muted)]" title={deviceIdentity(inverter)}>{deviceIdentity(inverter)}</p></div>
+              <span className={`scada-inverter-status shrink-0 rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}><span className="scada-inverter-status-dot" />{statusLabel(inverter)}</span>
             </div>
-              <div className="mt-4 grid grid-cols-2 overflow-hidden rounded-lg border border-[#1E293B] bg-[#090B13]">
-               <div className="min-w-0 border-r border-[#1E293B] px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Daily generation</p><p className="mt-1 break-words font-mono text-sm font-bold text-slate-200">{dailyEnergyValue(inverter)}</p></div>
-               <div className="min-w-0 px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-500">{powerLabel(inverter)}</p><p className={`mt-1 break-words font-mono text-sm font-bold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-300' : 'text-slate-200'}`}>{powerValue(inverter)}</p></div>
+              <div className="scada-inverter-tile-metrics mt-4 grid grid-cols-2 overflow-hidden rounded-lg border">
+               <div className="scada-inverter-tile-metric min-w-0 border-r px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--scada-muted)]">Daily generation</p><p className="mt-1 break-words font-mono text-sm font-bold text-[var(--scada-text)]">{dailyEnergyValue(inverter)}</p></div>
+               <div className="scada-inverter-tile-metric min-w-0 px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--scada-muted)]">{powerLabel(inverter)}</p><p className={`mt-1 break-words font-mono text-sm font-bold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-500 dark:text-amber-300' : 'text-[var(--scada-text)]'}`}>{powerValue(inverter)}</p></div>
             </div>
-             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
-              <span className={`rounded-full px-2 py-1 font-bold ${hasIssue ? 'bg-rose-500/10 text-rose-300' : 'bg-emerald-500/10 text-emerald-400'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span>
-              <span className="font-semibold text-slate-500 group-hover:text-blue-300">View details →</span>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+              <span className={`scada-inverter-issue rounded-full px-2 py-1 font-bold ${hasIssue ? 'scada-inverter-issue--alert' : 'scada-inverter-issue--clear'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span>
+              <span className="scada-inverter-tile-action font-semibold">View details <ChevronRight size={12} className="inline-block align-[-2px]" /></span>
             </div>
-             <p className="mt-2 truncate text-[9px] text-slate-500" title={`Observed ${observedLabel(inverter)}`}>Observed {observedLabel(inverter)}</p>
+            <p className="mt-auto truncate pt-3 text-[9px] text-[var(--scada-muted)]" title={`Observed ${observedLabel(inverter)}`}>Observed {observedLabel(inverter)}</p>
           </button>;
         })}
       </div>}
-      {inverters.length && view === 'grid' && <div data-testid="inverter-fleet-grid" className="max-w-full overflow-x-auto scrollbar-thin">
+      {inverters.length > 0 && view === 'grid' && <div data-testid="inverter-fleet-grid" className="scada-inverter-fleet-grid max-w-full flex-1 overflow-x-auto scrollbar-thin">
         <table className="min-w-[1040px] w-full text-left">
-          <thead className="border-b border-[#1E293B] text-[9px] font-bold uppercase tracking-wider text-slate-500"><tr><th className="px-3 py-3">Inverter</th><th className="px-3 py-3">Reporting state</th><th className="px-3 py-3">Last observation</th><th className="px-3 py-3">Daily generation</th><th className="px-3 py-3">Active power / source reading</th><th className="px-3 py-3">Alarm / fault</th><th className="px-3 py-3 text-right">Details</th></tr></thead>
+           <thead className="border-b border-[var(--scada-border)] text-[9px] font-bold uppercase tracking-wider text-[var(--scada-muted)]"><tr><th className="px-3 py-3">Inverter</th><th className="px-3 py-3">Reporting state</th><th className="px-3 py-3">Last observation</th><th className="px-3 py-3">Daily generation</th><th className="px-3 py-3">Active power / source reading</th><th className="px-3 py-3">Alarm / fault</th><th className="px-3 py-3 text-right">Details</th></tr></thead>
           <tbody className="divide-y divide-[#1E293B]/70">{inverters.map((inverter) => {
             const faults = deviceFaults(inverter);
             const alarms = deviceAlarms(inverter);
             const hasIssue = faults.length > 0 || alarms.length > 0;
             return <tr key={inverter.id} data-testid={`row-inverter-${inverter.id}`} role="button" tabIndex={0} aria-label={`Open details for ${inverter.name}`} onClick={() => onOpenInverter(inverter)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenInverter(inverter); } }} className="scada-table-row scada-inverter-row cursor-pointer hover:bg-[#1E293B]/40 focus-visible:bg-[#1E293B]/40 focus-visible:outline-none">
-              <td className="px-3 py-3"><p className="font-semibold text-slate-200">{inverter.name}</p><p className="mt-1 font-mono text-[10px] text-slate-500">{deviceIdentity(inverter)}</p></td>
-              <td className="px-3 py-3"><span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}>{statusLabel(inverter)}</span></td>
-              <td className="px-3 py-3 text-[10px] text-slate-400">{observedLabel(inverter)}</td>
-              <td className="px-3 py-3 font-mono text-xs font-semibold text-slate-300">{dailyEnergyValue(inverter)}</td>
-              <td className={`px-3 py-3 font-mono text-xs font-semibold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-300' : 'text-slate-300'}`}>{powerValue(inverter)}</td>
-              <td className="px-3 py-3"><span className={`text-xs font-semibold ${hasIssue ? 'text-rose-300' : 'text-emerald-400'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span></td>
-              <td className="px-3 py-3 text-right text-xs font-semibold text-blue-300">Open →</td>
+               <td className="px-3 py-3"><p className="font-semibold text-[var(--scada-text)]">{inverter.name}</p><p className="mt-1 font-mono text-[10px] text-[var(--scada-muted)]">{deviceIdentity(inverter)}</p></td>
+               <td className="px-3 py-3"><span className={`scada-inverter-status inline-flex rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}><span className="scada-inverter-status-dot" />{statusLabel(inverter)}</span></td>
+               <td className="px-3 py-3 text-[10px] text-[var(--scada-muted)]">{observedLabel(inverter)}</td>
+               <td className="px-3 py-3 font-mono text-xs font-semibold text-[var(--scada-text)]">{dailyEnergyValue(inverter)}</td>
+               <td className={`px-3 py-3 font-mono text-xs font-semibold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-500 dark:text-amber-300' : 'text-[var(--scada-text)]'}`}>{powerValue(inverter)}</td>
+               <td className="px-3 py-3"><span className={`scada-inverter-issue font-semibold ${hasIssue ? 'scada-inverter-issue--alert' : 'scada-inverter-issue--clear'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span></td>
+               <td className="px-3 py-3 text-right text-xs font-semibold text-[var(--scada-accent)]">Open <ChevronRight size={13} className="inline-block align-[-2px]" /></td>
             </tr>;
           })}</tbody>
         </table>
       </div>}
-      {!inverters.length && <div className="rounded-lg border border-dashed border-[#1E293B] px-4 py-8 text-center text-xs text-slate-500">{sourceInverters.length ? 'Source inverter tags are available but have not been mapped into device cards yet.' : hasUnmappedPowerEvidence ? `Unmapped active-power evidence: ${rawPower.toLocaleString()} raw` : 'No inverter source tags have been discovered yet.'}</div>}
+      {!inverters.length && <div className="scada-inverter-empty flex min-h-40 flex-1 items-center justify-center rounded-lg border border-dashed px-4 py-8 text-center text-xs">{sourceInverters.length ? 'Source inverter tags are available but have not been mapped into device cards yet.' : hasUnmappedPowerEvidence ? `Unmapped active-power evidence: ${rawPower.toLocaleString()} raw` : 'No inverter source tags have been discovered yet.'}</div>}
       
-      <div className="mt-1 flex items-center gap-3 border-t border-[#1E293B] pt-2.5 text-[10px] text-slate-400">
-         <span className="uppercase tracking-wider font-semibold">Fleet summary</span>
-          <span className="font-bold text-slate-200">{inverters.length ? inverters.some((inverter) => inverter.sourceEvidence?.scalingStatus === 'validated') ? `${inverters.filter((inverter) => inverter.sourceEvidence?.scalingStatus === 'validated').length} validated live record${inverters.filter((inverter) => inverter.sourceEvidence?.scalingStatus === 'validated').length === 1 ? '' : 's'}` : inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source tag${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}</span>
+      <div className="scada-inverter-fleet-footer mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-[10px]">
+         <span className="uppercase tracking-[0.14em] font-semibold">Fleet summary</span>
+          <span className="font-bold">{inverters.length ? validatedCount ? `${validatedCount} validated live record${validatedCount === 1 ? '' : 's'}` : inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source tag${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}{savedCount > 0 && <span className="ml-2 font-normal">· {savedCount} saved</span>}</span>
       </div>
     </div>
   );
@@ -2990,8 +3027,7 @@ function ScadaCredentialLogin({ onSignedIn }: { onSignedIn: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to sign in to SCADA.');
+      await readApiJson<{ user?: unknown }>(response, 'Unable to sign in to SCADA.');
       setPassword('');
       onSignedIn();
     } catch (loginError) {
@@ -3088,9 +3124,9 @@ function AppShell() {
       signal,
       cache: 'no-store',
     });
-    const payload = await response.json() as { mappings?: ScadaTelemetryMapping[]; message?: string };
-    if (!response.ok || !Array.isArray(payload.mappings)) {
-      throw new Error(payload.message ?? 'Telemetry mappings could not be loaded.');
+    const payload = await readApiJson<{ mappings?: ScadaTelemetryMapping[] }>(response, 'Telemetry mappings could not be loaded.');
+    if (!Array.isArray(payload.mappings)) {
+      throw new Error('Telemetry mappings could not be loaded. The service returned an incomplete response.');
     }
     if (signal?.aborted) return;
     telemetryMappingStoreRef.current.setMappings(payload.mappings);
@@ -3112,8 +3148,7 @@ function AppShell() {
     const loadScadaSession = async () => {
       try {
         const response = await fetch('/api/auth/user', { signal: controller.signal, cache: 'no-store' });
-        const payload = await response.json() as { user?: unknown | null };
-        if (!response.ok) throw new Error('SCADA sign-in status could not be checked.');
+        const payload = await readApiJson<{ user?: unknown | null }>(response, 'SCADA sign-in status could not be checked.');
         setScadaSession({ loading: false, authenticated: payload.user !== null && payload.user !== undefined });
       } catch {
         if (!controller.signal.aborted) setScadaSession({ loading: false, authenticated: false });
@@ -3125,10 +3160,11 @@ function AppShell() {
   useEffect(() => {
     const controller = new AbortController();
     const loadSiteAccess = async () => {
+      setSiteAccessState((current) => ({ ...current, loading: true, error: '' }));
       try {
         const response = await fetch('/api/mqtt/site-access', { signal: controller.signal, cache: 'no-store' });
-        const payload = await response.json() as { sites?: string[]; roles?: Record<string, string>; activations?: Record<string, 'active' | 'inactive'>; global?: boolean; message?: string };
-        if (!response.ok || !Array.isArray(payload.sites)) throw new Error(payload.message ?? 'Site access could not be loaded.');
+        const payload = await readApiJson<{ sites?: string[]; roles?: Record<string, string>; activations?: Record<string, 'active' | 'inactive'>; global?: boolean }>(response, 'Site access could not be loaded.');
+        if (!Array.isArray(payload.sites)) throw new Error('Site access could not be loaded. The service returned an incomplete response.');
         setSiteAccessState({ sites: payload.sites, roles: payload.roles ?? {}, activations: payload.activations ?? {}, global: payload.global === true, loading: false, error: '' });
         if (payload.sites.length && !activeSite) setActiveSite(payload.sites[0]);
       } catch (loadError) {
@@ -3137,14 +3173,14 @@ function AppShell() {
     };
     void loadSiteAccess();
     return () => controller.abort();
-  }, []);
+  }, [authRefreshToken]);
   useEffect(() => {
     const controller = new AbortController();
     const loadSiteLocations = async () => {
       try {
         const response = await fetch('/api/mqtt/site-locations', { signal: controller.signal, cache: 'no-store' });
-        const payload = await response.json() as { locations?: PlantLocation[]; message?: string };
-        if (!response.ok || !Array.isArray(payload.locations)) throw new Error(payload.message ?? 'Saved plant locations could not be loaded.');
+        const payload = await readApiJson<{ locations?: PlantLocation[] }>(response, 'Saved plant locations could not be loaded.');
+        if (!Array.isArray(payload.locations)) throw new Error('Saved plant locations could not be loaded. The service returned an incomplete response.');
         setSiteLocations(Object.fromEntries(payload.locations.map((location) => [location.siteName, location])));
         setSiteLocationError('');
       } catch (loadError) {
@@ -3153,7 +3189,7 @@ function AppShell() {
     };
     void loadSiteLocations();
     return () => controller.abort();
-  }, []);
+  }, [authRefreshToken]);
   useEffect(() => {
     if (mode !== 'live') return;
     if (!scadaSession.authenticated || !activeSite) {
@@ -3169,8 +3205,7 @@ function AppShell() {
     const loadSavedKpiSnapshot = async () => {
       try {
         const response = await fetch(`/api/mqtt/snapshots/latest?siteName=${encodeURIComponent(activeSite)}`, { signal: controller.signal, cache: 'no-store' });
-        const payload = await response.json().catch(() => ({})) as { snapshot?: unknown; message?: string };
-        if (!response.ok) throw new Error(payload.message ?? 'The latest saved backend record could not be loaded.');
+        const payload = await readApiJson<{ snapshot?: unknown }>(response, 'The latest saved backend record could not be loaded.');
         if (controller.signal.aborted) return;
         const parsedSnapshot = parseSavedKpiSnapshot(payload.snapshot);
         const snapshot = parsedSnapshot;
@@ -4114,7 +4149,7 @@ function AppShell() {
         
         <main className="scada-main-content min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-6">
           {!scadaSession.loading && !scadaSession.authenticated && <ScadaCredentialLogin onSignedIn={() => setAuthRefreshToken((current) => current + 1)} />}
-          {scadaSession.authenticated && scadaAccessState === 'unavailable' && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-rose-500/30 bg-rose-500/[.04] p-8 text-center"><div className="max-w-md"><AlertCircle size={28} className="mx-auto mb-4 text-rose-400" /><h1 className="text-lg font-bold text-slate-100">SCADA access unavailable</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error}</p></div></section>}
+          {scadaSession.authenticated && scadaAccessState === 'unavailable' && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-rose-500/30 bg-rose-500/[.04] p-8 text-center"><div className="max-w-md"><AlertCircle size={28} className="mx-auto mb-4 text-rose-400" /><h1 className="text-lg font-bold text-slate-100">SCADA access unavailable</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error}</p><button type="button" onClick={() => setAuthRefreshToken((current) => current + 1)} className="mt-5 inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-bold text-rose-200 transition hover:bg-rose-500/20 focus-ring"><RefreshCw size={14} aria-hidden="true" />Retry SCADA access</button></div></section>}
           {scadaSession.authenticated && (scadaAccessState === 'denied' || (scadaAccessState === 'ready' && !plantSiteName)) && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-amber-400" /><h1 className="text-lg font-bold text-slate-100">{inactiveAssignedSites.length ? 'Assigned site awaiting activation' : 'No SCADA site assigned'}</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error || (inactiveAssignedSites.length ? `${inactiveAssignedSites.join(', ')} is assigned to you, but live SCADA access remains blocked until a platform administrator completes a successful telemetry test and activates the site.` : 'Your account does not have an active site assignment. Ask a platform administrator to grant access before viewing live telemetry.')}</p></div></section>}
           {scadaSession.authenticated && scadaAccessState === 'ready' && plantSiteName && <><div className="scada-dashboard-site-bar mb-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-1.5 text-[10px]"><span className="font-medium text-slate-500">Assigned site</span><strong className="min-w-0 max-w-[min(42vw,18rem)] truncate text-blue-300">{plantSiteName}</strong><span className="scada-dashboard-site-status rounded-full border px-2 py-0.5 font-bold uppercase tracking-[0.12em]">Active</span>{siteAccessState.roles[plantSiteName] && <span className="truncate rounded-full border border-slate-700 px-2 py-0.5 uppercase tracking-[0.1em] text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>
           {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={currentLiveRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={dashboardSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} energyStream={energyStream} lastLiveDataTimestamp={lastLiveDataTimestamp} /></div>}

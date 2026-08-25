@@ -1154,14 +1154,162 @@ button:not(:disabled):active,
 
 .scada-inverter-row {
   cursor: pointer;
+  transition: background 180ms ease;
 }
 .scada-inverter-fleet {
   container-type: inline-size;
+  align-self: stretch;
   width: 100%;
   min-width: 0;
+  overflow: hidden;
+  box-shadow: var(--scada-shadow);
 }
 .scada-inverter-fleet-tiles {
   grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: minmax(11.75rem, 1fr);
+  align-items: stretch;
+}
+.scada-inverter-fleet-mark {
+  color: var(--scada-accent);
+  border-color: color-mix(in srgb, var(--scada-accent) 28%, var(--scada-border));
+  background: color-mix(in srgb, var(--scada-accent) 10%, var(--scada-surface-raised));
+}
+.scada-inverter-fleet-summary-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .32rem;
+  border: 1px solid var(--scada-border);
+  border-radius: .46rem;
+  padding: .34rem .48rem;
+  background: var(--scada-surface-raised);
+  color: var(--scada-muted);
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.scada-inverter-fleet-summary-item strong {
+  color: var(--scada-text);
+  font-family: var(--app-font-mono);
+  font-size: .72rem;
+  letter-spacing: -.04em;
+}
+.scada-inverter-fleet-summary-item--validated {
+  border-color: color-mix(in srgb, #10B981 30%, var(--scada-border));
+  background: color-mix(in srgb, #10B981 10%, var(--scada-surface-raised));
+}
+.scada-inverter-fleet-summary-item--validated strong { color: #10B981; }
+.scada-inverter-fleet-summary-item--alert {
+  border-color: color-mix(in srgb, #F43F5E 32%, var(--scada-border));
+  background: color-mix(in srgb, #F43F5E 10%, var(--scada-surface-raised));
+}
+.scada-inverter-fleet-summary-item--alert strong { color: #F43F5E; }
+.scada-inverter-view-toggle__active {
+  color: var(--scada-accent);
+  background: color-mix(in srgb, var(--scada-accent) 14%, var(--scada-surface));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--scada-accent) 12%, transparent);
+}
+.scada-inverter-view-toggle__inactive { color: var(--scada-muted); }
+.scada-inverter-view-toggle__inactive:hover,
+.scada-inverter-view-toggle__inactive:focus-visible {
+  color: var(--scada-text);
+  background: var(--scada-hover);
+}
+.scada-inverter-view-all {
+  color: var(--scada-muted);
+  background: var(--scada-surface-raised);
+}
+.scada-inverter-view-all:hover,
+.scada-inverter-view-all:focus-visible {
+  color: var(--scada-accent);
+  background: color-mix(in srgb, var(--scada-accent) 10%, var(--scada-surface-raised));
+}
+.scada-inverter-tile {
+  border-color: var(--scada-border);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--scada-surface-raised) 48%, transparent), transparent 60%),
+    var(--scada-surface-raised);
+  box-shadow: inset 0 1px 0 var(--scada-highlight);
+}
+.scada-inverter-tile:hover,
+.scada-inverter-tile:focus-visible {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--scada-accent) 54%, var(--scada-border));
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--scada-accent) 9%, transparent), transparent 60%),
+    var(--scada-surface-raised);
+  box-shadow: 0 .8rem 1.7rem color-mix(in srgb, var(--scada-accent) 12%, transparent), inset 0 1px 0 var(--scada-highlight);
+}
+.scada-inverter-tile-action {
+  display: inline-flex;
+  align-items: center;
+  gap: .08rem;
+  color: var(--scada-muted);
+  transition: color 180ms ease, transform 180ms ease;
+}
+.scada-inverter-tile:hover .scada-inverter-tile-action,
+.scada-inverter-tile:focus-visible .scada-inverter-tile-action {
+  color: var(--scada-accent);
+  transform: translateX(2px);
+}
+.scada-inverter-tile-metrics {
+  border-color: var(--scada-border);
+  background: color-mix(in srgb, var(--scada-surface) 72%, var(--scada-surface-raised));
+}
+.scada-inverter-tile-metric { border-color: var(--scada-border); }
+.scada-inverter-status {
+  display: inline-flex;
+  align-items: center;
+  gap: .34rem;
+  --inverter-status-color: var(--scada-muted);
+  color: var(--inverter-status-color);
+  border-color: color-mix(in srgb, var(--inverter-status-color) 30%, var(--scada-border));
+  background: color-mix(in srgb, var(--inverter-status-color) 9%, var(--scada-surface-raised));
+}
+.scada-inverter-status-dot {
+  width: .34rem;
+  height: .34rem;
+  flex: none;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 .48rem currentColor;
+}
+.scada-inverter-status--validated,
+.scada-inverter-status--mapped { --inverter-status-color: #10B981; }
+.scada-inverter-status--source { --inverter-status-color: #3B82F6; }
+.scada-inverter-status--stale { --inverter-status-color: #D97706; }
+.scada-inverter-status--offline { --inverter-status-color: #E11D48; }
+.scada-inverter-status--saved { --inverter-status-color: #64748B; }
+.scada-inverter-issue { line-height: 1.2; }
+.scada-inverter-issue--clear { color: #059669; background: color-mix(in srgb, #10B981 10%, transparent); }
+.scada-inverter-issue--alert { color: #E11D48; background: color-mix(in srgb, #F43F5E 10%, transparent); }
+.scada-inverter-fleet-grid {
+  border: 1px solid var(--scada-border);
+  border-radius: .7rem;
+  background: var(--scada-surface-raised);
+}
+.scada-inverter-row:hover > td,
+.scada-inverter-row:focus-visible > td {
+  background: color-mix(in srgb, var(--scada-accent) 7%, transparent);
+}
+.scada-inverter-empty {
+  border-color: var(--scada-border);
+  color: var(--scada-muted);
+  background: color-mix(in srgb, var(--scada-surface-raised) 60%, transparent);
+}
+.scada-inverter-fleet-footer {
+  flex: none;
+  border-color: var(--scada-border);
+  color: var(--scada-muted);
+}
+.scada-inverter-fleet-footer strong { color: var(--scada-text); }
+@container (max-width: 430px) {
+  .scada-inverter-fleet-header { align-items: flex-start; }
+  .scada-inverter-fleet-toolbar { justify-content: flex-start; width: 100%; }
+  .scada-inverter-view-all { margin-left: auto; }
+  .scada-inverter-fleet-tiles { grid-auto-rows: minmax(11.25rem, auto); }
 }
 @container (min-width: 480px) {
   .scada-inverter-fleet-tiles {
@@ -1552,7 +1700,7 @@ button:not(:disabled):active,
   }
 
   .scada-inverter-row:hover > td {
-    background: var(--scada-surface-raised);
+    background: color-mix(in srgb, var(--scada-accent) 7%, transparent);
   }
 
   .scada-inverter-row:hover > td:first-child {
