@@ -327,8 +327,8 @@ router.post("/platform-admin/sites", async (req: Request, res): Promise<void> =>
   }
 });
 
-router.get("/platform-admin/telemetry/devices", (_req, res): void => {
-  res.set("Cache-Control", "no-store").json(ListPlatformTelemetryDevicesResponse.parse(listLiveTelemetryDevices()));
+router.get("/platform-admin/telemetry/devices", async (_req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store").json(ListPlatformTelemetryDevicesResponse.parse(await listLiveTelemetryDevices()));
 });
 
 router.post("/platform-admin/telemetry-tests", async (req: Request, res): Promise<void> => {
@@ -342,7 +342,7 @@ router.post("/platform-admin/telemetry-tests", async (req: Request, res): Promis
     res.status(400).json({ error: "Archived sites cannot run telemetry tests." });
     return;
   }
-  const device = listLiveTelemetryDevices().find((candidate) =>
+  const device = (await listLiveTelemetryDevices()).find((candidate) =>
     candidate.siteName === site.siteName && candidate.deviceId === data.deviceId);
   if (!device) {
     res.status(400).json({ error: "Choose a device that has been observed in live telemetry for this site." });

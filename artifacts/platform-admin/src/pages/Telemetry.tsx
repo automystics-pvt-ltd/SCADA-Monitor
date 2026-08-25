@@ -31,7 +31,9 @@ export default function Telemetry() {
   const [isActivationDialogOpen, setIsActivationDialogOpen] = useState(false)
 
   const { data: sites, isLoading: isLoadingSites } = useListPlatformSites()
-  const { data: devices, isLoading: isLoadingDevices } = useListPlatformTelemetryDevices()
+  const { data: devices, isLoading: isLoadingDevices } = useListPlatformTelemetryDevices({
+    query: { queryKey: getListPlatformTelemetryDevicesQueryKey(), refetchInterval: 10_000 }
+  })
 
   const createTest = useCreatePlatformTelemetryTest()
   const updateActivation = useUpdatePlatformSiteActivation()

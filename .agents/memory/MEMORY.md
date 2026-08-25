@@ -4,6 +4,7 @@
 - [Plant aggregate calculations](plant-aggregate-calculations.md) — Prefer latest inverter sums with outlier rejection; energy must come from counters, never unvalidated power integration.
 - [Electrical chart language](electrical-chart-language.md) — Use readable phase/signal names and separate time scope, source, and scaling quality in chart metadata.
 - [SCADA telemetry freshness](scada-telemetry-freshness.md) — Replay and cached telemetry may support traceability, but never reset current operational freshness or cross demo/live provenance.
+- [Telemetry verification attribution](telemetry-verification-attribution.md) — Verify real Modbus source identities and only map unlabeled telemetry to a managed site when the mapping is unambiguous.
 - [Lazy module boundaries](lazy-module-boundaries.md) — On-demand monitor modules must not import the App entry at runtime; Vite HMR treats that cycle as an error.
 - [Plant location administration](plant-location-administration.md) — Coordinate writes are a global administrator action; site data remains centrally stored and generic.
 - [SCADA session boundary](scada-session-boundary.md) — Platform Admin grants belong to the same user identity, but require a separate SCADA session before operator telemetry can load.

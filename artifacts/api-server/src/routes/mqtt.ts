@@ -125,6 +125,7 @@ export type LiveTelemetryTestResult = {
 type TelemetryTestWaiter = {
   siteName: string;
   deviceId: string;
+  acceptsConfiguredSiteFallback: boolean;
   resolve: (message: StoredMessage | undefined) => void;
   timer: NodeJS.Timeout;
 };
@@ -1322,37 +1323,62 @@ function deviceFromMessage(message: StoredMessage): LiveTelemetryDevice | undefi
   const parameter = message.parameter ?? parameterFromPayload(message.payload);
   if (!parameter) return undefined;
   const inverter = message.inverterRecords?.[0];
+  const sourceName = sourceText(parameter, ["server_name", "serverName", "source_name", "sourceName", "source"]);
+  const sourceId = sourceText(parameter, ["server_id", "serverId", "source_id", "sourceId"])
+    ?? ["server_id", "serverId", "source_id", "sourceId"]
+      .map((key) => parameter[key])
+      .find((value): value is number => typeof value === "number" && Number.isFinite(value))
+      ?.toString();
   const deviceId = inverter?.inverterId
-    ?? sourceText(parameter, ["inverter_id", "inverterId", "device_id", "deviceId", "device", "id"]);
+    ?? sourceText(parameter, ["inverter_id", "inverterId", "device_id", "deviceId", "device", "id"])
+    ?? (sourceName && sourceId ? `${sourceName}:${sourceId}` : sourceName ?? sourceId);
   if (!deviceId) return undefined;
   const deviceName = inverter?.inverterName
+    ?? (sourceName && sourceId ? `${sourceName} · source ${sourceId}` : sourceName ?? sourceId)
     ?? sourceText(parameter, ["inverter_name", "inverterName", "device_name", "deviceName", "name"])
     ?? deviceId;
   const siteName = payloadSiteName(parameter) || configuredMqttPlantSite;
   return { siteName, deviceId, deviceName, lastReceivedAt: message.receivedAt };
 }
 
-function testMessageMatches(message: StoredMessage, siteName: string, deviceId: string) {
+function messageHasExplicitSiteName(message: StoredMessage) {
+  const parameter = message.parameter ?? parameterFromPayload(message.payload);
+  return Boolean(parameter && payloadSiteName(parameter));
+}
+
+async function soleManagedSiteForConfiguredFallback() {
+  const sites = await db.select({ siteName: platformSitesTable.siteName })
+    .from(platformSitesTable)
+    .where(eq(platformSitesTable.status, "active"))
+    .limit(2);
+  return sites.length === 1 ? sites[0]?.siteName : undefined;
+}
+
+function testMessageMatches(message: StoredMessage, siteName: string, deviceId: string, acceptsConfiguredSiteFallback = false) {
   const device = deviceFromMessage(message);
   return message.delivery === "immediate"
-    && device?.siteName === siteName
+    && (device?.siteName === siteName
+      || (acceptsConfiguredSiteFallback
+        && device?.siteName === configuredMqttPlantSite
+        && !messageHasExplicitSiteName(message)))
     && device.deviceId === deviceId;
 }
 
 function notifyTelemetryTestWaiters(message: StoredMessage) {
   for (const waiter of telemetryTestWaiters) {
-    if (!testMessageMatches(message, waiter.siteName, waiter.deviceId)) continue;
+    if (!testMessageMatches(message, waiter.siteName, waiter.deviceId, waiter.acceptsConfiguredSiteFallback)) continue;
     clearTimeout(waiter.timer);
     telemetryTestWaiters.delete(waiter);
     waiter.resolve(message);
   }
 }
 
-function waitForLiveTelemetry(siteName: string, deviceId: string, timeoutMs: number) {
+function waitForLiveTelemetry(siteName: string, deviceId: string, timeoutMs: number, acceptsConfiguredSiteFallback: boolean) {
   return new Promise<StoredMessage | undefined>((resolve) => {
     const waiter: TelemetryTestWaiter = {
       siteName,
       deviceId,
+      acceptsConfiguredSiteFallback,
       resolve,
       timer: setTimeout(() => {
         telemetryTestWaiters.delete(waiter);
@@ -1373,11 +1399,15 @@ function actualTelemetryValue(message: StoredMessage) {
   return `${label}: ${value}${unit ? ` ${unit}` : ""}`;
 }
 
-export function listLiveTelemetryDevices() {
+export async function listLiveTelemetryDevices() {
+  const fallbackManagedSite = await soleManagedSiteForConfiguredFallback();
   const latest = new Map<string, LiveTelemetryDevice>();
   for (const message of messageHistory) {
     if (message.delivery !== "immediate") continue;
-    const device = deviceFromMessage(message);
+    const discovered = deviceFromMessage(message);
+    const device = discovered && !messageHasExplicitSiteName(message) && fallbackManagedSite
+      ? { ...discovered, siteName: fallbackManagedSite }
+      : discovered;
     if (!device) continue;
     const key = `${device.siteName}:${device.deviceId}`;
     const existing = latest.get(key);
@@ -1391,13 +1421,21 @@ export async function runLiveTelemetryTest(siteName: string, deviceId: string, t
   requestMqttConsumer();
   const startedAt = new Date();
   const initialHighWater = messageHistory.at(-1)?.sequence ?? 0;
-  const message = await waitForLiveTelemetry(siteName, deviceId, timeoutSeconds * 1_000);
+  const acceptsConfiguredSiteFallback = await soleManagedSiteForConfiguredFallback() === siteName;
+  const initialRuntime = status();
+  const existingFreshEvidence = [...messageHistory].reverse().find((candidate) =>
+    testMessageMatches(candidate, siteName, deviceId, acceptsConfiguredSiteFallback)
+    && Date.now() - Date.parse(candidate.receivedAt) <= initialRuntime.communication.staleAfterMs);
+  const message = existingFreshEvidence
+    ?? await waitForLiveTelemetry(siteName, deviceId, timeoutSeconds * 1_000, acceptsConfiguredSiteFallback);
   const runtime = status();
   const communication = runtime.communication;
-  const latestForDevice = [...messageHistory].reverse().find((candidate) => testMessageMatches(candidate, siteName, deviceId));
+  const latestForDevice = [...messageHistory].reverse().find((candidate) =>
+    testMessageMatches(candidate, siteName, deviceId, acceptsConfiguredSiteFallback));
   const received = message ?? latestForDevice;
   const processedValue = message ? actualTelemetryValue(message) : undefined;
-  const messagesReceived = messageHistory.filter((candidate) => candidate.sequence > initialHighWater && testMessageMatches(candidate, siteName, deviceId)).length;
+  const messagesReceived = messageHistory.filter((candidate) =>
+    candidate.sequence > initialHighWater && testMessageMatches(candidate, siteName, deviceId, acceptsConfiguredSiteFallback)).length;
   const communicationErrors = [
     runtime.error,
     communication.activeInterruption?.reason,
@@ -1424,7 +1462,7 @@ export async function runLiveTelemetryTest(siteName: string, deviceId: string, t
     dataFrequencySeconds: communication.dataFrequencySeconds,
     actualValue: processedValue,
     dataQuality,
-    messageCount: messagesReceived,
+    messageCount: message ? Math.max(1, messagesReceived) : messagesReceived,
     communicationErrors,
     evidence: {
       startedAt: startedAt.toISOString(),
