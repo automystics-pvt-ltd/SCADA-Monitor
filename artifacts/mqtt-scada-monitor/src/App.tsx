@@ -2332,8 +2332,8 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
   const qualityObserved = qualityTotal + qualityCounts.unreported;
   const qualityPercent = hasUsableEvidence && qualityObserved ? Math.round((qualityCounts.good / qualityObserved) * 100) : null;
   return (
-    <div className="scada-dashboard-side-panels flex h-full min-h-0 flex-col gap-3">
-       <div className="scada-interactive-card flex min-h-0 flex-1 flex-col bg-[#090B13] border border-[#1E293B] rounded-xl p-3.5">
+    <div className="scada-dashboard-side-panels flex h-fit flex-col gap-3 self-start">
+       <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-3.5">
         <div className="mb-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertTriangle size={14} className={reports.length ? 'text-rose-400' : 'text-slate-400'} />
@@ -2362,7 +2362,7 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
         </div>
       </div>
       
-      <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-3.5">
+       <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-3.5">
         <div className="mb-2.5 flex items-center gap-2">
           <Check size={14} className="text-slate-400" />
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Data Quality</h3>
@@ -4234,7 +4234,7 @@ function AppShell() {
             <ElectricalParametersChart rows={currentLiveRows} mode={mode} liveState={electricalLiveState} savedSnapshot={dashboardSavedSnapshot} siteName={plantSiteName} />
           </div>
 
-              <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,1.2fr)_minmax(0,1.8fr)]">
+              <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,1fr)]">
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
               <InverterOverviewTable devices={inverterDisplayDevices} rows={dashboardEvidenceRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
