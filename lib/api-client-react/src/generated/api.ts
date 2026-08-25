@@ -22,6 +22,8 @@ import type {
 import type {
   DownloadPlatformDatabaseBackup200,
   HealthStatus,
+  ListPlatformTelemetryMappingsParams,
+  ListPlatformTelemetryParametersParams,
   PlatformAdminAuthUserResponse,
   PlatformAdminOverview,
   PlatformAuditEvent,
@@ -45,6 +47,10 @@ import type {
   PlatformSiteInput,
   PlatformSiteUpdateInput,
   PlatformTelemetryDevice,
+  PlatformTelemetryMapping,
+  PlatformTelemetryMappingIdentity,
+  PlatformTelemetryMappingInput,
+  PlatformTelemetryParameterList,
   PlatformTelemetryTest,
   PlatformTelemetryTestInput,
   PlatformUser,
@@ -826,6 +832,316 @@ export function useListPlatformTelemetryDevices<TData = Awaited<ReturnType<typeo
 
 
 
+
+export const getListPlatformTelemetryParametersUrl = (params: ListPlatformTelemetryParametersParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/platform-admin/telemetry/parameters?${stringifiedParams}` : `/api/platform-admin/telemetry/parameters`
+}
+
+/**
+ * @summary List latest source-backed parameter evidence for a managed site
+ */
+export const listPlatformTelemetryParameters = async (params: ListPlatformTelemetryParametersParams, options?: Parameters<typeof customFetch>[1]): Promise<PlatformTelemetryParameterList> => {
+
+  return customFetch<PlatformTelemetryParameterList>(getListPlatformTelemetryParametersUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPlatformTelemetryParametersQueryKey = (params?: ListPlatformTelemetryParametersParams,) => {
+    return [
+    `/api/platform-admin/telemetry/parameters`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPlatformTelemetryParametersQueryOptions = <TData = Awaited<ReturnType<typeof listPlatformTelemetryParameters>>, TError = ErrorType<void>>(params: ListPlatformTelemetryParametersParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryParameters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPlatformTelemetryParametersQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlatformTelemetryParameters>>> = ({ signal }) => listPlatformTelemetryParameters(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryParameters>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPlatformTelemetryParametersQueryResult = NonNullable<Awaited<ReturnType<typeof listPlatformTelemetryParameters>>>
+export type ListPlatformTelemetryParametersQueryError = ErrorType<void>
+
+
+/**
+ * @summary List latest source-backed parameter evidence for a managed site
+ */
+
+export function useListPlatformTelemetryParameters<TData = Awaited<ReturnType<typeof listPlatformTelemetryParameters>>, TError = ErrorType<void>>(
+ params: ListPlatformTelemetryParametersParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryParameters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPlatformTelemetryParametersQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListPlatformTelemetryMappingsUrl = (params: ListPlatformTelemetryMappingsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/platform-admin/telemetry/mappings?${stringifiedParams}` : `/api/platform-admin/telemetry/mappings`
+}
+
+/**
+ * @summary List saved telemetry mappings for a managed site
+ */
+export const listPlatformTelemetryMappings = async (params: ListPlatformTelemetryMappingsParams, options?: Parameters<typeof customFetch>[1]): Promise<PlatformTelemetryMapping[]> => {
+
+  return customFetch<PlatformTelemetryMapping[]>(getListPlatformTelemetryMappingsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPlatformTelemetryMappingsQueryKey = (params?: ListPlatformTelemetryMappingsParams,) => {
+    return [
+    `/api/platform-admin/telemetry/mappings`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPlatformTelemetryMappingsQueryOptions = <TData = Awaited<ReturnType<typeof listPlatformTelemetryMappings>>, TError = ErrorType<unknown>>(params: ListPlatformTelemetryMappingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryMappings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPlatformTelemetryMappingsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlatformTelemetryMappings>>> = ({ signal }) => listPlatformTelemetryMappings(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryMappings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPlatformTelemetryMappingsQueryResult = NonNullable<Awaited<ReturnType<typeof listPlatformTelemetryMappings>>>
+export type ListPlatformTelemetryMappingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List saved telemetry mappings for a managed site
+ */
+
+export function useListPlatformTelemetryMappings<TData = Awaited<ReturnType<typeof listPlatformTelemetryMappings>>, TError = ErrorType<unknown>>(
+ params: ListPlatformTelemetryMappingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryMappings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPlatformTelemetryMappingsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpsertPlatformTelemetryMappingUrl = () => {
+
+
+
+
+  return `/api/platform-admin/telemetry/mappings`
+}
+
+/**
+ * @summary Create or update a source-scoped semantic telemetry mapping
+ */
+export const upsertPlatformTelemetryMapping = async (platformTelemetryMappingInput: PlatformTelemetryMappingInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformTelemetryMapping> => {
+
+  return customFetch<PlatformTelemetryMapping>(getUpsertPlatformTelemetryMappingUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformTelemetryMappingInput)
+  }
+);}
+
+
+
+
+
+export const getUpsertPlatformTelemetryMappingMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertPlatformTelemetryMapping>>, TError,{data: BodyType<PlatformTelemetryMappingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof upsertPlatformTelemetryMapping>>, TError,{data: BodyType<PlatformTelemetryMappingInput>}, TContext> => {
+
+const mutationKey = ['upsertPlatformTelemetryMapping'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof upsertPlatformTelemetryMapping>>, {data: BodyType<PlatformTelemetryMappingInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  upsertPlatformTelemetryMapping(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpsertPlatformTelemetryMappingMutationResult = NonNullable<Awaited<ReturnType<typeof upsertPlatformTelemetryMapping>>>
+    export type UpsertPlatformTelemetryMappingMutationBody = BodyType<PlatformTelemetryMappingInput>
+    export type UpsertPlatformTelemetryMappingMutationError = ErrorType<void>
+
+    /**
+ * @summary Create or update a source-scoped semantic telemetry mapping
+ */
+export const useUpsertPlatformTelemetryMapping = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertPlatformTelemetryMapping>>, TError,{data: BodyType<PlatformTelemetryMappingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof upsertPlatformTelemetryMapping>>,
+        TError,
+        {data: BodyType<PlatformTelemetryMappingInput>},
+        TContext
+      > => {
+      return useMutation(getUpsertPlatformTelemetryMappingMutationOptions(options));
+    }
+
+export const getClearPlatformTelemetryMappingUrl = () => {
+
+
+
+
+  return `/api/platform-admin/telemetry/mappings/clear`
+}
+
+/**
+ * @summary Clear a saved telemetry mapping while retaining its audit history
+ */
+export const clearPlatformTelemetryMapping = async (platformTelemetryMappingIdentity: PlatformTelemetryMappingIdentity, options?: Parameters<typeof customFetch>[1]): Promise<PlatformTelemetryMapping> => {
+
+  return customFetch<PlatformTelemetryMapping>(getClearPlatformTelemetryMappingUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformTelemetryMappingIdentity)
+  }
+);}
+
+
+
+
+
+export const getClearPlatformTelemetryMappingMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPlatformTelemetryMapping>>, TError,{data: BodyType<PlatformTelemetryMappingIdentity>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearPlatformTelemetryMapping>>, TError,{data: BodyType<PlatformTelemetryMappingIdentity>}, TContext> => {
+
+const mutationKey = ['clearPlatformTelemetryMapping'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearPlatformTelemetryMapping>>, {data: BodyType<PlatformTelemetryMappingIdentity>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  clearPlatformTelemetryMapping(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearPlatformTelemetryMappingMutationResult = NonNullable<Awaited<ReturnType<typeof clearPlatformTelemetryMapping>>>
+    export type ClearPlatformTelemetryMappingMutationBody = BodyType<PlatformTelemetryMappingIdentity>
+    export type ClearPlatformTelemetryMappingMutationError = ErrorType<void>
+
+    /**
+ * @summary Clear a saved telemetry mapping while retaining its audit history
+ */
+export const useClearPlatformTelemetryMapping = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPlatformTelemetryMapping>>, TError,{data: BodyType<PlatformTelemetryMappingIdentity>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearPlatformTelemetryMapping>>,
+        TError,
+        {data: BodyType<PlatformTelemetryMappingIdentity>},
+        TContext
+      > => {
+      return useMutation(getClearPlatformTelemetryMappingMutationOptions(options));
+    }
 
 export const getCreatePlatformTelemetryTestUrl = () => {
 

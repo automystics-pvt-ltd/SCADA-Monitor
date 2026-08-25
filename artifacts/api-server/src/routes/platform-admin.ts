@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { Router, type IRouter, type Request } from "express";
 import {
   CreatePlatformOrganizationBody,
@@ -24,6 +24,10 @@ import {
   ListPlatformOrganizationsResponse,
   ListPlatformSitesResponse,
   ListPlatformTelemetryDevicesResponse,
+  ListPlatformTelemetryMappingsResponse,
+  ListPlatformTelemetryParametersQueryParams,
+  ListPlatformTelemetryMappingsQueryParams,
+  ListPlatformTelemetryParametersResponse,
   ListPlatformUsersResponse,
   RunPlatformDatabaseQueryBody,
   RunPlatformDatabaseQueryResponse,
@@ -41,6 +45,10 @@ import {
   UpdatePlatformUserResponse,
   UpdatePlatformUserStatusBody,
   UpdatePlatformUserStatusResponse,
+  UpsertPlatformTelemetryMappingBody,
+  UpsertPlatformTelemetryMappingResponse,
+  ClearPlatformTelemetryMappingBody,
+  ClearPlatformTelemetryMappingResponse,
 } from "@workspace/api-zod";
 import {
   db,
@@ -54,6 +62,7 @@ import {
   platformSiteAccessTable,
   platformSitesTable,
   platformTelemetryTestsTable,
+  platformTelemetryMappingsTable,
   scadaSessionsTable,
   usersTable,
 } from "@workspace/db";
@@ -62,6 +71,7 @@ import {
   broadcastSiteActivation,
   getMqttRuntimeStatus,
   listLiveTelemetryDevices,
+  listLatestDeviceParameters,
   runLiveTelemetryTest,
   type MqttRuntimeConfiguration,
 } from "./mqtt";
@@ -107,6 +117,43 @@ function publicAdmin(principal: PlatformAdminPrincipal) {
     name: principal.name,
     role: principal.role,
   };
+}
+
+function telemetryMappingResponse(mapping: typeof platformTelemetryMappingsTable.$inferSelect) {
+  return {
+    id: mapping.id,
+    siteName: mapping.siteName,
+    deviceId: mapping.deviceId,
+    sourceIdentity: mapping.sourceIdentity,
+    sourceName: mapping.sourceName,
+    normalizedName: mapping.normalizedName,
+    address: mapping.address,
+    destination: mapping.destination,
+    displayLabel: mapping.displayLabel,
+    category: mapping.category,
+    inverterIdentity: mapping.inverterIdentity,
+    sourceUnit: mapping.sourceUnit,
+    status: mapping.status,
+    version: mapping.version,
+    updatedAt: mapping.updatedAt.toISOString(),
+  };
+}
+
+function telemetryMappingKey(mapping: {
+  siteName: string;
+  deviceId: string;
+  sourceIdentity: string;
+  normalizedName: string;
+  address: string;
+}) {
+  return [mapping.siteName, mapping.deviceId, mapping.sourceIdentity, mapping.normalizedName, mapping.address].join("\u001f");
+}
+
+async function activeManagedSite(siteName: string) {
+  const [site] = await db.select().from(platformSitesTable)
+    .where(and(eq(platformSitesTable.siteName, siteName), eq(platformSitesTable.status, "active")))
+    .limit(1);
+  return site;
 }
 
 async function audit(principal: PlatformAdminPrincipal, action: string, targetType: string, targetId: string, metadata: Record<string, unknown> = {}) {
@@ -455,6 +502,216 @@ router.post("/platform-admin/sites", async (req: Request, res): Promise<void> =>
 
 router.get("/platform-admin/telemetry/devices", async (_req, res): Promise<void> => {
   res.set("Cache-Control", "no-store").json(ListPlatformTelemetryDevicesResponse.parse(await listLiveTelemetryDevices()));
+});
+
+router.get("/platform-admin/telemetry/parameters", async (req: Request, res): Promise<void> => {
+  const query = ListPlatformTelemetryParametersQueryParams.safeParse(req.query);
+  if (!query.success) {
+    res.status(400).json({ error: "Provide a valid managed site and optional device source." });
+    return;
+  }
+  const site = await activeManagedSite(query.data.siteName);
+  if (!site) {
+    res.status(404).json({ error: "Choose an active managed site." });
+    return;
+  }
+  const [parameters, mappings] = await Promise.all([
+    listLatestDeviceParameters(site.siteName, query.data.deviceId),
+    db.select().from(platformTelemetryMappingsTable).where(and(
+      eq(platformTelemetryMappingsTable.siteName, site.siteName),
+      eq(platformTelemetryMappingsTable.status, "active"),
+    )),
+  ]);
+  const mappingByIdentity = new Map(mappings.map((mapping) => [telemetryMappingKey(mapping), mapping]));
+  const data = ListPlatformTelemetryParametersResponse.parse({
+    siteName: site.siteName,
+    deviceId: query.data.deviceId ?? null,
+    parameters: parameters.map((parameter) => {
+      const mapping = mappingByIdentity.get(telemetryMappingKey({
+        siteName: parameter.siteName,
+        deviceId: parameter.deviceId,
+        sourceIdentity: parameter.sourceIdentity,
+        normalizedName: parameter.normalizedName,
+        address: parameter.address ?? "—",
+      }));
+      return {
+        observationId: parameter.observationId,
+        signalKey: parameter.signalKey,
+        siteName: parameter.siteName,
+        deviceId: parameter.deviceId,
+        deviceName: parameter.deviceName,
+        topic: parameter.topic,
+        originalName: parameter.originalName,
+        normalizedName: parameter.normalizedName,
+        displayLabel: parameter.displayLabel,
+        category: parameter.category,
+        rawValue: parameter.rawValue,
+        reportedValue: parameter.reportedValue,
+        reportedNumericValue: parameter.reportedNumericValue,
+        sourceUnit: parameter.sourceUnit,
+        address: parameter.address,
+        sourceName: parameter.sourceName,
+        sourceIdentity: parameter.sourceIdentity,
+        observedAt: parameter.observedAt ?? null,
+        receivedAt: parameter.receivedAt,
+        provenance: parameter.provenance,
+        dataQuality: parameter.dataQuality,
+        scalingStatus: parameter.scalingStatus,
+        freshness: parameter.freshness,
+        mapping: mapping ? telemetryMappingResponse(mapping) : null,
+      };
+    }),
+  });
+  res.set("Cache-Control", "no-store").json(data);
+});
+
+router.get("/platform-admin/telemetry/mappings", async (req: Request, res): Promise<void> => {
+  const query = ListPlatformTelemetryMappingsQueryParams.safeParse(req.query);
+  if (!query.success) {
+    res.status(400).json({ error: "Provide a valid managed site and optional device source." });
+    return;
+  }
+  const site = await activeManagedSite(query.data.siteName);
+  if (!site) {
+    res.status(404).json({ error: "Choose an active managed site." });
+    return;
+  }
+  const predicates = [
+    eq(platformTelemetryMappingsTable.siteName, site.siteName),
+    eq(platformTelemetryMappingsTable.status, "active"),
+  ];
+  if (query.data.deviceId) predicates.push(eq(platformTelemetryMappingsTable.deviceId, query.data.deviceId));
+  const mappings = await db.select().from(platformTelemetryMappingsTable)
+    .where(and(...predicates))
+    .orderBy(asc(platformTelemetryMappingsTable.displayLabel));
+  res.set("Cache-Control", "no-store").json(ListPlatformTelemetryMappingsResponse.parse(mappings.map(telemetryMappingResponse)));
+});
+
+router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Promise<void> => {
+  const data = UpsertPlatformTelemetryMappingBody.safeParse(req.body);
+  if (!data.success) {
+    res.status(400).json({ error: "Provide a complete source identity, destination, label, and category." });
+    return;
+  }
+  const site = await activeManagedSite(data.data.siteName);
+  if (!site) {
+    res.status(404).json({ error: "Choose an active managed site." });
+    return;
+  }
+  const parameter = (await listLatestDeviceParameters(site.siteName, data.data.deviceId)).find((candidate) =>
+    candidate.sourceIdentity === data.data.sourceIdentity
+    && candidate.normalizedName === data.data.normalizedName
+    && (candidate.address ?? "—") === data.data.address,
+  );
+  if (!parameter) {
+    res.status(400).json({ error: "The mapping must match a currently received parameter from this exact site, device, source, and register." });
+    return;
+  }
+  if (data.data.sourceUnit !== undefined && data.data.sourceUnit !== null && data.data.sourceUnit !== (parameter.sourceUnit ?? "")) {
+    res.status(400).json({ error: "The source unit must match the unit currently reported by this parameter. Mapping cannot invent a unit." });
+    return;
+  }
+  if (["inverter-identity", "active-power"].includes(data.data.destination) && !data.data.inverterIdentity?.trim()) {
+    res.status(400).json({ error: "Choose an inverter identity when mapping an inverter identity or active-power signal." });
+    return;
+  }
+  if (data.data.inverterIdentity && !/^inv[1-5]$/i.test(data.data.inverterIdentity.trim())) {
+    res.status(400).json({ error: "Use a managed inverter identity from inv1 through inv5." });
+    return;
+  }
+  const identity = {
+    siteName: site.siteName,
+    deviceId: parameter.deviceId,
+    sourceIdentity: parameter.sourceIdentity,
+    normalizedName: parameter.normalizedName,
+    address: parameter.address ?? "—",
+  };
+  const [previous] = await db.select().from(platformTelemetryMappingsTable)
+    .where(and(
+      eq(platformTelemetryMappingsTable.siteName, identity.siteName),
+      eq(platformTelemetryMappingsTable.deviceId, identity.deviceId),
+      eq(platformTelemetryMappingsTable.sourceIdentity, identity.sourceIdentity),
+      eq(platformTelemetryMappingsTable.normalizedName, identity.normalizedName),
+      eq(platformTelemetryMappingsTable.address, identity.address),
+    ))
+    .limit(1);
+  const now = new Date();
+  const [mapping] = await db.insert(platformTelemetryMappingsTable).values({
+    ...identity,
+    sourceName: parameter.sourceName,
+    destination: data.data.destination,
+    displayLabel: data.data.displayLabel.trim(),
+    category: data.data.category.trim(),
+    inverterIdentity: data.data.inverterIdentity?.trim() || null,
+    sourceUnit: parameter.sourceUnit,
+    status: "active",
+    createdBy: previous?.createdBy ?? req.platformAdmin!.userId,
+    updatedBy: req.platformAdmin!.userId,
+    clearedAt: null,
+  }).onConflictDoUpdate({
+    target: [
+      platformTelemetryMappingsTable.siteName,
+      platformTelemetryMappingsTable.deviceId,
+      platformTelemetryMappingsTable.sourceIdentity,
+      platformTelemetryMappingsTable.normalizedName,
+      platformTelemetryMappingsTable.address,
+    ],
+    set: {
+      sourceName: parameter.sourceName,
+      destination: data.data.destination,
+      displayLabel: data.data.displayLabel.trim(),
+      category: data.data.category.trim(),
+      inverterIdentity: data.data.inverterIdentity?.trim() || null,
+      sourceUnit: parameter.sourceUnit,
+      status: "active",
+      updatedBy: req.platformAdmin!.userId,
+      clearedAt: null,
+      version: sql`${platformTelemetryMappingsTable.version} + 1`,
+      updatedAt: now,
+    },
+  }).returning();
+  await audit(req.platformAdmin!, previous ? "telemetry-mapping.updated" : "telemetry-mapping.created", "telemetry-mapping", mapping.id, {
+    ...identity,
+    sourceName: parameter.sourceName,
+    destination: mapping.destination,
+    sourceUnit: mapping.sourceUnit,
+    version: mapping.version,
+  });
+  res.json(UpsertPlatformTelemetryMappingResponse.parse(telemetryMappingResponse(mapping)));
+});
+
+router.post("/platform-admin/telemetry/mappings/clear", async (req: Request, res): Promise<void> => {
+  const data = ClearPlatformTelemetryMappingBody.safeParse(req.body);
+  if (!data.success) {
+    res.status(400).json({ error: "Provide the complete saved mapping identity to clear it." });
+    return;
+  }
+  const [mapping] = await db.update(platformTelemetryMappingsTable).set({
+    status: "cleared",
+    clearedAt: new Date(),
+    updatedBy: req.platformAdmin!.userId,
+    version: sql`${platformTelemetryMappingsTable.version} + 1`,
+  }).where(and(
+    eq(platformTelemetryMappingsTable.siteName, data.data.siteName),
+    eq(platformTelemetryMappingsTable.deviceId, data.data.deviceId),
+    eq(platformTelemetryMappingsTable.sourceIdentity, data.data.sourceIdentity),
+    eq(platformTelemetryMappingsTable.normalizedName, data.data.normalizedName),
+    eq(platformTelemetryMappingsTable.address, data.data.address),
+    eq(platformTelemetryMappingsTable.status, "active"),
+  )).returning();
+  if (!mapping) {
+    res.status(404).json({ error: "No active mapping exists for that exact site, device, source, and register." });
+    return;
+  }
+  await audit(req.platformAdmin!, "telemetry-mapping.cleared", "telemetry-mapping", mapping.id, {
+    siteName: mapping.siteName,
+    deviceId: mapping.deviceId,
+    sourceIdentity: mapping.sourceIdentity,
+    normalizedName: mapping.normalizedName,
+    address: mapping.address,
+    version: mapping.version,
+  });
+  res.json(ClearPlatformTelemetryMappingResponse.parse(telemetryMappingResponse(mapping)));
 });
 
 router.patch("/platform-admin/sites", async (req: Request, res): Promise<void> => {

@@ -175,6 +175,83 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/PlatformTelemetryDevice"
+  /platform-admin/telemetry/parameters:
+    get:
+      operationId: listPlatformTelemetryParameters
+      tags: [platform-admin]
+      summary: List latest source-backed parameter evidence for a managed site
+      parameters:
+        - $ref: "#/components/parameters/PlatformTelemetrySiteName"
+        - $ref: "#/components/parameters/PlatformTelemetryDeviceIdOptional"
+      responses:
+        "200":
+          description: Latest received parameters and any saved semantic mapping
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTelemetryParameterList"
+        "400":
+          description: Invalid site or source selection
+        "404":
+          description: Managed site not found
+  /platform-admin/telemetry/mappings:
+    get:
+      operationId: listPlatformTelemetryMappings
+      tags: [platform-admin]
+      summary: List saved telemetry mappings for a managed site
+      parameters:
+        - $ref: "#/components/parameters/PlatformTelemetrySiteName"
+        - $ref: "#/components/parameters/PlatformTelemetryDeviceIdOptional"
+      responses:
+        "200":
+          description: Saved mappings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformTelemetryMapping"
+    put:
+      operationId: upsertPlatformTelemetryMapping
+      tags: [platform-admin]
+      summary: Create or update a source-scoped semantic telemetry mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformTelemetryMappingInput"
+      responses:
+        "200":
+          description: Saved mapping
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTelemetryMapping"
+        "400":
+          description: Invalid or no-longer-observed source evidence
+        "404":
+          description: Managed site not found
+  /platform-admin/telemetry/mappings/clear:
+    post:
+      operationId: clearPlatformTelemetryMapping
+      tags: [platform-admin]
+      summary: Clear a saved telemetry mapping while retaining its audit history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformTelemetryMappingIdentity"
+      responses:
+        "200":
+          description: Cleared mapping
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTelemetryMapping"
+        "404":
+          description: Mapping not found
   /platform-admin/telemetry-tests:
     post:
       operationId: createPlatformTelemetryTest
@@ -487,6 +564,17 @@ paths:
         "413":
           description: Result too large
 components:
+  parameters:
+    PlatformTelemetrySiteName:
+      name: siteName
+      in: query
+      required: true
+      schema: { type: string, minLength: 2, maxLength: 160 }
+    PlatformTelemetryDeviceIdOptional:
+      name: deviceId
+      in: query
+      required: false
+      schema: { type: string, minLength: 1, maxLength: 160 }
   schemas:
     HealthStatus:
       type: object
@@ -591,6 +679,85 @@ components:
         deviceName: { type: string }
         lastReceivedAt: { type: string, format: date-time }
       required: [siteName, deviceId, deviceName, lastReceivedAt]
+    PlatformTelemetryDestination:
+      type: string
+      enum: [inverter-identity, active-power, daily-energy, total-energy, specific-yield, voltage, current, frequency, environmental, alarm, fault, communication, data-quality, discovered-other]
+    PlatformTelemetryMapping:
+      type: object
+      properties:
+        id: { type: string }
+        siteName: { type: string }
+        deviceId: { type: string }
+        sourceIdentity: { type: string }
+        sourceName: { type: string }
+        normalizedName: { type: string }
+        address: { type: string }
+        destination: { $ref: "#/components/schemas/PlatformTelemetryDestination" }
+        displayLabel: { type: string }
+        category: { type: string }
+        inverterIdentity: { type: [string, "null"] }
+        sourceUnit: { type: [string, "null"] }
+        status: { type: string, enum: [active, cleared] }
+        version: { type: number, multipleOf: 1 }
+        updatedAt: { type: string, format: date-time }
+      required: [id, siteName, deviceId, sourceIdentity, sourceName, normalizedName, address, destination, displayLabel, category, inverterIdentity, sourceUnit, status, version, updatedAt]
+    PlatformTelemetryMappingIdentity:
+      type: object
+      properties:
+        siteName: { type: string, minLength: 2, maxLength: 160 }
+        deviceId: { type: string, minLength: 1, maxLength: 160 }
+        sourceIdentity: { type: string, minLength: 1, maxLength: 1000 }
+        normalizedName: { type: string, minLength: 1, maxLength: 240 }
+        address: { type: string, maxLength: 240 }
+      required: [siteName, deviceId, sourceIdentity, normalizedName, address]
+    PlatformTelemetryMappingInput:
+      allOf:
+        - $ref: "#/components/schemas/PlatformTelemetryMappingIdentity"
+        - type: object
+          properties:
+            destination: { $ref: "#/components/schemas/PlatformTelemetryDestination" }
+            displayLabel: { type: string, minLength: 1, maxLength: 240 }
+            category: { type: string, minLength: 1, maxLength: 120 }
+            inverterIdentity: { type: [string, "null"], maxLength: 80 }
+            sourceUnit: { type: [string, "null"], maxLength: 80 }
+          required: [destination, displayLabel, category]
+    PlatformTelemetryParameter:
+      type: object
+      properties:
+        observationId: { type: string }
+        signalKey: { type: string }
+        siteName: { type: string }
+        deviceId: { type: string }
+        deviceName: { type: string }
+        topic: { type: string }
+        originalName: { type: string }
+        normalizedName: { type: string }
+        displayLabel: { type: string }
+        category: { type: string }
+        rawValue: { type: string }
+        reportedValue: { type: string }
+        reportedNumericValue: { type: [number, "null"] }
+        sourceUnit: { type: [string, "null"] }
+        address: { type: [string, "null"] }
+        sourceName: { type: string }
+        sourceIdentity: { type: string }
+        observedAt: { type: [string, "null"], format: date-time }
+        receivedAt: { type: string, format: date-time }
+        provenance: { type: string, enum: [live, retained, recovered, replay, snapshot] }
+        dataQuality: { type: string, enum: [validated, raw, source-reported] }
+        scalingStatus: { type: string, enum: [validated, raw] }
+        freshness: { type: string, enum: [live, stale, saved, retained, recovered, replay] }
+        mapping: { anyOf: [{ $ref: "#/components/schemas/PlatformTelemetryMapping" }, { type: "null" }] }
+      required: [observationId, signalKey, siteName, deviceId, deviceName, topic, originalName, normalizedName, displayLabel, category, rawValue, reportedValue, reportedNumericValue, sourceUnit, address, sourceName, sourceIdentity, observedAt, receivedAt, provenance, dataQuality, scalingStatus, freshness, mapping]
+    PlatformTelemetryParameterList:
+      type: object
+      properties:
+        siteName: { type: string }
+        deviceId: { type: [string, "null"] }
+        parameters:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformTelemetryParameter" }
+      required: [siteName, deviceId, parameters]
     PlatformTelemetryTestInput:
       type: object
       properties:

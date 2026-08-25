@@ -230,6 +230,220 @@ export const ListPlatformTelemetryDevicesResponse = zod.array(ListPlatformTeleme
 
 
 /**
+ * @summary List latest source-backed parameter evidence for a managed site
+ */
+export const listPlatformTelemetryParametersQuerySiteNameMin = 2;
+export const listPlatformTelemetryParametersQuerySiteNameMax = 160;
+
+export const listPlatformTelemetryParametersQueryDeviceIdMax = 160;
+
+
+
+export const ListPlatformTelemetryParametersQueryParams = zod.object({
+  "siteName": zod.coerce.string().min(listPlatformTelemetryParametersQuerySiteNameMin).max(listPlatformTelemetryParametersQuerySiteNameMax),
+  "deviceId": zod.coerce.string().min(1).max(listPlatformTelemetryParametersQueryDeviceIdMax).optional()
+})
+
+export const listPlatformTelemetryParametersResponseParametersItemMappingOneVersionMultipleOf = 1;
+
+
+
+export const ListPlatformTelemetryParametersResponse = zod.object({
+  "siteName": zod.string(),
+  "deviceId": zod.string().nullable(),
+  "parameters": zod.array(zod.object({
+  "observationId": zod.string(),
+  "signalKey": zod.string(),
+  "siteName": zod.string(),
+  "deviceId": zod.string(),
+  "deviceName": zod.string(),
+  "topic": zod.string(),
+  "originalName": zod.string(),
+  "normalizedName": zod.string(),
+  "displayLabel": zod.string(),
+  "category": zod.string(),
+  "rawValue": zod.string(),
+  "reportedValue": zod.string(),
+  "reportedNumericValue": zod.number().nullable(),
+  "sourceUnit": zod.string().nullable(),
+  "address": zod.string().nullable(),
+  "sourceName": zod.string(),
+  "sourceIdentity": zod.string(),
+  "observedAt": zod.coerce.date().nullable(),
+  "receivedAt": zod.coerce.date(),
+  "provenance": zod.enum(['live', 'retained', 'recovered', 'replay', 'snapshot']),
+  "dataQuality": zod.enum(['validated', 'raw', 'source-reported']),
+  "scalingStatus": zod.enum(['validated', 'raw']),
+  "freshness": zod.enum(['live', 'stale', 'saved', 'retained', 'recovered', 'replay']),
+  "mapping": zod.union([zod.object({
+  "id": zod.string(),
+  "siteName": zod.string(),
+  "deviceId": zod.string(),
+  "sourceIdentity": zod.string(),
+  "sourceName": zod.string(),
+  "normalizedName": zod.string(),
+  "address": zod.string(),
+  "destination": zod.enum(['inverter-identity', 'active-power', 'daily-energy', 'total-energy', 'specific-yield', 'voltage', 'current', 'frequency', 'environmental', 'alarm', 'fault', 'communication', 'data-quality', 'discovered-other']),
+  "displayLabel": zod.string(),
+  "category": zod.string(),
+  "inverterIdentity": zod.string().nullable(),
+  "sourceUnit": zod.string().nullable(),
+  "status": zod.enum(['active', 'cleared']),
+  "version": zod.number().multipleOf(listPlatformTelemetryParametersResponseParametersItemMappingOneVersionMultipleOf),
+  "updatedAt": zod.coerce.date()
+}),zod.null()])
+}))
+})
+
+
+/**
+ * @summary List saved telemetry mappings for a managed site
+ */
+export const listPlatformTelemetryMappingsQuerySiteNameMin = 2;
+export const listPlatformTelemetryMappingsQuerySiteNameMax = 160;
+
+export const listPlatformTelemetryMappingsQueryDeviceIdMax = 160;
+
+
+
+export const ListPlatformTelemetryMappingsQueryParams = zod.object({
+  "siteName": zod.coerce.string().min(listPlatformTelemetryMappingsQuerySiteNameMin).max(listPlatformTelemetryMappingsQuerySiteNameMax),
+  "deviceId": zod.coerce.string().min(1).max(listPlatformTelemetryMappingsQueryDeviceIdMax).optional()
+})
+
+export const listPlatformTelemetryMappingsResponseVersionMultipleOf = 1;
+
+
+
+export const ListPlatformTelemetryMappingsResponseItem = zod.object({
+  "id": zod.string(),
+  "siteName": zod.string(),
+  "deviceId": zod.string(),
+  "sourceIdentity": zod.string(),
+  "sourceName": zod.string(),
+  "normalizedName": zod.string(),
+  "address": zod.string(),
+  "destination": zod.enum(['inverter-identity', 'active-power', 'daily-energy', 'total-energy', 'specific-yield', 'voltage', 'current', 'frequency', 'environmental', 'alarm', 'fault', 'communication', 'data-quality', 'discovered-other']),
+  "displayLabel": zod.string(),
+  "category": zod.string(),
+  "inverterIdentity": zod.string().nullable(),
+  "sourceUnit": zod.string().nullable(),
+  "status": zod.enum(['active', 'cleared']),
+  "version": zod.number().multipleOf(listPlatformTelemetryMappingsResponseVersionMultipleOf),
+  "updatedAt": zod.coerce.date()
+})
+export const ListPlatformTelemetryMappingsResponse = zod.array(ListPlatformTelemetryMappingsResponseItem)
+
+
+/**
+ * @summary Create or update a source-scoped semantic telemetry mapping
+ */
+export const upsertPlatformTelemetryMappingBodyOneSiteNameMin = 2;
+export const upsertPlatformTelemetryMappingBodyOneSiteNameMax = 160;
+
+export const upsertPlatformTelemetryMappingBodyOneDeviceIdMax = 160;
+
+export const upsertPlatformTelemetryMappingBodyOneSourceIdentityMax = 1000;
+
+export const upsertPlatformTelemetryMappingBodyOneNormalizedNameMax = 240;
+
+export const upsertPlatformTelemetryMappingBodyOneAddressMax = 240;
+
+export const upsertPlatformTelemetryMappingBodyTwoDisplayLabelMax = 240;
+
+export const upsertPlatformTelemetryMappingBodyTwoCategoryMax = 120;
+
+export const upsertPlatformTelemetryMappingBodyTwoInverterIdentityMax = 80;
+
+export const upsertPlatformTelemetryMappingBodyTwoSourceUnitMax = 80;
+
+
+
+export const UpsertPlatformTelemetryMappingBody = zod.object({
+  "siteName": zod.string().min(upsertPlatformTelemetryMappingBodyOneSiteNameMin).max(upsertPlatformTelemetryMappingBodyOneSiteNameMax),
+  "deviceId": zod.string().min(1).max(upsertPlatformTelemetryMappingBodyOneDeviceIdMax),
+  "sourceIdentity": zod.string().min(1).max(upsertPlatformTelemetryMappingBodyOneSourceIdentityMax),
+  "normalizedName": zod.string().min(1).max(upsertPlatformTelemetryMappingBodyOneNormalizedNameMax),
+  "address": zod.string().max(upsertPlatformTelemetryMappingBodyOneAddressMax)
+}).and(zod.object({
+  "destination": zod.enum(['inverter-identity', 'active-power', 'daily-energy', 'total-energy', 'specific-yield', 'voltage', 'current', 'frequency', 'environmental', 'alarm', 'fault', 'communication', 'data-quality', 'discovered-other']),
+  "displayLabel": zod.string().min(1).max(upsertPlatformTelemetryMappingBodyTwoDisplayLabelMax),
+  "category": zod.string().min(1).max(upsertPlatformTelemetryMappingBodyTwoCategoryMax),
+  "inverterIdentity": zod.string().max(upsertPlatformTelemetryMappingBodyTwoInverterIdentityMax).nullish(),
+  "sourceUnit": zod.string().max(upsertPlatformTelemetryMappingBodyTwoSourceUnitMax).nullish()
+}))
+
+export const upsertPlatformTelemetryMappingResponseVersionMultipleOf = 1;
+
+
+
+export const UpsertPlatformTelemetryMappingResponse = zod.object({
+  "id": zod.string(),
+  "siteName": zod.string(),
+  "deviceId": zod.string(),
+  "sourceIdentity": zod.string(),
+  "sourceName": zod.string(),
+  "normalizedName": zod.string(),
+  "address": zod.string(),
+  "destination": zod.enum(['inverter-identity', 'active-power', 'daily-energy', 'total-energy', 'specific-yield', 'voltage', 'current', 'frequency', 'environmental', 'alarm', 'fault', 'communication', 'data-quality', 'discovered-other']),
+  "displayLabel": zod.string(),
+  "category": zod.string(),
+  "inverterIdentity": zod.string().nullable(),
+  "sourceUnit": zod.string().nullable(),
+  "status": zod.enum(['active', 'cleared']),
+  "version": zod.number().multipleOf(upsertPlatformTelemetryMappingResponseVersionMultipleOf),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Clear a saved telemetry mapping while retaining its audit history
+ */
+export const clearPlatformTelemetryMappingBodySiteNameMin = 2;
+export const clearPlatformTelemetryMappingBodySiteNameMax = 160;
+
+export const clearPlatformTelemetryMappingBodyDeviceIdMax = 160;
+
+export const clearPlatformTelemetryMappingBodySourceIdentityMax = 1000;
+
+export const clearPlatformTelemetryMappingBodyNormalizedNameMax = 240;
+
+export const clearPlatformTelemetryMappingBodyAddressMax = 240;
+
+
+
+export const ClearPlatformTelemetryMappingBody = zod.object({
+  "siteName": zod.string().min(clearPlatformTelemetryMappingBodySiteNameMin).max(clearPlatformTelemetryMappingBodySiteNameMax),
+  "deviceId": zod.string().min(1).max(clearPlatformTelemetryMappingBodyDeviceIdMax),
+  "sourceIdentity": zod.string().min(1).max(clearPlatformTelemetryMappingBodySourceIdentityMax),
+  "normalizedName": zod.string().min(1).max(clearPlatformTelemetryMappingBodyNormalizedNameMax),
+  "address": zod.string().max(clearPlatformTelemetryMappingBodyAddressMax)
+})
+
+export const clearPlatformTelemetryMappingResponseVersionMultipleOf = 1;
+
+
+
+export const ClearPlatformTelemetryMappingResponse = zod.object({
+  "id": zod.string(),
+  "siteName": zod.string(),
+  "deviceId": zod.string(),
+  "sourceIdentity": zod.string(),
+  "sourceName": zod.string(),
+  "normalizedName": zod.string(),
+  "address": zod.string(),
+  "destination": zod.enum(['inverter-identity', 'active-power', 'daily-energy', 'total-energy', 'specific-yield', 'voltage', 'current', 'frequency', 'environmental', 'alarm', 'fault', 'communication', 'data-quality', 'discovered-other']),
+  "displayLabel": zod.string(),
+  "category": zod.string(),
+  "inverterIdentity": zod.string().nullable(),
+  "sourceUnit": zod.string().nullable(),
+  "status": zod.enum(['active', 'cleared']),
+  "version": zod.number().multipleOf(clearPlatformTelemetryMappingResponseVersionMultipleOf),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Run a bounded live telemetry test against a selected device
  */
 export const createPlatformTelemetryTestBodySiteNameMin = 2;

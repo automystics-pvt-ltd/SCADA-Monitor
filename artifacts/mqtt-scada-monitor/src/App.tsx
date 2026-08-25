@@ -13,6 +13,7 @@ import { DashboardPowerFlow } from './components/dashboard-power-flow';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import { dashboardAccessState } from './scada-access';
 import { discoveryDeviceIdFromSourceRecord } from './device-discovery-identity';
+import { createTelemetryMappingStore, type ScadaTelemetryMapping } from './telemetry-mappings';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
@@ -2924,6 +2925,7 @@ function AppShell() {
   const [locationAdmin, setLocationAdmin] = useState(false);
   const [calibrationProfile, setCalibrationProfile] = useState<PlantCalibrationProfile | null>(null);
   const [calibrationProfileError, setCalibrationProfileError] = useState('');
+  const telemetryMappingStoreRef = useRef(createTelemetryMappingStore());
   const streamRef = useRef<EventSource | null>(null);
   const streamGenerationRef = useRef(0);
   const seenTelemetryEventsRef = useRef(new Map<string, true>());
@@ -3060,6 +3062,36 @@ function AppShell() {
     void loadCalibrationProfile();
     return () => controller.abort();
   }, [plantSiteName, scadaSession.authenticated]);
+  useEffect(() => {
+    if (!scadaSession.authenticated || !plantSiteName) {
+      telemetryMappingStoreRef.current.setMappings([]);
+      return;
+    }
+    const controller = new AbortController();
+    const loadTelemetryMappings = async () => {
+      try {
+        const response = await fetch(`/api/mqtt/telemetry-mappings?siteName=${encodeURIComponent(plantSiteName)}`, { signal: controller.signal, cache: 'no-store' });
+        const payload = await response.json() as { mappings?: ScadaTelemetryMapping[]; message?: string };
+        if (!response.ok || !Array.isArray(payload.mappings)) throw new Error(payload.message ?? 'Telemetry mappings could not be loaded.');
+        if (!controller.signal.aborted) {
+          const mappings = payload.mappings;
+          telemetryMappingStoreRef.current.setMappings(mappings);
+          setModbusRows((current) => telemetryMappingStoreRef.current.apply(current) as ModbusRow[]);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          telemetryMappingStoreRef.current.setMappings([]);
+          setModbusRows((current) => telemetryMappingStoreRef.current.apply(current) as ModbusRow[]);
+        }
+      }
+    };
+    void loadTelemetryMappings();
+    const refresh = window.setInterval(() => void loadTelemetryMappings(), 60_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(refresh);
+    };
+  }, [plantSiteName, scadaSession.authenticated]);
 
   useEffect(() => {
     if (!weatherLocation) {
@@ -3105,7 +3137,9 @@ function AppShell() {
     try {
       const payload = JSON.parse(raw) as JsonValue;
       setRawJson(payload);
-      const incomingRows = extractModbusRows(isUnknownRecord(calibratedParameter) ? calibratedParameter as JsonValue : payload);
+      const incomingRows = telemetryMappingStoreRef.current.apply(
+        extractModbusRows(isUnknownRecord(calibratedParameter) ? calibratedParameter as JsonValue : payload),
+      ) as ModbusRow[];
       if (incomingRows.length) {
         setModbusRows((current) => {
           const next = [...current];

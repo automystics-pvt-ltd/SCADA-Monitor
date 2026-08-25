@@ -40,7 +40,7 @@ function isoTimestamp(value: unknown) {
 function isDailyEnergyRow(row: TelemetryKpiRow) {
   const name = normalized(row.name ?? row.parameter ?? row.tag);
   if (DAILY_ENERGY_PARAMETERS.has(name)) return true;
-  const declared = normalized(row.measurement_type ?? row.measurementType ?? row.semantic ?? row.metric ?? row.kind);
+  const declared = normalized(row.admin_mapping_destination ?? row.adminMappingDestination ?? row.measurement_type ?? row.measurementType ?? row.semantic ?? row.metric ?? row.kind);
   return ["dailyenergy", "dailyenergycounter"].includes(declared);
 }
 

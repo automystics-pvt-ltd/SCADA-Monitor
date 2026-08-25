@@ -192,6 +192,181 @@ export interface PlatformTelemetryDevice {
   lastReceivedAt: string;
 }
 
+export type PlatformTelemetryDestination = typeof PlatformTelemetryDestination[keyof typeof PlatformTelemetryDestination];
+
+
+export const PlatformTelemetryDestination = {
+  'inverter-identity': 'inverter-identity',
+  'active-power': 'active-power',
+  'daily-energy': 'daily-energy',
+  'total-energy': 'total-energy',
+  'specific-yield': 'specific-yield',
+  voltage: 'voltage',
+  current: 'current',
+  frequency: 'frequency',
+  environmental: 'environmental',
+  alarm: 'alarm',
+  fault: 'fault',
+  communication: 'communication',
+  'data-quality': 'data-quality',
+  'discovered-other': 'discovered-other',
+} as const;
+
+export type PlatformTelemetryMappingStatus = typeof PlatformTelemetryMappingStatus[keyof typeof PlatformTelemetryMappingStatus];
+
+
+export const PlatformTelemetryMappingStatus = {
+  active: 'active',
+  cleared: 'cleared',
+} as const;
+
+export interface PlatformTelemetryMapping {
+  id: string;
+  siteName: string;
+  deviceId: string;
+  sourceIdentity: string;
+  sourceName: string;
+  normalizedName: string;
+  address: string;
+  destination: PlatformTelemetryDestination;
+  displayLabel: string;
+  category: string;
+  /** @nullable */
+  inverterIdentity: string | null;
+  /** @nullable */
+  sourceUnit: string | null;
+  status: PlatformTelemetryMappingStatus;
+  version: number;
+  updatedAt: string;
+}
+
+export interface PlatformTelemetryMappingIdentity {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  siteName: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  deviceId: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  sourceIdentity: string;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  normalizedName: string;
+  /** @maxLength 240 */
+  address: string;
+}
+
+export type PlatformTelemetryMappingInput = PlatformTelemetryMappingIdentity & ({
+  destination: PlatformTelemetryDestination;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  displayLabel: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  category: string;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  inverterIdentity?: string | null;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  sourceUnit?: string | null;
+});
+
+export type PlatformTelemetryParameterProvenance = typeof PlatformTelemetryParameterProvenance[keyof typeof PlatformTelemetryParameterProvenance];
+
+
+export const PlatformTelemetryParameterProvenance = {
+  live: 'live',
+  retained: 'retained',
+  recovered: 'recovered',
+  replay: 'replay',
+  snapshot: 'snapshot',
+} as const;
+
+export type PlatformTelemetryParameterDataQuality = typeof PlatformTelemetryParameterDataQuality[keyof typeof PlatformTelemetryParameterDataQuality];
+
+
+export const PlatformTelemetryParameterDataQuality = {
+  validated: 'validated',
+  raw: 'raw',
+  'source-reported': 'source-reported',
+} as const;
+
+export type PlatformTelemetryParameterScalingStatus = typeof PlatformTelemetryParameterScalingStatus[keyof typeof PlatformTelemetryParameterScalingStatus];
+
+
+export const PlatformTelemetryParameterScalingStatus = {
+  validated: 'validated',
+  raw: 'raw',
+} as const;
+
+export type PlatformTelemetryParameterFreshness = typeof PlatformTelemetryParameterFreshness[keyof typeof PlatformTelemetryParameterFreshness];
+
+
+export const PlatformTelemetryParameterFreshness = {
+  live: 'live',
+  stale: 'stale',
+  saved: 'saved',
+  retained: 'retained',
+  recovered: 'recovered',
+  replay: 'replay',
+} as const;
+
+export interface PlatformTelemetryParameter {
+  observationId: string;
+  signalKey: string;
+  siteName: string;
+  deviceId: string;
+  deviceName: string;
+  topic: string;
+  originalName: string;
+  normalizedName: string;
+  displayLabel: string;
+  category: string;
+  rawValue: string;
+  reportedValue: string;
+  /** @nullable */
+  reportedNumericValue: number | null;
+  /** @nullable */
+  sourceUnit: string | null;
+  /** @nullable */
+  address: string | null;
+  sourceName: string;
+  sourceIdentity: string;
+  /** @nullable */
+  observedAt: string | null;
+  receivedAt: string;
+  provenance: PlatformTelemetryParameterProvenance;
+  dataQuality: PlatformTelemetryParameterDataQuality;
+  scalingStatus: PlatformTelemetryParameterScalingStatus;
+  freshness: PlatformTelemetryParameterFreshness;
+  mapping: PlatformTelemetryMapping | null;
+}
+
+export interface PlatformTelemetryParameterList {
+  siteName: string;
+  /** @nullable */
+  deviceId: string | null;
+  parameters: PlatformTelemetryParameter[];
+}
+
 export interface PlatformTelemetryTestInput {
   /**
      * @minLength 2
@@ -549,6 +724,36 @@ export interface PlatformDatabaseQueryResult {
   truncated: boolean;
   durationMs: number;
 }
+
+export type PlatformTelemetrySiteNameParameter = string;
+
+export type PlatformTelemetryDeviceIdOptionalParameter = string;
+
+export type ListPlatformTelemetryParametersParams = {
+/**
+ * @minLength 2
+ * @maxLength 160
+ */
+siteName: PlatformTelemetrySiteNameParameter;
+/**
+ * @minLength 1
+ * @maxLength 160
+ */
+deviceId?: PlatformTelemetryDeviceIdOptionalParameter;
+};
+
+export type ListPlatformTelemetryMappingsParams = {
+/**
+ * @minLength 2
+ * @maxLength 160
+ */
+siteName: PlatformTelemetrySiteNameParameter;
+/**
+ * @minLength 1
+ * @maxLength 160
+ */
+deviceId?: PlatformTelemetryDeviceIdOptionalParameter;
+};
 
 export type DownloadPlatformDatabaseBackup200 = { [key: string]: unknown };
 

@@ -254,6 +254,21 @@ function normalizedParameter(row: TelemetryKpiRow) {
   return normalizedKey(row.name);
 }
 
+function mappedDestination(row: TelemetryKpiRow) {
+  return normalizedKey(row.admin_mapping_destination ?? row.adminMappingDestination);
+}
+
+function matchesMappedDestination(row: TelemetryKpiRow, requestedNames: Set<string>) {
+  const destination = mappedDestination(row);
+  if (!destination) return false;
+  if (destination === "activepower") return requestedNames.has("actpow") || requestedNames.has("activepower") || requestedNames.has("acpower");
+  if (destination === "dailyenergy") return [...requestedNames].some((name) => ["dailyenergy", "todayenergy", "todayyield"].includes(name));
+  if (destination === "totalenergy") return [...requestedNames].some((name) => ["totalenergy", "lifetimeenergy"].includes(name));
+  if (destination === "specificyield") return requestedNames.has("specificyield") || requestedNames.has("todayyield");
+  if (destination === "alarm" || destination === "fault") return [...requestedNames].some((name) => ["alarm", "alarms", "alarmcode", "fault", "faultcode"].includes(name));
+  return false;
+}
+
 function rowTimestamp(row: TelemetryKpiRow) {
   const candidates = [row.date_iso_8601, row.timestamp, row.date];
   for (const candidate of candidates) {
@@ -323,6 +338,7 @@ function isInverterSourceSignal(row: TelemetryKpiRow) {
   const documentedRawPowerTag = ["acoutput", "activepower", "acpower", "inverteracoutput", "inverteroutputpower"].includes(name);
   const identity = declaredInverterIdentity(row);
 
+  if (mappedDestination(row) === "activepower") return Boolean(identity);
   if (declaredSemantic) return hasActivePowerSemantic && (conventionalInverterTag || documentedRawPowerTag);
   return conventionalInverterTag || (Boolean(identity) && documentedRawPowerTag);
 }
@@ -335,7 +351,7 @@ function sourceName(row: TelemetryKpiRow) {
 export function latestRawMetric(rows: TelemetryKpiRow[], parameterNames: string[]) {
   const names = new Set(parameterNames.map(normalizedKey));
   const matches = rows
-    .filter((row) => names.has(normalizedParameter(row)))
+    .filter((row) => names.has(normalizedParameter(row)) || matchesMappedDestination(row, names))
     .map((row) => ({ row, metric: asRawMetric(row) }))
     .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null);
 
@@ -353,7 +369,12 @@ export function latestRawCounterMetric(rows: TelemetryKpiRow[], counterRole: "da
   const names = new Set(parameterNames.map(normalizedKey));
   const expectedRole = normalizedKey(counterRole);
   const matches = rows
-    .filter((row) => names.has(normalizedParameter(row)) || normalizedCounterRole(row) === expectedRole)
+    .filter((row) =>
+      names.has(normalizedParameter(row))
+      || normalizedCounterRole(row) === expectedRole
+      || (counterRole === "daily-counter" && mappedDestination(row) === "dailyenergy")
+      || (counterRole === "cumulative-counter" && mappedDestination(row) === "totalenergy"),
+    )
     .map((row) => ({ row, metric: asRawMetric(row) }))
     .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null);
   if (!matches.length) return null;

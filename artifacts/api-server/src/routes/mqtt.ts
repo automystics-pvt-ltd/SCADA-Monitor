@@ -13,6 +13,7 @@ import {
   platformSitesTable,
   plantCalibrationProfilesTable,
   plantLocationsTable,
+  platformTelemetryMappingsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { allowGrantedSite, allowSitePermission, allowUnscopedScadaEvidence, grantedSiteNames, siteAccess } from "../middlewares/platformSiteAccess";
@@ -1442,6 +1443,42 @@ export async function listLiveTelemetryDevices() {
     left.siteName.localeCompare(right.siteName) || left.deviceName.localeCompare(right.deviceName));
 }
 
+/**
+ * Returns the latest complete source evidence per stable parameter identity.
+ * Both Platform Admin and SCADA consume this single aggregation so a mapping
+ * cannot be saved against a different interpretation than an operator sees.
+ */
+export async function listLatestDeviceParameters(siteName: string, deviceId?: string) {
+  const latest = new Map<string, DiscoveredDeviceParameter>();
+  const add = (parameter: DiscoveredDeviceParameter) => {
+    if (parameter.siteName !== siteName || (deviceId && parameter.deviceId !== deviceId)) return;
+    const existing = latest.get(parameter.signalKey);
+    if (latestDeviceParameterWins(existing, parameter)) latest.set(parameter.signalKey, parameter);
+  };
+
+  for (const message of messageHistory) {
+    for (const parameter of message.discoveredParameters ?? []) add(parameter);
+  }
+  const snapshots = await db.select()
+    .from(mqttSnapshotsTable)
+    .where(eq(mqttSnapshotsTable.topic, subscriptionTopic))
+    .orderBy(desc(mqttSnapshotsTable.windowEndedAt), desc(mqttSnapshotsTable.capturedAt))
+    .limit(24);
+  for (const snapshot of snapshots) {
+    if (snapshotSaveStatus(snapshot.data, snapshot.messageCount, snapshot.parameterCount) !== "saved") continue;
+    for (const parameter of snapshotDiscoveredParameters(snapshot, siteName)) add(parameter);
+  }
+
+  const now = Date.now();
+  return [...latest.values()]
+    .sort((left, right) => {
+      const rightTime = Date.parse(right.observedAt ?? right.receivedAt);
+      const leftTime = Date.parse(left.observedAt ?? left.receivedAt);
+      return rightTime - leftTime || left.displayLabel.localeCompare(right.displayLabel);
+    })
+    .map((parameter) => ({ ...parameter, ...deviceParameterFreshness(parameter, now) }));
+}
+
 export async function runLiveTelemetryTest(siteName: string, deviceId: string, timeoutSeconds: number): Promise<LiveTelemetryTestResult> {
   requestMqttConsumer();
   const startedAt = new Date();
@@ -2237,48 +2274,55 @@ router.get("/mqtt/device-parameters", async (req, res): Promise<void> => {
   if (!await allowSitePermission(req, res, siteName, "historical-data")) return;
 
   try {
-    const latest = new Map<string, DiscoveredDeviceParameter>();
-    const add = (parameter: DiscoveredDeviceParameter) => {
-      if (parameter.siteName !== siteName || (deviceId && parameter.deviceId !== deviceId)) return;
-      const existing = latest.get(parameter.signalKey);
-      if (latestDeviceParameterWins(existing, parameter)) latest.set(parameter.signalKey, parameter);
-    };
-
-    for (const message of messageHistory) {
-      for (const parameter of message.discoveredParameters ?? []) add(parameter);
-    }
-    const snapshots = await db.select()
-      .from(mqttSnapshotsTable)
-      .where(eq(mqttSnapshotsTable.topic, subscriptionTopic))
-      .orderBy(desc(mqttSnapshotsTable.windowEndedAt), desc(mqttSnapshotsTable.capturedAt))
-      .limit(24);
-    for (const snapshot of snapshots) {
-      if (snapshotSaveStatus(snapshot.data, snapshot.messageCount, snapshot.parameterCount) !== "saved") continue;
-      for (const parameter of snapshotDiscoveredParameters(snapshot, siteName)) add(parameter);
-    }
-
-    const now = Date.now();
-    const parameters = [...latest.values()]
-      .sort((left, right) => {
-        const rightTime = Date.parse(right.observedAt ?? right.receivedAt);
-        const leftTime = Date.parse(left.observedAt ?? left.receivedAt);
-        return rightTime - leftTime || left.displayLabel.localeCompare(right.displayLabel);
-      })
-      .slice(0, limit)
-      .map((parameter) => {
-        return { ...parameter, ...deviceParameterFreshness(parameter, now) };
-      });
+    const parameters = (await listLatestDeviceParameters(siteName, deviceId || undefined)).slice(0, limit);
 
     res.set("Cache-Control", "no-store").json({
       siteName,
       deviceId: deviceId || undefined,
       parameters,
-      bounded: { limit, liveWindow: messageHistory.length, snapshotWindow: snapshots.length },
+      bounded: { limit, liveWindow: messageHistory.length, snapshotWindow: 24 },
     });
   } catch (error) {
     logger.error({ err: error, siteName, deviceId }, "Latest device parameter query failed");
     res.status(500).json({ message: "Unable to load source-backed device parameters." });
   }
+});
+
+router.get("/mqtt/telemetry-mappings", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.query.siteName);
+  const deviceId = typeof req.query.deviceId === "string" ? req.query.deviceId.trim() : "";
+  if (!siteName || siteName.length > 160 || deviceId.length > 160) {
+    res.status(400).json({ message: "Use a valid assigned plant/site and optional device identifier." });
+    return;
+  }
+  if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSitePermission(req, res, siteName, "live-monitoring")) return;
+
+  const conditions = [
+    eq(platformTelemetryMappingsTable.siteName, siteName),
+    eq(platformTelemetryMappingsTable.status, "active"),
+  ];
+  if (deviceId) conditions.push(eq(platformTelemetryMappingsTable.deviceId, deviceId));
+  const mappings = await db.select().from(platformTelemetryMappingsTable)
+    .where(and(...conditions))
+    .orderBy(asc(platformTelemetryMappingsTable.displayLabel));
+  res.set("Cache-Control", "no-store").json({
+    siteName,
+    mappings: mappings.map((mapping) => ({
+      id: mapping.id,
+      deviceId: mapping.deviceId,
+      sourceIdentity: mapping.sourceIdentity,
+      sourceName: mapping.sourceName,
+      normalizedName: mapping.normalizedName,
+      address: mapping.address,
+      destination: mapping.destination,
+      displayLabel: mapping.displayLabel,
+      category: mapping.category,
+      inverterIdentity: mapping.inverterIdentity,
+      sourceUnit: mapping.sourceUnit,
+      version: mapping.version,
+    })),
+  });
 });
 
 router.get("/mqtt/inverter-energy-history", async (req, res): Promise<void> => {

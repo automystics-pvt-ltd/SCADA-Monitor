@@ -19,3 +19,5 @@
 - [Platform admin identity lifecycle](platform-admin-identity-lifecycle.md) — Match OIDC admins to pre-provisioned email records and never silently restore disabled access.
 - [Platform Admin dual authentication](platform-admin-dual-authentication.md) — Google OIDC and Gmail SMTP OTP both preserve the pre-provisioned allowlist and separate admin sessions.
 - [SCADA lifecycle enforcement](scada-lifecycle-enforcement.md) — Archived sites disappear from SCADA; all operational evidence requires an explicit active site scope.
+- [Telemetry mapping overlay refresh](telemetry-mapping-overlay-refresh.md) — Rebuild Admin-derived mapping overlays on every refresh so cleared mappings never persist on retained evidence.
+- [Telemetry mapping inverter attribution](telemetry-mapping-inverter-attribution.md) — Active-power mappings need an explicit inv1–inv5 identity before they can contribute to an inverter flow.
