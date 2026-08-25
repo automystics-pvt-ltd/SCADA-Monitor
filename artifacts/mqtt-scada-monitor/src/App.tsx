@@ -713,7 +713,7 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
 
 function NavItem({ icon: Icon, label, active, hasArrow, onClick, collapsed }: any) {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} data-testid={`nav-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} title={`Open ${label}`} className={`scada-nav-item ${collapsed ? 'scada-nav-item--collapsed' : ''} w-full rounded-lg px-3 py-2.5 text-[13px] transition-all focus-ring font-medium tracking-wide ${active ? 'bg-[#2563EB]/10 text-scada-accent shadow-[inset_3px_0_0_#2563EB]' : 'text-scada-muted hover:text-scada-text hover:bg-scada-hover/50'}`}>
+    <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} data-testid={`nav-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} title={`Open ${label}`} className={`scada-nav-item ${collapsed ? 'scada-nav-item--collapsed' : ''} w-full rounded-lg px-3 py-2.5 text-[13px] transition-all focus-ring font-medium tracking-wide ${active ? 'bg-scada-accent-soft text-scada-accent' : 'text-scada-muted hover:text-scada-text hover:bg-scada-hover/50'}`}>
       <span className="scada-nav-content">
         <span className="scada-nav-icon-wrap">
           <Icon size={18} className={`scada-nav-icon ${active ? 'text-scada-accent' : ''}`} />
@@ -893,11 +893,11 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
       
       <div className="hidden min-w-0 flex-1 items-center justify-end gap-3 pl-4 2xl:flex">
         <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-lg bg-scada-surface-raised border border-scada-border text-[10px] font-bold tracking-widest uppercase text-scada-text">
-          <CloudSun size={13} className="text-[#00E5FF]" />
+          <CloudSun size={13} className="text-scada-muted" />
           <span>{temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}</span>
         </div>
         <div className="scada-status-chip flex items-center gap-2 px-3 py-1.5 rounded-lg bg-scada-surface-raised border border-scada-border text-[10px] font-bold tracking-widest uppercase text-scada-text">
-          <Zap size={13} className="text-[#FF5C00]" />
+          <Zap size={13} className="text-scada-accent" />
           <span>{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span>
         </div>
         <div className="scada-status-chip flex max-w-[180px] items-center gap-2 truncate px-3 py-1.5 rounded-lg bg-scada-surface-raised border border-scada-border text-[10px] font-bold tracking-widest uppercase text-scada-text xl:max-w-[240px]" title={weatherProvenance} aria-label={`Weather source and location: ${weatherProvenance}`}>
@@ -1878,7 +1878,7 @@ function WorkspaceHeader({ eyebrow, title, description, action, onBack }: {
 }) {
   return (
     <div className="mb-6 flex flex-col gap-4 border-b border-scada-border pb-6 sm:flex-row sm:items-end sm:justify-between relative">
-      <span className="absolute bottom-0 left-0 w-1/3 h-px bg-gradient-to-r from-[#2563EB] to-transparent pointer-events-none" />
+      <span className="absolute bottom-0 left-0 h-px w-1/3 bg-gradient-to-r from-[var(--scada-accent)] to-transparent pointer-events-none" />
       <div className="min-w-0">
         <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-scada-muted hover:text-scada-text focus-ring transition-colors">← Back to overview</button>
         <p className="text-[11px] font-bold uppercase tracking-widest text-scada-accent text-glow mb-1">{eyebrow}</p>
@@ -1975,7 +1975,7 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
           <h3 className="text-sm font-bold tracking-wide text-scada-text uppercase">Power Trend</h3>
         </div>
         <div role="tablist" aria-label="Power trend time range" className="flex items-center rounded-lg border border-scada-border bg-scada-surface-raised p-1 shadow-inner">
-          {(['today', 'week', 'month'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-power-range-${option}`} className={`rounded-md px-3 py-1 text-[11px] font-bold capitalize transition-all focus-ring ${range === option ? 'bg-[#FF5C00] text-white shadow-md' : 'text-scada-muted hover:text-scada-text hover:bg-scada-hover'}`}>{option}</button>)}
+          {(['today', 'week', 'month'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-power-range-${option}`} className={`rounded-md px-3 py-1 text-[11px] font-bold capitalize transition-all focus-ring ${range === option ? 'bg-[var(--scada-accent)] text-white shadow-md' : 'text-scada-muted hover:text-scada-text hover:bg-scada-hover'}`}>{option}</button>)}
         </div>
       </div>
       <div className="mb-5 relative z-10">
@@ -1986,8 +1986,8 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
           <AreaChart data={powerTrendByRange[range]} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--scada-border)" vertical={false} opacity={0.5} />
             <XAxis dataKey="time" hide />
-            <Tooltip cursor={{ stroke: '#FF5C00', strokeDasharray: '3 3', strokeWidth: 1.5 }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`, 'Plant power']} labelFormatter={(label) => `${range === 'today' ? 'Time' : 'Period'}: ${label}`} />
-            <Area type="monotone" dataKey="power" stroke="#FF5C00" strokeWidth={3} fill="#FF5C00" fillOpacity={0.16} activeDot={{ r: 6, stroke: '#090B13', strokeWidth: 3, fill: '#FF5C00' }} isAnimationActive={false} />
+            <Tooltip cursor={{ stroke: 'var(--scada-accent)', strokeDasharray: '3 3', strokeWidth: 1.5 }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`, 'Plant power']} labelFormatter={(label) => `${range === 'today' ? 'Time' : 'Period'}: ${label}`} />
+            <Area type="monotone" dataKey="power" stroke="var(--scada-accent)" strokeWidth={3} fill="var(--scada-accent)" fillOpacity={0.16} activeDot={{ r: 6, stroke: 'var(--scada-surface)', strokeWidth: 3, fill: 'var(--scada-accent)' }} isAnimationActive={false} />
          </AreaChart>
           </ResponsiveContainer> : hasRawValue ? (
             <div data-testid="panel-power-raw-snapshot" className="flex h-full min-h-[140px] flex-col justify-center gap-4 rounded-lg border border-dashed border-orange-500/30 bg-orange-500/[0.03] px-5">
@@ -2012,7 +2012,7 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
         <span>00:00</span>
         <span>06:00</span>
         <span>12:00</span>
-        <span className="text-[#FF5C00]">NOW</span>
+        <span className="text-scada-accent">NOW</span>
         <span>24:00</span>
       </div>
     </div>
@@ -3038,8 +3038,8 @@ function ScadaCredentialLogin({ onSignedIn }: { onSignedIn: () => void }) {
   };
 
   return (
-    <section aria-labelledby="scada-sign-in-title" className="grid min-h-[60vh] place-items-center p-3 text-center sm:p-8">
-      <form onSubmit={submit} className="scada-interactive-card w-full max-w-md rounded-2xl border border-[var(--scada-border)] bg-[var(--scada-surface)] p-4 text-left shadow-[var(--scada-shadow)] sm:p-8">
+    <section aria-labelledby="scada-sign-in-title" className="scada-auth-gate grid min-h-[60vh] place-items-center p-3 text-center sm:p-8">
+      <form onSubmit={submit} className="scada-auth-card scada-interactive-card w-full max-w-md rounded-2xl border border-[var(--scada-border)] bg-[var(--scada-surface)] p-4 text-left shadow-[var(--scada-shadow)] sm:p-8">
         <div className="flex flex-col items-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[color-mix(in_srgb,var(--scada-accent)_25%,transparent)] bg-[var(--scada-accent-soft)] text-[var(--scada-accent)]">
             <MapPin size={28} aria-hidden="true" />
