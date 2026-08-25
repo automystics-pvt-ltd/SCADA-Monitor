@@ -3064,9 +3064,10 @@ function AppShell() {
           acceptConfirmedSnapshot(snapshot, activeSite);
           setSavedSnapshotLoadState('ready');
         } else {
-          clearConfirmedSnapshotCache(localStorage, activeSite);
-          setSavedKpiSnapshot(null);
-          setSavedSnapshotLoadState('empty');
+          // A missing or malformed refresh response is not evidence that a
+          // previously confirmed record disappeared. Keep the last saved
+          // record visible until a newer valid snapshot is confirmed.
+          setSavedSnapshotLoadState(cachedSnapshot ? 'ready' : 'empty');
         }
       } catch (loadError) {
         if (controller.signal.aborted) return;
