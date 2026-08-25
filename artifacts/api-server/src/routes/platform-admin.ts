@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, asc, count, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { Router, type IRouter, type Request } from "express";
 import {
   CreatePlatformOrganizationBody,
@@ -8,6 +8,8 @@ import {
   CreatePlatformSiteResponse,
   CreatePlatformTelemetryTestBody,
   CreatePlatformTelemetryTestResponse,
+  CreatePlatformUserBody,
+  CreatePlatformUserResponse,
   BrowsePlatformDatabaseTableBody,
   BrowsePlatformDatabaseTableResponse,
   GetPlatformDatabaseHealthResponse,
@@ -31,12 +33,21 @@ import {
   UpdatePlatformSiteActivationResponse,
   UpdatePlatformMqttConfigBody,
   UpdatePlatformMqttConfigResponse,
+  UpdatePlatformRolePermissionsBody,
+  UpdatePlatformRolePermissionsResponse,
+  UpdatePlatformUserBody,
+  UpdatePlatformUserResponse,
+  UpdatePlatformUserStatusBody,
+  UpdatePlatformUserStatusResponse,
 } from "@workspace/api-zod";
 import {
   db,
   plantLocationsTable,
   platformAuditEventsTable,
+  platformAdminIdentitiesTable,
+  platformAdminSessionsTable,
   platformConfigurationTable,
+  platformOrganizationAccessTable,
   platformOrganizationsTable,
   platformSiteAccessTable,
   platformSitesTable,
@@ -64,6 +75,7 @@ import {
   requirePlatformAdmin,
   type PlatformAdminPrincipal,
 } from "../middlewares/platformAdminAuthorization";
+import { rolePermissions, type RolePermissionsConfig, type ScadaPermission } from "../middlewares/platformSiteAccessPolicy";
 
 const router: IRouter = Router();
 
@@ -122,6 +134,106 @@ function platformSiteResponse(
     lastTelemetryTestedAt: latestTest?.finishedAt ?? null,
     lastTelemetryTestResult: latestTest?.result ?? null,
   };
+}
+
+type ScadaRole = "viewer" | "operator" | "site-engineer" | "site-admin";
+
+function requestedRole(value: string): ScadaRole {
+  return value === "operator" || value === "site-engineer" || value === "site-admin" ? value : "viewer";
+}
+
+function uniqueIds(values: string[] | undefined) {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function rolePermissionsResponse(config?: RolePermissionsConfig) {
+  return {
+    viewerPermissions: [...rolePermissions("viewer", config)],
+    operatorPermissions: [...rolePermissions("operator", config)],
+    siteEngineerPermissions: [...rolePermissions("site-engineer", config)],
+    siteAdminPermissions: [...rolePermissions("site-admin", config)],
+  };
+}
+
+function parseRolePermissions(value: unknown): RolePermissionsConfig | undefined {
+  if (!hasRecord(value)) return undefined;
+  const allowed = new Set<ScadaPermission>([
+    "dashboard", "live-monitoring", "inverter-details", "electrical-parameters", "energy-analytics", "mppt-strings",
+    "alarms-faults", "historical-data", "scada-reports", "data-export", "site-configuration", "device-configuration", "user-management",
+  ]);
+  const parse = (role: "viewer" | "operator" | "site-engineer" | "site-admin") =>
+    Array.isArray(value[role]) ? value[role].filter((permission): permission is ScadaPermission => typeof permission === "string" && allowed.has(permission as ScadaPermission)) : undefined;
+  return { viewer: parse("viewer"), operator: parse("operator"), "site-engineer": parse("site-engineer"), "site-admin": parse("site-admin") };
+}
+
+async function currentRolePermissions() {
+  const [saved] = await db.select({ value: platformConfigurationTable.value })
+    .from(platformConfigurationTable)
+    .where(eq(platformConfigurationTable.key, "role-permissions"))
+    .limit(1);
+  return parseRolePermissions(saved?.value);
+}
+
+async function platformUserPayload(userId: string) {
+  const [[user], memberships, grants] = await Promise.all([
+    db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1),
+    db.select({
+      organizationId: platformOrganizationAccessTable.organizationId,
+      organizationName: platformOrganizationsTable.name,
+      status: platformOrganizationAccessTable.status,
+    }).from(platformOrganizationAccessTable)
+      .innerJoin(platformOrganizationsTable, eq(platformOrganizationAccessTable.organizationId, platformOrganizationsTable.id))
+      .where(eq(platformOrganizationAccessTable.userId, userId))
+      .orderBy(asc(platformOrganizationsTable.name)),
+    db.select({
+      userId: platformSiteAccessTable.userId,
+      siteName: platformSiteAccessTable.siteName,
+      organizationId: platformSitesTable.organizationId,
+      role: platformSiteAccessTable.role,
+      status: platformSiteAccessTable.status,
+    }).from(platformSiteAccessTable)
+      .innerJoin(platformSitesTable, eq(platformSiteAccessTable.siteName, platformSitesTable.siteName))
+      .where(eq(platformSiteAccessTable.userId, userId))
+      .orderBy(asc(platformSiteAccessTable.siteName)),
+  ]);
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "Unnamed SCADA user",
+    firstName: user.firstName,
+    lastName: user.lastName,
+    accountStatus: user.accountStatus,
+    organizations: memberships.map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName,
+      status: membership.status,
+    })),
+    access: grants.map((grant) => ({
+      userId: grant.userId,
+      siteName: grant.siteName,
+      organizationId: grant.organizationId,
+      role: requestedRole(grant.role),
+      status: grant.status,
+    })),
+  };
+}
+
+async function validateAssignments(organizationIds: string[], siteAccess: Array<{ siteName: string; role: ScadaRole }>) {
+  const requestedSiteNames = uniqueIds(siteAccess.map((grant) => grant.siteName));
+  const organizations = organizationIds.length
+    ? await db.select().from(platformOrganizationsTable).where(inArray(platformOrganizationsTable.id, organizationIds))
+    : [];
+  const sites = requestedSiteNames.length
+    ? await db.select().from(platformSitesTable).where(inArray(platformSitesTable.siteName, requestedSiteNames))
+    : [];
+  if (organizations.length !== organizationIds.length || organizations.some((organization) => organization.status !== "active")) {
+    throw new Error("Choose active organizations for this user.");
+  }
+  if (sites.length !== requestedSiteNames.length || sites.some((site) => site.status !== "active")) {
+    throw new Error("Choose active managed sites for this user.");
+  }
+  return { completeOrganizationIds: uniqueIds([...organizationIds, ...sites.map((site) => site.organizationId)]) };
 }
 
 async function brokerConfiguration(): Promise<MqttConfig> {
@@ -303,6 +415,14 @@ router.post("/platform-admin/sites", async (req: Request, res): Promise<void> =>
         target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
         set: { role: "site-admin", status: "active", updatedAt: new Date() },
       });
+      await tx.insert(platformOrganizationAccessTable).values({
+        userId: req.platformAdmin!.userId,
+        organizationId: createdSite.organizationId,
+        status: "active",
+      }).onConflictDoUpdate({
+        target: [platformOrganizationAccessTable.userId, platformOrganizationAccessTable.organizationId],
+        set: { status: "active", updatedAt: new Date() },
+      });
       return createdSite;
     });
     await audit(req.platformAdmin!, "site.created", "site", site.siteName, {
@@ -455,28 +575,204 @@ router.post("/platform-admin/sites/activation", async (req: Request, res): Promi
 });
 
 router.get("/platform-admin/users", async (_req, res): Promise<void> => {
-  const [users, access] = await Promise.all([
-    db.select().from(usersTable).orderBy(asc(usersTable.email)),
-    db.select().from(platformSiteAccessTable).orderBy(asc(platformSiteAccessTable.siteName)),
-  ]);
-  const accessByUser = new Map<string, typeof access>();
-  for (const grant of access) {
-    const grants = accessByUser.get(grant.userId) ?? [];
-    grants.push(grant);
-    accessByUser.set(grant.userId, grants);
+  const users = await db.select({ id: usersTable.id }).from(usersTable).orderBy(asc(usersTable.email));
+  const payloads = (await Promise.all(users.map((user) => platformUserPayload(user.id)))).filter((user): user is NonNullable<typeof user> => Boolean(user));
+  res.json(ListPlatformUsersResponse.parse(payloads));
+});
+
+router.post("/platform-admin/users", async (req: Request, res): Promise<void> => {
+  const data = CreatePlatformUserBody.parse(req.body);
+  const email = data.email.trim().toLowerCase();
+  const organizationIds = uniqueIds(data.organizationIds);
+  const siteAccess = (data.siteAccess ?? []).map((grant) => ({ siteName: grant.siteName.trim(), role: requestedRole(grant.role) }));
+  if (new Set(siteAccess.map((grant) => grant.siteName)).size !== siteAccess.length) {
+    res.status(400).json({ error: "Assign each site only once; update its role in the existing assignment." });
+    return;
   }
-  res.json(ListPlatformUsersResponse.parse(users.map((user) => ({
-    id: user.id,
-    email: user.email,
-    name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "Unnamed SCADA user",
-    access: (accessByUser.get(user.id) ?? []).map((grant) => ({
-      userId: grant.userId,
-      siteName: grant.siteName,
-      organizationId: "",
-      role: grant.role,
-      status: grant.status,
-    })),
-  }))));
+  const [existing] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email)).limit(1);
+  if (existing) {
+    res.status(409).json({ error: "A SCADA user with this email already exists. Use Manage to update their access." });
+    return;
+  }
+  try {
+    const assignments = await validateAssignments(organizationIds, siteAccess);
+    const [created] = await db.transaction(async (tx) => {
+      const [user] = await tx.insert(usersTable).values({
+        email,
+        firstName: data.firstName?.trim() || null,
+        lastName: data.lastName?.trim() || null,
+        accountStatus: "inactive",
+      }).returning();
+      if (assignments.completeOrganizationIds.length) {
+        await tx.insert(platformOrganizationAccessTable).values(assignments.completeOrganizationIds.map((organizationId) => ({
+          userId: user.id,
+          organizationId,
+          status: "active" as const,
+        })));
+      }
+      if (siteAccess.length) {
+        await tx.insert(platformSiteAccessTable).values(siteAccess.map((grant) => ({
+          userId: user.id,
+          siteName: grant.siteName,
+          role: grant.role,
+          status: "active" as const,
+        })));
+      }
+      return [user];
+    });
+    const payload = await platformUserPayload(created.id);
+    if (!payload) throw new Error("Provisioned user could not be loaded.");
+    await audit(req.platformAdmin!, "user.provisioned", "user", created.id, {
+      email,
+      organizationCount: payload.organizations.length,
+      siteGrantCount: payload.access.length,
+    });
+    res.status(201).json(CreatePlatformUserResponse.parse(payload));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The SCADA user could not be provisioned.";
+    res.status(message.includes("Choose active") ? 400 : 500).json({ error: message });
+  }
+});
+
+router.patch("/platform-admin/users", async (req: Request, res): Promise<void> => {
+  const data = UpdatePlatformUserBody.parse(req.body);
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, data.userId)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: "Choose an existing SCADA user." });
+    return;
+  }
+  const organizationIds = data.organizationIds === undefined ? undefined : uniqueIds(data.organizationIds);
+  const siteAccess = data.siteAccess === undefined ? undefined : data.siteAccess.map((grant) => ({ siteName: grant.siteName.trim(), role: requestedRole(grant.role) }));
+  if (siteAccess && new Set(siteAccess.map((grant) => grant.siteName)).size !== siteAccess.length) {
+    res.status(400).json({ error: "Assign each site only once; update its role in the existing assignment." });
+    return;
+  }
+  try {
+    let completeOrganizationIds = organizationIds;
+    if (organizationIds !== undefined || siteAccess !== undefined) {
+      const existingGrants = siteAccess === undefined
+        ? await db.select({ siteName: platformSiteAccessTable.siteName, role: platformSiteAccessTable.role }).from(platformSiteAccessTable)
+          .where(and(eq(platformSiteAccessTable.userId, user.id), eq(platformSiteAccessTable.status, "active")))
+        : siteAccess;
+      const assignments = await validateAssignments(organizationIds ?? [], existingGrants.map((grant) => ({ siteName: grant.siteName, role: requestedRole(grant.role) })));
+      completeOrganizationIds = assignments.completeOrganizationIds;
+    }
+    await db.transaction(async (tx) => {
+      await tx.update(usersTable).set({
+        firstName: data.firstName === undefined ? user.firstName : data.firstName.trim() || null,
+        lastName: data.lastName === undefined ? user.lastName : data.lastName.trim() || null,
+        updatedAt: new Date(),
+      }).where(eq(usersTable.id, user.id));
+      if (completeOrganizationIds !== undefined) {
+        await tx.update(platformOrganizationAccessTable).set({ status: "revoked", updatedAt: new Date() })
+          .where(eq(platformOrganizationAccessTable.userId, user.id));
+        if (completeOrganizationIds.length) {
+          for (const organizationId of completeOrganizationIds) {
+            await tx.insert(platformOrganizationAccessTable).values({ userId: user.id, organizationId, status: "active" })
+              .onConflictDoUpdate({
+                target: [platformOrganizationAccessTable.userId, platformOrganizationAccessTable.organizationId],
+                set: { status: "active", updatedAt: new Date() },
+              });
+          }
+        }
+      }
+      if (siteAccess !== undefined) {
+        await tx.update(platformSiteAccessTable).set({ status: "revoked", updatedAt: new Date() })
+          .where(eq(platformSiteAccessTable.userId, user.id));
+        for (const grant of siteAccess) {
+          await tx.insert(platformSiteAccessTable).values({ userId: user.id, siteName: grant.siteName, role: grant.role, status: "active" })
+            .onConflictDoUpdate({
+              target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
+              set: { role: grant.role, status: "active", updatedAt: new Date() },
+            });
+        }
+      }
+    });
+    const payload = await platformUserPayload(user.id);
+    if (!payload) throw new Error("Updated user could not be loaded.");
+    await audit(req.platformAdmin!, "user.updated", "user", user.id, {
+      organizationCount: payload.organizations.filter((organization) => organization.status === "active").length,
+      siteGrantCount: payload.access.filter((grant) => grant.status === "active").length,
+    });
+    res.json(UpdatePlatformUserResponse.parse(payload));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The SCADA user could not be updated.";
+    res.status(message.includes("Choose active") ? 400 : 500).json({ error: message });
+  }
+});
+
+router.post("/platform-admin/users/status", async (req: Request, res): Promise<void> => {
+  const data = UpdatePlatformUserStatusBody.parse(req.body);
+  if (data.userId === req.platformAdmin!.userId && data.accountStatus !== "active") {
+    res.status(400).json({ error: "You cannot deactivate or delete your own Platform Administrator account." });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, data.userId)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: "Choose an existing SCADA user." });
+    return;
+  }
+  await db.transaction(async (tx) => {
+    await tx.update(usersTable).set({
+      accountStatus: data.accountStatus,
+      deactivatedAt: data.accountStatus === "active" ? null : new Date(),
+      updatedAt: new Date(),
+    }).where(eq(usersTable.id, user.id));
+    if (data.accountStatus === "deleted") {
+      await tx.update(platformSiteAccessTable).set({ status: "revoked", updatedAt: new Date() })
+        .where(eq(platformSiteAccessTable.userId, user.id));
+      await tx.update(platformOrganizationAccessTable).set({ status: "revoked", updatedAt: new Date() })
+        .where(eq(platformOrganizationAccessTable.userId, user.id));
+    }
+    if (data.accountStatus !== "active") {
+      const identities = await tx.select({ id: platformAdminIdentitiesTable.id })
+        .from(platformAdminIdentitiesTable)
+        .where(eq(platformAdminIdentitiesTable.userId, user.id));
+      if (identities.length) {
+        await tx.delete(platformAdminSessionsTable)
+          .where(inArray(platformAdminSessionsTable.adminIdentityId, identities.map((identity) => identity.id)));
+      }
+    }
+  });
+  const payload = await platformUserPayload(user.id);
+  if (!payload) {
+    res.status(500).json({ error: "Updated user could not be loaded." });
+    return;
+  }
+  await audit(req.platformAdmin!, `user.${data.accountStatus}`, "user", user.id, {
+    previousStatus: user.accountStatus,
+    accountStatus: data.accountStatus,
+  });
+  res.json(UpdatePlatformUserStatusResponse.parse(payload));
+});
+
+router.get("/platform-admin/role-permissions", async (_req, res): Promise<void> => {
+  res.json(UpdatePlatformRolePermissionsResponse.parse(rolePermissionsResponse(await currentRolePermissions())));
+});
+
+router.patch("/platform-admin/role-permissions", async (req: Request, res): Promise<void> => {
+  const data = UpdatePlatformRolePermissionsBody.parse(req.body);
+  const value: Required<RolePermissionsConfig> = {
+    viewer: data.viewerPermissions,
+    operator: data.operatorPermissions,
+    "site-engineer": data.siteEngineerPermissions,
+    "site-admin": data.siteAdminPermissions,
+  };
+  await db.insert(platformConfigurationTable).values({
+    key: "role-permissions",
+    value,
+    updatedBy: req.platformAdmin!.userId,
+  }).onConflictDoUpdate({
+    target: platformConfigurationTable.key,
+    set: { value, updatedBy: req.platformAdmin!.userId, updatedAt: new Date() },
+  });
+  await audit(req.platformAdmin!, "role-permissions.updated", "platform-policy", "role-permissions", {
+    viewer: value.viewer.length,
+    operator: value.operator.length,
+    siteEngineer: value["site-engineer"].length,
+    siteAdmin: value["site-admin"].length,
+  });
+  res.json(UpdatePlatformRolePermissionsResponse.parse(rolePermissionsResponse(value)));
 });
 
 router.post("/platform-admin/access", async (req: Request, res): Promise<void> => {
@@ -486,19 +782,34 @@ router.post("/platform-admin/access", async (req: Request, res): Promise<void> =
     res.status(400).json({ error: "Choose a managed site." });
     return;
   }
+  if (site.status !== "active" || site.activationStatus !== "active") {
+    res.status(400).json({ error: "Choose an active site with verified telemetry before granting access." });
+    return;
+  }
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, data.userId)).limit(1);
   if (!user) {
     res.status(400).json({ error: "Choose an existing SCADA user." });
     return;
   }
-  const [grant] = await db.insert(platformSiteAccessTable).values({
-    userId: data.userId,
-    siteName: data.siteName,
-    role: data.role,
-  }).onConflictDoUpdate({
-    target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
-    set: { role: data.role, status: "active", updatedAt: new Date() },
-  }).returning();
+  const grant = await db.transaction(async (tx) => {
+    const [savedGrant] = await tx.insert(platformSiteAccessTable).values({
+      userId: data.userId,
+      siteName: data.siteName,
+      role: data.role,
+    }).onConflictDoUpdate({
+      target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
+      set: { role: data.role, status: "active", updatedAt: new Date() },
+    }).returning();
+    await tx.insert(platformOrganizationAccessTable).values({
+      userId: data.userId,
+      organizationId: site.organizationId,
+      status: "active",
+    }).onConflictDoUpdate({
+      target: [platformOrganizationAccessTable.userId, platformOrganizationAccessTable.organizationId],
+      set: { status: "active", updatedAt: new Date() },
+    });
+    return savedGrant;
+  });
   await audit(req.platformAdmin!, "site-access.granted", "site-access", grant.id, {
     userId: grant.userId,
     siteName: grant.siteName,
@@ -527,15 +838,32 @@ router.patch("/platform-admin/access", async (req: Request, res): Promise<void> 
     res.status(400).json({ error: "Choose an existing SCADA user." });
     return;
   }
-  const [grant] = await db.insert(platformSiteAccessTable).values({
+  if (data.status === "active" && (site[0].status !== "active" || site[0].activationStatus !== "active")) {
+    res.status(400).json({ error: "Choose an active site with verified telemetry before granting access." });
+    return;
+  }
+  const grant = await db.transaction(async (tx) => {
+    const [savedGrant] = await tx.insert(platformSiteAccessTable).values({
     userId: data.userId,
     siteName: data.siteName,
     role: data.role,
     status: data.status,
-  }).onConflictDoUpdate({
-    target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
-    set: { role: data.role, status: data.status, updatedAt: new Date() },
-  }).returning();
+    }).onConflictDoUpdate({
+      target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
+      set: { role: data.role, status: data.status, updatedAt: new Date() },
+    }).returning();
+    if (data.status === "active") {
+      await tx.insert(platformOrganizationAccessTable).values({
+        userId: data.userId,
+        organizationId: site[0].organizationId,
+        status: "active",
+      }).onConflictDoUpdate({
+        target: [platformOrganizationAccessTable.userId, platformOrganizationAccessTable.organizationId],
+        set: { status: "active", updatedAt: new Date() },
+      });
+    }
+    return savedGrant;
+  });
   await audit(req.platformAdmin!, data.status === "revoked" ? "site-access.revoked" : "site-access.updated", "site-access", grant.id, {
     userId: grant.userId,
     siteName: grant.siteName,

@@ -1,0 +1,78 @@
+### Enhanced Prompt — Automatic SCADA Device Data Mapping & Reliable Live Telemetry
+
+The application is receiving **live MQTT device data**, but many parameters are not being reflected correctly across the application, especially in **Inverter Details and other SCADA monitoring sections**. Fix this comprehensively.
+
+This is **live, operational SCADA data**, so every displayed value must be **accurate, traceable, and based directly on the actual parameters received from the connected device**. Do not use placeholder, hard-coded, assumed, or manually fabricated values.
+
+Implement a **fully automatic and scalable device-data discovery and mapping mechanism**.
+
+* Automatically detect every parameter received from the MQTT/Modbus device.
+* Automatically identify the parameter using the incoming `name`, address, source, and available metadata.
+* Automatically map discovered parameters to the appropriate SCADA sections such as:
+
+  * Inverter Overview
+  * Electrical Parameters
+  * Energy
+  * MPPT
+  * String Data
+  * Temperature
+  * Alarms
+  * Faults
+  * Communication
+  * Other relevant categories
+* Do **not require manual parameter mapping for every new device**.
+* Normalize parameter names intelligently while preserving the original device parameter name and source information.
+* Automatically handle newly introduced parameters without requiring application code changes wherever possible.
+* If a parameter cannot be confidently classified, place it into a **Discovered/Other Parameters** section instead of losing or hiding it.
+* Never map one parameter to another incorrectly just because the names appear similar.
+* Preserve the complete source information:
+  **Device → MQTT Topic → Parameter Name → Modbus Address → Actual Value → Unit → Timestamp**
+
+### Live Data Reliability
+
+When a new MQTT device is connected in the future, the system should automatically:
+
+**Connect → Subscribe → Receive → Discover → Validate → Normalize → Auto-Map → Store/Process → Display**
+
+No manual mapping, manual refresh, or application redevelopment should be required for normal newly discovered device parameters.
+
+The live telemetry pipeline must be **continuous and interruption-free**. Prevent unnecessary MQTT reconnects, duplicate subscriptions, dropped messages, duplicate processing, stale frontend state, and data synchronization gaps.
+
+If telemetry is received successfully by the backend/server, the frontend must be able to reflect the corresponding parameter reliably.
+
+### Inverter Details
+
+The **Inverter Details** screen must dynamically populate from the actual device telemetry.
+
+Do not leave sections empty when corresponding parameters are available in the incoming MQTT payload.
+
+For every displayed parameter show:
+
+**Parameter → Actual Value → Unit → Timestamp → Live/Saved Status → Data Quality**
+
+Provide technical traceability through expandable details/tooltips where appropriate.
+
+### Data Accuracy
+
+Implement strong validation before displaying data:
+
+* Correct parameter identification
+* Correct device association
+* Correct timestamp
+* Correct unit/scaling where configured
+* Data-quality validation
+* Duplicate detection
+* Stale-data detection
+* Missing-data handling
+
+If scaling or interpretation is unknown, **do not invent an engineering value**. Preserve the actual received value and clearly indicate that validation/scaling is required.
+
+### Critical Future Requirement
+
+The architecture must be **device-agnostic and scalable**.
+
+When any compatible MQTT/Modbus device is connected in the future, its telemetry should be automatically discovered and reflected throughout the SCADA application based on the parameters it actually provides.
+
+**No manual mapping should be required for every new device or parameter.**
+
+The final result must ensure that **every available live device parameter is captured, correctly understood, automatically mapped, accurately displayed, and traceable back to its source**, while preserving all existing SCADA functionality and the existing MQTT/Modbus architecture.

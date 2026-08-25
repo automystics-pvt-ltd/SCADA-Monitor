@@ -26,7 +26,7 @@ const navigation = [
   { name: "Overview", href: "/", icon: LayoutDashboard },
   { name: "Organizations", href: "/organizations", icon: Building2 },
   { name: "Sites", href: "/sites", icon: MapPin },
-  { name: "Access Grants", href: "/access", icon: Key },
+  { name: "User Access", href: "/access", icon: Key },
   { name: "Platform Health", href: "/platform", icon: Server },
   { name: "Telemetry", href: "/telemetry", icon: Radio },
   { name: "Database", href: "/database", icon: Database },

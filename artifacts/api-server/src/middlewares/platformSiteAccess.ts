@@ -1,13 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import type { Request, Response } from "express";
-import { db, platformSiteAccessTable, platformSitesTable } from "@workspace/db";
-import { canAccessSite, canAccessSiteRole, resolveSiteAccess, type ScadaSiteAccess, type SiteGrant } from "./platformSiteAccessPolicy";
+import { db, platformConfigurationTable, platformSiteAccessTable, platformSitesTable } from "@workspace/db";
+import { canAccessSite, canAccessSitePermission, canAccessSiteRole, resolveSiteAccess, type RolePermissionsConfig, type ScadaPermission, type ScadaSiteAccess, type SiteGrant } from "./platformSiteAccessPolicy";
 
 const globalAccessEnabled = () => process.env.SCADA_ALLOW_GLOBAL_ACCESS === "true";
 
 export async function siteAccess(req: Request): Promise<ScadaSiteAccess> {
   if (!req.isAuthenticated()) return resolveSiteAccess(false, [], globalAccessEnabled());
-  const grants = await db
+  const [grants, configuration] = await Promise.all([
+    db
     .select({
       siteName: platformSiteAccessTable.siteName,
       role: platformSiteAccessTable.role,
@@ -19,12 +20,19 @@ export async function siteAccess(req: Request): Promise<ScadaSiteAccess> {
     .where(and(
       eq(platformSiteAccessTable.userId, req.user.id),
       eq(platformSiteAccessTable.status, "active"),
-    ));
+    )),
+    db.select({ value: platformConfigurationTable.value }).from(platformConfigurationTable).where(eq(platformConfigurationTable.key, "role-permissions")).limit(1),
+  ]);
+  const permissions = configuration[0]?.value && typeof configuration[0].value === "object" && !Array.isArray(configuration[0].value)
+    ? configuration[0].value as RolePermissionsConfig
+    : undefined;
   // Assignment and activation are intentionally separate: return an assigned
   // inactive site so the client can explain its state, while allowGrantedSite
   // remains the single activation-aware gate for all telemetry/evidence routes.
   return resolveSiteAccess(true, grants
-    .map(({ siteName, role, status }) => ({ siteName, role, status })), globalAccessEnabled());
+    .map(({ siteName, role, status }) => ({ siteName, role, status })), globalAccessEnabled(), permissions);
+  // Permission configuration is intentionally loaded with the access query so
+  // every protected request observes the current administrator policy.
 }
 
 export async function grantedSiteNames(req: Request): Promise<Set<string> | null> {
@@ -52,11 +60,18 @@ export async function allowSiteRole(
   req: Request,
   res: Response,
   siteName: string,
-  allowed: Array<"viewer" | "operator" | "site-admin">,
+  allowed: Array<"viewer" | "operator" | "site-engineer" | "site-admin">,
 ) {
   const access = await siteAccess(req);
   if (canAccessSiteRole(access, siteName, allowed)) return true;
   res.status(403).json({ message: `This action requires ${allowed.join(" or ")} access for the selected site.` });
+  return false;
+}
+
+export async function allowSitePermission(req: Request, res: Response, siteName: string, permission: ScadaPermission) {
+  const access = await siteAccess(req);
+  if (canAccessSitePermission(access, siteName, permission)) return true;
+  res.status(403).json({ message: `Your role does not include ${permission} access for the selected site.` });
   return false;
 }
 

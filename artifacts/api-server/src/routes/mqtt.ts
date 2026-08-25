@@ -15,8 +15,7 @@ import {
   plantLocationsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
-import { canUpdatePlantLocation } from "../middlewares/plantLocationAuthorization";
-import { allowGrantedSite, allowSiteRole, allowUnscopedScadaEvidence, grantedSiteNames, siteAccess } from "../middlewares/platformSiteAccess";
+import { allowGrantedSite, allowSitePermission, allowUnscopedScadaEvidence, grantedSiteNames, siteAccess } from "../middlewares/platformSiteAccess";
 import { deviceCommunicationState, heartbeatWindows, latestBootstrapMessages, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
@@ -1743,6 +1742,7 @@ router.get("/mqtt/status", (_req, res) => {
 router.get("/mqtt/snapshots", async (req, res) => {
   const siteName = parseSiteName(req.query.siteName);
   if (siteName && !await allowGrantedSite(req, res, siteName)) return;
+  if (siteName && !await allowSitePermission(req, res, siteName, "historical-data")) return;
   if (!siteName && !await allowUnscopedScadaEvidence(req, res)) return;
   try {
     const inactiveManagedSites = new Set((await db
@@ -1769,11 +1769,12 @@ router.get("/mqtt/snapshots", async (req, res) => {
 
 router.get("/mqtt/snapshots/latest", async (req, res): Promise<void> => {
   const siteName = parseSiteName(req.query.siteName);
-  if (!siteName) {
-    res.status(400).json({ message: "Select one active plant/site before opening saved telemetry evidence." });
+  if (siteName) {
+    if (!await allowGrantedSite(req, res, siteName)) return;
+    if (!await allowSitePermission(req, res, siteName, "historical-data")) return;
+  } else if (!await allowUnscopedScadaEvidence(req, res)) {
     return;
   }
-  if (!await allowGrantedSite(req, res, siteName)) return;
   try {
     const snapshot = await latestSavedSnapshotEvidence(siteName || undefined);
     res.set("Cache-Control", "no-store").json({ snapshot });
@@ -1828,12 +1829,8 @@ router.put("/mqtt/site-locations/:siteName", async (req, res): Promise<void> => 
     res.status(401).json({ message: "Operator sign-in is required to update plant locations." });
     return;
   }
-  if (!canUpdatePlantLocation(req.user, siteName)) {
-    res.status(403).json({ message: "Your operator account is not authorized to update this plant location." });
-    return;
-  }
   if (!await allowGrantedSite(req, res, siteName)) return;
-  if (!await allowSiteRole(req, res, siteName, ["site-admin"])) return;
+  if (!await allowSitePermission(req, res, siteName, "site-configuration")) return;
 
   try {
     const [location] = await db
@@ -1858,6 +1855,7 @@ router.get("/mqtt/calibration-profile", async (req, res): Promise<void> => {
     return;
   }
   if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSitePermission(req, res, siteName, "device-configuration")) return;
   try {
     res.set("Cache-Control", "no-store").json({ profile: await currentPlantCalibrationProfile(siteName) });
   } catch (error) {
@@ -1987,12 +1985,8 @@ router.post("/mqtt/calibration-preview", async (req, res): Promise<void> => {
     res.status(401).json({ message: "Operator sign-in is required to verify calibration mappings against live broker evidence." });
     return;
   }
-  if (!canUpdatePlantLocation(req.user, siteName)) {
-    res.status(403).json({ message: "Your operator account is not authorized to verify calibration mappings for this plant." });
-    return;
-  }
   if (!await allowGrantedSite(req, res, siteName)) return;
-  if (!await allowSiteRole(req, res, siteName, ["operator", "site-admin"])) return;
+  if (!await allowSitePermission(req, res, siteName, "device-configuration")) return;
   const nowMs = Date.now();
   const mappings = requestedSources.map((value: unknown, index: number) => {
     const source = calibrationPreviewSource(value);
@@ -2021,11 +2015,8 @@ router.put("/mqtt/calibration-profile/:siteName", async (req, res): Promise<void
     res.status(401).json({ message: "Operator sign-in is required to approve a plant calibration profile." });
     return;
   }
-  if (!canUpdatePlantLocation(req.user, siteName)) {
-    res.status(403).json({ message: "Your operator account is not authorized to approve this plant calibration profile." });
-    return;
-  }
   if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSitePermission(req, res, siteName, "device-configuration")) return;
   const verification = sources.map((source, index) => previewMapping(source, index, Date.now()));
   if (verification.some((mapping) => mapping.status !== "matched")) {
     res.status(409).json({
@@ -2119,6 +2110,7 @@ router.get("/mqtt/electrical-history", async (req, res) => {
   const siteName = parseSiteName(req.query.siteName);
   if (siteName) {
     if (!await allowGrantedSite(req, res, siteName)) return;
+    if (!await allowSitePermission(req, res, siteName, "electrical-parameters")) return;
   } else if (!await allowUnscopedScadaEvidence(req, res)) return;
   const from = parseRangeBoundary(req.query.from, "start");
   const to = parseRangeBoundary(req.query.to, "end");
@@ -2196,6 +2188,7 @@ router.get("/mqtt/inverter-energy-history", async (req, res): Promise<void> => {
     return;
   }
   if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSitePermission(req, res, siteName, "historical-data")) return;
 
   const { rangeStart, rangeEnd } = energyHistoryRange(period, anchor);
   const samplingInterval = period === "Day" ? "1 minute" : period === "Week" ? "15 minutes" : period === "Month" ? "1 hour" : "1 day";
@@ -2261,6 +2254,7 @@ router.get("/mqtt/inverter-measurements", async (req, res): Promise<void> => {
     return;
   }
   if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSitePermission(req, res, siteName, "historical-data")) return;
 
   const { rangeStart, rangeEnd } = energyHistoryRange(period, anchor);
   try {
@@ -2460,11 +2454,9 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
     }
     siteName = [...granted][0];
   }
-  if (!siteName && granted === null) {
-    res.status(400).json({ message: "Select one active plant/site before requesting a report." });
-    return;
-  }
+  if (!siteName && granted === null && !await allowUnscopedScadaEvidence(req, res)) return;
   if (siteName && !await allowGrantedSite(req, res, siteName)) return;
+  if (siteName && !await allowSitePermission(req, res, siteName, "scada-reports")) return;
   if (granted && !granted.has(siteName)) {
     res.status(403).json({ message: "Your assigned site access does not include this report scope." });
     return;
@@ -2480,6 +2472,7 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
   if (!filters.provenance.length && (reportType === "live" || reportType === "live-data")) filters.provenance = ["live"];
   if (!filters.provenance.length && (reportType === "historical" || reportType === "historical-saved")) filters.provenance = ["latest-saved", "historical-saved"];
   const complete = req.query.complete === "true";
+  if (complete && siteName && !await allowSitePermission(req, res, siteName, "data-export")) return;
   const requestedPage = Number(req.query.page);
   const requestedPageSize = Number(req.query.pageSize);
   const MAX_REPORT_PAGE = 10_000;
@@ -2879,11 +2872,12 @@ function bootstrapMessages(highWater: number) {
 
 router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
   const siteName = parseSiteName(req.query.siteName);
-  if (!siteName) {
-    res.status(400).json({ message: "Select one active plant/site before opening communication evidence." });
+  if (siteName) {
+    if (!await allowGrantedSite(req, res, siteName)) return;
+    if (!await allowSitePermission(req, res, siteName, "live-monitoring")) return;
+  } else if (!await allowUnscopedScadaEvidence(req, res)) {
     return;
   }
-  if (!await allowGrantedSite(req, res, siteName)) return;
   const requestedLimit = Number(req.query.limit);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 200) : 50;
   try {
@@ -2903,11 +2897,12 @@ router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
 
 router.get("/mqtt/stream", async (req, res) => {
   const siteName = parseSiteName(req.query.siteName);
-  if (!siteName) {
-    res.status(400).json({ message: "Select one active plant/site before opening the live telemetry stream." });
+  if (siteName) {
+    if (!await allowGrantedSite(req, res, siteName)) return;
+    if (!await allowSitePermission(req, res, siteName, "live-monitoring")) return;
+  } else if (!await allowUnscopedScadaEvidence(req, res)) {
     return;
   }
-  if (!await allowGrantedSite(req, res, siteName)) return;
   await soleManagedSiteForConfiguredFallback();
   requestMqttConsumer();
   res.setHeader("Content-Type", "text/event-stream");

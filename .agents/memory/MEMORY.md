@@ -16,3 +16,4 @@
 - [Bounded report evidence queries](bounded-report-evidence-queries.md) — Preview pages, totals, and charts must derive from one filtered database relation; exports use a deliberate complete path.
 - [Live MQTT configuration applies](live-mqtt-configuration-applies.md) — Swap candidates only after subscription confirmation; retain staged settings and restore the last working runtime on failure.
 - [Zod parameter codegen limitation](zod-parameter-codegen-limitation.md) — Route parameter schemas can collide with generated API validators; prefer typed request bodies where this generator cannot export both.
+- [Platform admin identity lifecycle](platform-admin-identity-lifecycle.md) — Match OIDC admins to pre-provisioned email records and never silently restore disabled access.

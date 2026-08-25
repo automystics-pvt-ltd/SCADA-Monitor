@@ -220,11 +220,44 @@ export interface PlatformTelemetryTest {
   evidence: PlatformTelemetryTestEvidence;
 }
 
+export type PlatformUserAccountStatus = typeof PlatformUserAccountStatus[keyof typeof PlatformUserAccountStatus];
+
+
+export const PlatformUserAccountStatus = {
+  active: 'active',
+  inactive: 'inactive',
+  deleted: 'deleted',
+} as const;
+
+export type PlatformOrganizationMembershipStatus = typeof PlatformOrganizationMembershipStatus[keyof typeof PlatformOrganizationMembershipStatus];
+
+
+export const PlatformOrganizationMembershipStatus = {
+  active: 'active',
+  revoked: 'revoked',
+} as const;
+
+export interface PlatformOrganizationMembership {
+  organizationId: string;
+  organizationName: string;
+  status: PlatformOrganizationMembershipStatus;
+}
+
+export type PlatformRole = typeof PlatformRole[keyof typeof PlatformRole];
+
+
+export const PlatformRole = {
+  viewer: 'viewer',
+  operator: 'operator',
+  'site-engineer': 'site-engineer',
+  'site-admin': 'site-admin',
+} as const;
+
 export interface PlatformSiteAccess {
   userId: string;
   siteName: string;
   organizationId: string;
-  role: string;
+  role: PlatformRole;
   status: string;
 }
 
@@ -233,22 +266,96 @@ export interface PlatformUser {
   /** @nullable */
   email: string | null;
   name: string;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+  accountStatus: PlatformUserAccountStatus;
+  organizations: PlatformOrganizationMembership[];
   access: PlatformSiteAccess[];
 }
 
-export type PlatformSiteAccessInputRole = typeof PlatformSiteAccessInputRole[keyof typeof PlatformSiteAccessInputRole];
+export type ScadaPermission = typeof ScadaPermission[keyof typeof ScadaPermission];
 
 
-export const PlatformSiteAccessInputRole = {
-  viewer: 'viewer',
-  operator: 'operator',
-  'site-admin': 'site-admin',
+export const ScadaPermission = {
+  dashboard: 'dashboard',
+  'live-monitoring': 'live-monitoring',
+  'inverter-details': 'inverter-details',
+  'electrical-parameters': 'electrical-parameters',
+  'energy-analytics': 'energy-analytics',
+  'mppt-strings': 'mppt-strings',
+  'alarms-faults': 'alarms-faults',
+  'historical-data': 'historical-data',
+  'scada-reports': 'scada-reports',
+  'data-export': 'data-export',
+  'site-configuration': 'site-configuration',
+  'device-configuration': 'device-configuration',
+  'user-management': 'user-management',
 } as const;
+
+export interface PlatformUserSiteAssignment {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  siteName: string;
+  role: PlatformRole;
+}
+
+export interface PlatformUserInput {
+  /**
+     * @maxLength 320
+     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+     */
+  email: string;
+  /** @maxLength 120 */
+  firstName?: string;
+  /** @maxLength 120 */
+  lastName?: string;
+  /** @maxItems 50 */
+  organizationIds?: string[];
+  /** @maxItems 100 */
+  siteAccess?: PlatformUserSiteAssignment[];
+}
+
+export interface PlatformUserUpdateInput {
+  userId: string;
+  /** @maxLength 120 */
+  firstName?: string;
+  /** @maxLength 120 */
+  lastName?: string;
+  /** @maxItems 50 */
+  organizationIds?: string[];
+  /** @maxItems 100 */
+  siteAccess?: PlatformUserSiteAssignment[];
+}
+
+export type PlatformUserStatusInputAccountStatus = typeof PlatformUserStatusInputAccountStatus[keyof typeof PlatformUserStatusInputAccountStatus];
+
+
+export const PlatformUserStatusInputAccountStatus = {
+  active: 'active',
+  inactive: 'inactive',
+  deleted: 'deleted',
+} as const;
+
+export interface PlatformUserStatusInput {
+  userId: string;
+  accountStatus: PlatformUserStatusInputAccountStatus;
+}
+
+export interface PlatformRolePermissions {
+  viewerPermissions: ScadaPermission[];
+  operatorPermissions: ScadaPermission[];
+  siteEngineerPermissions: ScadaPermission[];
+  siteAdminPermissions: ScadaPermission[];
+}
 
 export interface PlatformSiteAccessInput {
   userId: string;
   siteName: string;
-  role: PlatformSiteAccessInputRole;
+  role: PlatformRole;
 }
 
 export interface PlatformMqttConfigInput {
@@ -274,15 +381,6 @@ export interface PlatformMqttConfigInput {
   timezone: string;
 }
 
-export type PlatformSiteAccessUpdateInputRole = typeof PlatformSiteAccessUpdateInputRole[keyof typeof PlatformSiteAccessUpdateInputRole];
-
-
-export const PlatformSiteAccessUpdateInputRole = {
-  viewer: 'viewer',
-  operator: 'operator',
-  'site-admin': 'site-admin',
-} as const;
-
 export type PlatformSiteAccessUpdateInputStatus = typeof PlatformSiteAccessUpdateInputStatus[keyof typeof PlatformSiteAccessUpdateInputStatus];
 
 
@@ -294,7 +392,7 @@ export const PlatformSiteAccessUpdateInputStatus = {
 export interface PlatformSiteAccessUpdateInput {
   userId: string;
   siteName: string;
-  role: PlatformSiteAccessUpdateInputRole;
+  role: PlatformRole;
   status: PlatformSiteAccessUpdateInputStatus;
 }
 

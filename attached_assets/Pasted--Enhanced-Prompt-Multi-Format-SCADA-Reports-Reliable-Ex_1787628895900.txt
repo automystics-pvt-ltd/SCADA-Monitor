@@ -1,0 +1,102 @@
+### Enhanced Prompt — Multi-Format SCADA Reports & Reliable Export
+
+Ensure the **SCADA Reports module supports all required export formats reliably**, with special priority given to **PDF generation**. Every export option must be fully functional, accurate, professionally formatted, and consistent with the report preview.
+
+Support:
+
+* **PDF (.pdf)**
+* **Excel (.xlsx)**
+* **CSV (.csv)**
+* **JSON (.json)**
+
+### Export Accuracy
+
+Every exported file must contain the **exact filtered SCADA data displayed in the report**, including:
+
+**Plant/Site → Device/Inverter → Parameter → Actual Value → Unit → Timestamp → Status → Data Quality → Source**
+
+Do not modify, approximate, fabricate, truncate, or silently omit values during export.
+
+### PDF — Highest Priority
+
+The PDF must be **professionally designed, customer-ready, and production-grade**, not a basic browser print/export.
+
+Ensure:
+
+* Professional Solar SCADA branding
+* Plant/site information
+* Report title and report type
+* Applied filters
+* Date/time range
+* KPI summary
+* SCADA monitoring charts
+* Detailed parameter tables
+* Inverter/device information
+* Electrical/energy data
+* MPPT/string information where applicable
+* Alarm/fault information
+* Communication status
+* Data quality
+* Actual timestamps
+* Page numbers
+* Headers and footers
+* **Powered by Automystics Technologies Pvt Ltd.**
+* Proper page breaks
+* Repeated table headers across pages
+* Correct landscape/portrait orientation based on report content
+* No overlapping elements
+* No cut-off text
+* No clipped charts
+* No broken tables
+* No missing columns
+* Correct units and number formatting
+* High-quality charts and graphics
+
+For large datasets, automatically handle **pagination, table splitting, page breaks, and long reports** without corrupting the layout.
+
+### Excel
+
+Generate properly structured `.xlsx` reports with:
+
+* Separate logical sections/sheets where appropriate
+* Correct column headers
+* Actual values and units
+* Timestamps
+* Filters
+* Proper column widths
+* Frozen headers
+* Readable formatting
+* No truncated data
+
+### CSV
+
+Generate clean, machine-readable CSV files containing the complete filtered dataset with correct:
+
+* Headers
+* Values
+* Units
+* Timestamps
+* Device identifiers
+* Parameter names
+
+### JSON
+
+Generate valid, well-structured JSON preserving the complete SCADA data hierarchy and metadata, including:
+
+**Site → Device → Parameter → Actual Value → Unit → Timestamp → Quality → Source**
+
+### Critical Export Validation
+
+Before generating the download, validate that:
+
+**Report Preview = Exported Data**
+
+No records should disappear, duplicate, change value, or become incorrectly formatted during export.
+
+If an export fails, show a clear error and allow the user to retry instead of generating a corrupted or incomplete file.
+
+All export operations must work smoothly with **small and large datasets**, custom filters, multiple devices, long date ranges, and detailed SCADA reports.
+
+**Most importantly, PDF export must be treated as a first-class reporting feature with a premium professional SCADA report design, not as a simple HTML-to-PDF conversion.**
+
+Do not affect the existing SCADA monitoring, MQTT/Modbus communication, data-saving logic, dashboard, authentication, or other functionality while implementing these export improvements.

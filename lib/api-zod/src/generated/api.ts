@@ -247,15 +247,184 @@ export const ListPlatformUsersResponseItem = zod.object({
   "id": zod.string(),
   "email": zod.string().nullable(),
   "name": zod.string(),
+  "firstName": zod.string().nullable(),
+  "lastName": zod.string().nullable(),
+  "accountStatus": zod.enum(['active', 'inactive', 'deleted']),
+  "organizations": zod.array(zod.object({
+  "organizationId": zod.string(),
+  "organizationName": zod.string(),
+  "status": zod.enum(['active', 'revoked'])
+})),
   "access": zod.array(zod.object({
   "userId": zod.string(),
   "siteName": zod.string(),
   "organizationId": zod.string(),
-  "role": zod.string(),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin']),
   "status": zod.string()
 }))
 })
 export const ListPlatformUsersResponse = zod.array(ListPlatformUsersResponseItem)
+
+
+/**
+ * @summary Provision a SCADA user with organization and site assignments
+ */
+export const createPlatformUserBodyEmailMax = 320;
+
+
+export const createPlatformUserBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+export const createPlatformUserBodyFirstNameMax = 120;
+
+export const createPlatformUserBodyLastNameMax = 120;
+
+export const createPlatformUserBodyOrganizationIdsMax = 50;
+
+export const createPlatformUserBodySiteAccessItemSiteNameMin = 2;
+export const createPlatformUserBodySiteAccessItemSiteNameMax = 160;
+
+export const createPlatformUserBodySiteAccessMax = 100;
+
+
+
+export const CreatePlatformUserBody = zod.object({
+  "email": zod.string().max(createPlatformUserBodyEmailMax).regex(createPlatformUserBodyEmailRegExp),
+  "firstName": zod.string().max(createPlatformUserBodyFirstNameMax).optional(),
+  "lastName": zod.string().max(createPlatformUserBodyLastNameMax).optional(),
+  "organizationIds": zod.array(zod.string()).max(createPlatformUserBodyOrganizationIdsMax).optional(),
+  "siteAccess": zod.array(zod.object({
+  "siteName": zod.string().min(createPlatformUserBodySiteAccessItemSiteNameMin).max(createPlatformUserBodySiteAccessItemSiteNameMax),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin'])
+})).max(createPlatformUserBodySiteAccessMax).optional()
+})
+
+export const CreatePlatformUserResponse = zod.object({
+  "id": zod.string(),
+  "email": zod.string().nullable(),
+  "name": zod.string(),
+  "firstName": zod.string().nullable(),
+  "lastName": zod.string().nullable(),
+  "accountStatus": zod.enum(['active', 'inactive', 'deleted']),
+  "organizations": zod.array(zod.object({
+  "organizationId": zod.string(),
+  "organizationName": zod.string(),
+  "status": zod.enum(['active', 'revoked'])
+})),
+  "access": zod.array(zod.object({
+  "userId": zod.string(),
+  "siteName": zod.string(),
+  "organizationId": zod.string(),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin']),
+  "status": zod.string()
+}))
+})
+
+
+/**
+ * @summary Update a SCADA user profile and assignments
+ */
+export const updatePlatformUserBodyFirstNameMax = 120;
+
+export const updatePlatformUserBodyLastNameMax = 120;
+
+export const updatePlatformUserBodyOrganizationIdsMax = 50;
+
+export const updatePlatformUserBodySiteAccessItemSiteNameMin = 2;
+export const updatePlatformUserBodySiteAccessItemSiteNameMax = 160;
+
+export const updatePlatformUserBodySiteAccessMax = 100;
+
+
+
+export const UpdatePlatformUserBody = zod.object({
+  "userId": zod.string(),
+  "firstName": zod.string().max(updatePlatformUserBodyFirstNameMax).optional(),
+  "lastName": zod.string().max(updatePlatformUserBodyLastNameMax).optional(),
+  "organizationIds": zod.array(zod.string()).max(updatePlatformUserBodyOrganizationIdsMax).optional(),
+  "siteAccess": zod.array(zod.object({
+  "siteName": zod.string().min(updatePlatformUserBodySiteAccessItemSiteNameMin).max(updatePlatformUserBodySiteAccessItemSiteNameMax),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin'])
+})).max(updatePlatformUserBodySiteAccessMax).optional()
+})
+
+export const UpdatePlatformUserResponse = zod.object({
+  "id": zod.string(),
+  "email": zod.string().nullable(),
+  "name": zod.string(),
+  "firstName": zod.string().nullable(),
+  "lastName": zod.string().nullable(),
+  "accountStatus": zod.enum(['active', 'inactive', 'deleted']),
+  "organizations": zod.array(zod.object({
+  "organizationId": zod.string(),
+  "organizationName": zod.string(),
+  "status": zod.enum(['active', 'revoked'])
+})),
+  "access": zod.array(zod.object({
+  "userId": zod.string(),
+  "siteName": zod.string(),
+  "organizationId": zod.string(),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin']),
+  "status": zod.string()
+}))
+})
+
+
+/**
+ * @summary Activate, deactivate, delete, or recover a SCADA account
+ */
+export const UpdatePlatformUserStatusBody = zod.object({
+  "userId": zod.string(),
+  "accountStatus": zod.enum(['active', 'inactive', 'deleted'])
+})
+
+export const UpdatePlatformUserStatusResponse = zod.object({
+  "id": zod.string(),
+  "email": zod.string().nullable(),
+  "name": zod.string(),
+  "firstName": zod.string().nullable(),
+  "lastName": zod.string().nullable(),
+  "accountStatus": zod.enum(['active', 'inactive', 'deleted']),
+  "organizations": zod.array(zod.object({
+  "organizationId": zod.string(),
+  "organizationName": zod.string(),
+  "status": zod.enum(['active', 'revoked'])
+})),
+  "access": zod.array(zod.object({
+  "userId": zod.string(),
+  "siteName": zod.string(),
+  "organizationId": zod.string(),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin']),
+  "status": zod.string()
+}))
+})
+
+
+/**
+ * @summary Get configurable SCADA role permissions
+ */
+export const GetPlatformRolePermissionsResponse = zod.object({
+  "viewerPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "operatorPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "siteEngineerPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "siteAdminPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management']))
+})
+
+
+/**
+ * @summary Update configurable SCADA role permissions
+ */
+export const UpdatePlatformRolePermissionsBody = zod.object({
+  "viewerPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "operatorPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "siteEngineerPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "siteAdminPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management']))
+})
+
+export const UpdatePlatformRolePermissionsResponse = zod.object({
+  "viewerPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "operatorPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "siteEngineerPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management'])),
+  "siteAdminPermissions": zod.array(zod.enum(['dashboard', 'live-monitoring', 'inverter-details', 'electrical-parameters', 'energy-analytics', 'mppt-strings', 'alarms-faults', 'historical-data', 'scada-reports', 'data-export', 'site-configuration', 'device-configuration', 'user-management']))
+})
 
 
 /**
@@ -264,14 +433,14 @@ export const ListPlatformUsersResponse = zod.array(ListPlatformUsersResponseItem
 export const GrantPlatformSiteAccessBody = zod.object({
   "userId": zod.string(),
   "siteName": zod.string(),
-  "role": zod.enum(['viewer', 'operator', 'site-admin'])
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin'])
 })
 
 export const GrantPlatformSiteAccessResponse = zod.object({
   "userId": zod.string(),
   "siteName": zod.string(),
   "organizationId": zod.string(),
-  "role": zod.string(),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin']),
   "status": zod.string()
 })
 
@@ -282,7 +451,7 @@ export const GrantPlatformSiteAccessResponse = zod.object({
 export const UpdatePlatformSiteAccessBody = zod.object({
   "userId": zod.string(),
   "siteName": zod.string(),
-  "role": zod.enum(['viewer', 'operator', 'site-admin']),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin']),
   "status": zod.enum(['active', 'revoked'])
 })
 
@@ -290,7 +459,7 @@ export const UpdatePlatformSiteAccessResponse = zod.object({
   "userId": zod.string(),
   "siteName": zod.string(),
   "organizationId": zod.string(),
-  "role": zod.string(),
+  "role": zod.enum(['viewer', 'operator', 'site-engineer', 'site-admin']),
   "status": zod.string()
 })
 

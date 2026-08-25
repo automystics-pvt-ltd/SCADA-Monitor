@@ -6,11 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PlatformRole } from './platformRole';
-import type { PlatformSiteAccessUpdateInputStatus } from './platformSiteAccessUpdateInputStatus';
 
-export interface PlatformSiteAccessUpdateInput {
-  userId: string;
+export interface PlatformUserSiteAssignment {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
   siteName: string;
   role: PlatformRole;
-  status: PlatformSiteAccessUpdateInputStatus;
 }

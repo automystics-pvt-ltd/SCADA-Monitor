@@ -5,12 +5,20 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PlatformOrganizationMembership } from './platformOrganizationMembership';
 import type { PlatformSiteAccess } from './platformSiteAccess';
+import type { PlatformUserAccountStatus } from './platformUserAccountStatus';
 
 export interface PlatformUser {
   id: string;
   /** @nullable */
   email: string | null;
   name: string;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+  accountStatus: PlatformUserAccountStatus;
+  organizations: PlatformOrganizationMembership[];
   access: PlatformSiteAccess[];
 }

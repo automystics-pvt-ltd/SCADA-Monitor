@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canAccessSite, canAccessSiteRole, resolveSiteAccess } from "./platformSiteAccessPolicy.ts";
+import { canAccessSite, canAccessSiteRole, resolveSiteAccess, rolePermissions } from "./platformSiteAccessPolicy.ts";
 import { isPlatformAdmin, platformAdminDenial } from "./platformAuthorizationPolicy.ts";
 import { isAllowedPlatformAdminEmail, safeReturnTo, sessionIdForLogout } from "../routes/platform-admin-auth-policy.ts";
 
@@ -64,4 +64,13 @@ test("grant and revoke state controls site and role access, while legacy global 
   const anonymous = resolveSiteAccess(false, [], true);
   assert.equal(anonymous.sites.size, 0);
   assert.equal(anonymous.global, true);
+});
+
+test("site engineers receive their operational default permissions and an explicit empty policy denies all capabilities", () => {
+  const siteEngineer = resolveSiteAccess(true, [
+    { siteName: "north", role: "site-engineer", status: "active" },
+  ], false);
+  assert.equal(canAccessSiteRole(siteEngineer, "north", ["site-engineer"]), true);
+  assert.equal(rolePermissions("site-engineer").has("device-configuration"), true);
+  assert.equal(rolePermissions("viewer", { viewer: [] }).size, 0);
 });

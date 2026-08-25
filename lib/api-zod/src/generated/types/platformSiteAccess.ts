@@ -5,11 +5,12 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PlatformRole } from './platformRole';
 
 export interface PlatformSiteAccess {
   userId: string;
   siteName: string;
   organizationId: string;
-  role: string;
+  role: PlatformRole;
   status: string;
 }

@@ -10,6 +10,7 @@ export type AuthUser = {
   firstName: string | null;
   lastName: string | null;
   profileImageUrl: string | null;
+  accountStatus?: "active" | "inactive" | "deleted";
 };
 
 export type SessionData = {

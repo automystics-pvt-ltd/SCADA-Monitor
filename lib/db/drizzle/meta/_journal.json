@@ -64,6 +64,13 @@
       "when": 1787625432254,
       "tag": "0008_clear_vargas",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787628816564,
+      "tag": "0009_left_jane_foster",
+      "breakpoints": true
     }
   ]
 }

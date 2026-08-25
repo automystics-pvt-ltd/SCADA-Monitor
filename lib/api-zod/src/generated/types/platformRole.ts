@@ -6,11 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PlatformSiteAccessUpdateInputRole = typeof PlatformSiteAccessUpdateInputRole[keyof typeof PlatformSiteAccessUpdateInputRole];
+export type PlatformRole = typeof PlatformRole[keyof typeof PlatformRole];
 
 
-export const PlatformSiteAccessUpdateInputRole = {
+export const PlatformRole = {
   viewer: 'viewer',
   operator: 'operator',
+  'site-engineer': 'site-engineer',
   'site-admin': 'site-admin',
 } as const;

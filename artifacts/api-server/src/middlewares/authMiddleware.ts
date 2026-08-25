@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import * as oidc from "openid-client";
+import { eq } from "drizzle-orm";
+import { db, usersTable } from "@workspace/db";
 import { clearSession, getOidcConfig, getSession, getSessionId, updateSession, type AuthUser, type SessionData } from "../lib/auth";
 
 declare global {
@@ -51,6 +53,12 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     next();
     return;
   }
-  req.user = refreshed.user;
+  const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, refreshed.user.id)).limit(1);
+  if (!currentUser || currentUser.accountStatus !== "active") {
+    await clearSession(res, sid);
+    next();
+    return;
+  }
+  req.user = currentUser;
   next();
 }

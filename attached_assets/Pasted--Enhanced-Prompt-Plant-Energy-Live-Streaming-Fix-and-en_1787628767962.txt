@@ -1,0 +1,33 @@
+### Enhanced Prompt — Plant Energy Live Streaming
+
+Fix and enable the **Plant Energy Live Streaming** functionality as a critical part of the Solar SCADA application. The energy stream must operate continuously using the **actual live MQTT/Modbus telemetry received from the connected devices**.
+
+The visualization should clearly show the **real-time flow of solar energy generation** so users can immediately understand that the device is communicating correctly and that live data is being received.
+
+* Stream the **actual current plant/inverter power data** into the energy visualization.
+* Update the visualization automatically whenever new valid telemetry arrives.
+* Use the actual device values—**never simulated, hard-coded, estimated, or fabricated data**.
+* Clearly represent the flow such as:
+  **Solar Plant → Inverter → AC Power → Plant Output/Grid**, based only on parameters actually available from the device.
+* Show the **current Actual Value, unit, timestamp, and Live status** alongside the animation where appropriate.
+* If multiple inverters are available, dynamically reflect their contribution to the overall plant energy/power flow.
+* The animation should visibly respond to actual generation levels rather than running as a decorative animation independent of telemetry.
+* If generation is zero, the animation should accurately represent **zero/no generation** rather than pretending energy is flowing.
+* If live telemetry temporarily stops, retain the **latest valid saved record** and clearly indicate that the visualization is showing saved data rather than falsely presenting it as live.
+* Resume live streaming automatically when valid telemetry returns.
+* Ensure the energy stream does not stop because of unrelated MQTT/frontend connection-state issues when valid telemetry is still being received.
+* Avoid unnecessary frontend re-renders that could cause lag or interrupt the streaming visualization.
+
+### Critical SCADA Requirement
+
+The flow visualization must be driven by the actual telemetry pipeline:
+
+**Device → MQTT → Backend → Validate → Actual Power Value → Plant Energy Stream → Dashboard**
+
+It should provide a clear visual confirmation that:
+
+**Device is communicating → Data is arriving → Data is valid → Plant generation is being reflected**
+
+The Plant Energy Stream must remain **smooth, responsive, accurate, lightweight, and continuously synchronized with real SCADA telemetry**, without affecting existing MQTT/Modbus communication, data-saving logic, dashboard functionality, or other application features.
+
+**Do not use decorative animation disconnected from the actual data. The animation itself must represent genuine SCADA plant generation data.**

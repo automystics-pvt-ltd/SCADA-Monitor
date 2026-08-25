@@ -186,6 +186,87 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/PlatformUser"
+    post:
+      operationId: createPlatformUser
+      tags: [platform-admin]
+      summary: Provision a SCADA user with organization and site assignments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformUserInput"
+      responses:
+        "201":
+          description: Provisioned user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUser"
+    patch:
+      operationId: updatePlatformUser
+      tags: [platform-admin]
+      summary: Update a SCADA user profile and assignments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformUserUpdateInput"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUser"
+  /platform-admin/users/status:
+    post:
+      operationId: updatePlatformUserStatus
+      tags: [platform-admin]
+      summary: Activate, deactivate, delete, or recover a SCADA account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformUserStatusInput"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUser"
+  /platform-admin/role-permissions:
+    get:
+      operationId: getPlatformRolePermissions
+      tags: [platform-admin]
+      summary: Get configurable SCADA role permissions
+      responses:
+        "200":
+          description: Role permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformRolePermissions"
+    patch:
+      operationId: updatePlatformRolePermissions
+      tags: [platform-admin]
+      summary: Update configurable SCADA role permissions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformRolePermissions"
+      responses:
+        "200":
+          description: Updated role permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformRolePermissions"
   /platform-admin/access:
     post:
       operationId: grantPlatformSiteAccess
@@ -518,18 +599,104 @@ components:
         id: { type: string }
         email: { type: [string, "null"] }
         name: { type: string }
+        firstName: { type: [string, "null"] }
+        lastName: { type: [string, "null"] }
+        accountStatus: { type: string, enum: [active, inactive, deleted] }
+        organizations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformOrganizationMembership"
         access:
           type: array
           items:
             $ref: "#/components/schemas/PlatformSiteAccess"
-      required: [id, email, name, access]
+      required: [id, email, name, firstName, lastName, accountStatus, organizations, access]
+    PlatformOrganizationMembership:
+      type: object
+      properties:
+        organizationId: { type: string }
+        organizationName: { type: string }
+        status: { type: string, enum: [active, revoked] }
+      required: [organizationId, organizationName, status]
+    PlatformRole:
+      type: string
+      enum: [viewer, operator, site-engineer, site-admin]
+    ScadaPermission:
+      type: string
+      enum: [dashboard, live-monitoring, inverter-details, electrical-parameters, energy-analytics, mppt-strings, alarms-faults, historical-data, scada-reports, data-export, site-configuration, device-configuration, user-management]
+    PlatformUserSiteAssignment:
+      type: object
+      properties:
+        siteName: { type: string, minLength: 2, maxLength: 160 }
+        role:
+          $ref: "#/components/schemas/PlatformRole"
+      required: [siteName, role]
+    PlatformUserInput:
+      type: object
+      properties:
+        email: { type: string, maxLength: 320, pattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$' }
+        firstName: { type: string, maxLength: 120 }
+        lastName: { type: string, maxLength: 120 }
+        organizationIds:
+          type: array
+          maxItems: 50
+          items: { type: string }
+        siteAccess:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/PlatformUserSiteAssignment"
+      required: [email]
+    PlatformUserUpdateInput:
+      type: object
+      properties:
+        userId: { type: string }
+        firstName: { type: string, maxLength: 120 }
+        lastName: { type: string, maxLength: 120 }
+        organizationIds:
+          type: array
+          maxItems: 50
+          items: { type: string }
+        siteAccess:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/PlatformUserSiteAssignment"
+      required: [userId]
+    PlatformUserStatusInput:
+      type: object
+      properties:
+        userId: { type: string }
+        accountStatus: { type: string, enum: [active, inactive, deleted] }
+      required: [userId, accountStatus]
+    PlatformRolePermissions:
+      type: object
+      properties:
+        viewerPermissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScadaPermission"
+        operatorPermissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScadaPermission"
+        siteEngineerPermissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScadaPermission"
+        siteAdminPermissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScadaPermission"
+      required: [viewerPermissions, operatorPermissions, siteEngineerPermissions, siteAdminPermissions]
     PlatformSiteAccess:
       type: object
       properties:
         userId: { type: string }
         siteName: { type: string }
         organizationId: { type: string }
-        role: { type: string }
+        role:
+          $ref: "#/components/schemas/PlatformRole"
         status: { type: string }
       required: [userId, siteName, organizationId, role, status]
     PlatformSiteAccessInput:
@@ -537,7 +704,8 @@ components:
       properties:
         userId: { type: string }
         siteName: { type: string }
-        role: { type: string, enum: [viewer, operator, site-admin] }
+        role:
+          $ref: "#/components/schemas/PlatformRole"
       required: [userId, siteName, role]
     PlatformMqttConfig:
       type: object
@@ -579,7 +747,8 @@ components:
       properties:
         userId: { type: string }
         siteName: { type: string }
-        role: { type: string, enum: [viewer, operator, site-admin] }
+        role:
+          $ref: "#/components/schemas/PlatformRole"
         status: { type: string, enum: [active, revoked] }
       required: [userId, siteName, role, status]
     PlatformDatabaseHealth:

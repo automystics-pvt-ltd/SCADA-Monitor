@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import * as oidc from "openid-client";
+import { and, eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { clearSession, createSession, getOidcConfig, getSessionId, SESSION_COOKIE, SESSION_TTL_MS, type AuthUser, type SessionData } from "../lib/auth";
 import { isPlantLocationAdministrator } from "../middlewares/plantLocationAuthorization";
@@ -26,17 +27,26 @@ function setSessionCookie(res: Response, sid: string) {
 }
 
 async function upsertUser(claims: Record<string, unknown>): Promise<AuthUser> {
-  const user = {
+  const identity = {
     id: String(claims.sub),
-    email: typeof claims.email === "string" ? claims.email : null,
+    email: typeof claims.email === "string" ? claims.email.trim().toLowerCase() : null,
     firstName: typeof claims.first_name === "string" ? claims.first_name : null,
     lastName: typeof claims.last_name === "string" ? claims.last_name : null,
     profileImageUrl: typeof (claims.profile_image_url ?? claims.picture) === "string" ? String(claims.profile_image_url ?? claims.picture) : null,
   };
-  const [saved] = await db.insert(usersTable).values(user).onConflictDoUpdate({
-    target: usersTable.id,
-    set: { ...user, updatedAt: new Date() },
-  }).returning();
+  const [existing] = identity.email
+    ? await db.select().from(usersTable).where(eq(usersTable.email, identity.email)).limit(1)
+    : [];
+  if (!existing) throw new Error("This SCADA account has not been provisioned by a Platform Administrator.");
+  if (existing.accountStatus !== "active") throw new Error("This SCADA account is inactive.");
+  const [saved] = await db.update(usersTable).set({
+    email: identity.email,
+    firstName: identity.firstName,
+    lastName: identity.lastName,
+    profileImageUrl: identity.profileImageUrl,
+    updatedAt: new Date(),
+  }).where(eq(usersTable.id, existing.id)).returning();
+  if (!saved) throw new Error("The provisioned SCADA account could not be loaded.");
   return saved;
 }
 

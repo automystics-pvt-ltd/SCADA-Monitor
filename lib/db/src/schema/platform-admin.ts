@@ -42,6 +42,22 @@ export const platformOrganizationsTable = pgTable(
   (table) => [uniqueIndex("platform_organizations_slug_unique").on(table.slug)],
 );
 
+export const platformOrganizationAccessTable = pgTable(
+  "platform_organization_access",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    organizationId: varchar("organization_id").notNull().references(() => platformOrganizationsTable.id, { onDelete: "cascade" }),
+    status: varchar("status", { enum: ["active", "revoked"] }).notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("platform_organization_access_user_org_unique").on(table.userId, table.organizationId),
+    index("platform_organization_access_org_index").on(table.organizationId),
+  ],
+);
+
 export const platformSitesTable = pgTable(
   "platform_sites",
   {
@@ -96,7 +112,7 @@ export const platformSiteAccessTable = pgTable(
     id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
     userId: varchar("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     siteName: varchar("site_name", { length: 160 }).notNull().references(() => platformSitesTable.siteName, { onDelete: "cascade" }),
-    role: varchar("role", { enum: ["viewer", "operator", "site-admin"] }).notNull().default("viewer"),
+    role: varchar("role", { enum: ["viewer", "operator", "site-engineer", "site-admin"] }).notNull().default("viewer"),
     status: varchar("status", { enum: ["active", "revoked"] }).notNull().default("active"),
     grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -134,6 +150,7 @@ export const insertPlatformSiteSchema = createInsertSchema(platformSitesTable).o
 export type PlatformOrganization = typeof platformOrganizationsTable.$inferSelect;
 export type PlatformSite = typeof platformSitesTable.$inferSelect;
 export type PlatformSiteAccess = typeof platformSiteAccessTable.$inferSelect;
+export type PlatformOrganizationAccess = typeof platformOrganizationAccessTable.$inferSelect;
 export type PlatformAuditEvent = typeof platformAuditEventsTable.$inferSelect;
 export type PlatformTelemetryTest = typeof platformTelemetryTestsTable.$inferSelect;
 export type InsertPlatformOrganization = z.infer<typeof insertPlatformOrganizationSchema>;

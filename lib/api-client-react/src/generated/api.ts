@@ -36,6 +36,7 @@ import type {
   PlatformMqttConfigInput,
   PlatformOrganization,
   PlatformOrganizationInput,
+  PlatformRolePermissions,
   PlatformSite,
   PlatformSiteAccess,
   PlatformSiteAccessInput,
@@ -45,7 +46,10 @@ import type {
   PlatformTelemetryDevice,
   PlatformTelemetryTest,
   PlatformTelemetryTestInput,
-  PlatformUser
+  PlatformUser,
+  PlatformUserInput,
+  PlatformUserStatusInput,
+  PlatformUserUpdateInput
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -898,6 +902,367 @@ export function useListPlatformUsers<TData = Awaited<ReturnType<typeof listPlatf
 
 
 
+
+export const getCreatePlatformUserUrl = () => {
+
+
+
+
+  return `/api/platform-admin/users`
+}
+
+/**
+ * @summary Provision a SCADA user with organization and site assignments
+ */
+export const createPlatformUser = async (platformUserInput: PlatformUserInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformUser> => {
+
+  return customFetch<PlatformUser>(getCreatePlatformUserUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformUserInput)
+  }
+);}
+
+
+
+
+
+export const getCreatePlatformUserMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlatformUser>>, TError,{data: BodyType<PlatformUserInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPlatformUser>>, TError,{data: BodyType<PlatformUserInput>}, TContext> => {
+
+const mutationKey = ['createPlatformUser'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPlatformUser>>, {data: BodyType<PlatformUserInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPlatformUser(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePlatformUserMutationResult = NonNullable<Awaited<ReturnType<typeof createPlatformUser>>>
+    export type CreatePlatformUserMutationBody = BodyType<PlatformUserInput>
+    export type CreatePlatformUserMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Provision a SCADA user with organization and site assignments
+ */
+export const useCreatePlatformUser = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlatformUser>>, TError,{data: BodyType<PlatformUserInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPlatformUser>>,
+        TError,
+        {data: BodyType<PlatformUserInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePlatformUserMutationOptions(options));
+    }
+
+export const getUpdatePlatformUserUrl = () => {
+
+
+
+
+  return `/api/platform-admin/users`
+}
+
+/**
+ * @summary Update a SCADA user profile and assignments
+ */
+export const updatePlatformUser = async (platformUserUpdateInput: PlatformUserUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformUser> => {
+
+  return customFetch<PlatformUser>(getUpdatePlatformUserUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformUserUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdatePlatformUserMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformUser>>, TError,{data: BodyType<PlatformUserUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePlatformUser>>, TError,{data: BodyType<PlatformUserUpdateInput>}, TContext> => {
+
+const mutationKey = ['updatePlatformUser'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlatformUser>>, {data: BodyType<PlatformUserUpdateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updatePlatformUser(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePlatformUserMutationResult = NonNullable<Awaited<ReturnType<typeof updatePlatformUser>>>
+    export type UpdatePlatformUserMutationBody = BodyType<PlatformUserUpdateInput>
+    export type UpdatePlatformUserMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update a SCADA user profile and assignments
+ */
+export const useUpdatePlatformUser = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformUser>>, TError,{data: BodyType<PlatformUserUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePlatformUser>>,
+        TError,
+        {data: BodyType<PlatformUserUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdatePlatformUserMutationOptions(options));
+    }
+
+export const getUpdatePlatformUserStatusUrl = () => {
+
+
+
+
+  return `/api/platform-admin/users/status`
+}
+
+/**
+ * @summary Activate, deactivate, delete, or recover a SCADA account
+ */
+export const updatePlatformUserStatus = async (platformUserStatusInput: PlatformUserStatusInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformUser> => {
+
+  return customFetch<PlatformUser>(getUpdatePlatformUserStatusUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformUserStatusInput)
+  }
+);}
+
+
+
+
+
+export const getUpdatePlatformUserStatusMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformUserStatus>>, TError,{data: BodyType<PlatformUserStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePlatformUserStatus>>, TError,{data: BodyType<PlatformUserStatusInput>}, TContext> => {
+
+const mutationKey = ['updatePlatformUserStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlatformUserStatus>>, {data: BodyType<PlatformUserStatusInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updatePlatformUserStatus(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePlatformUserStatusMutationResult = NonNullable<Awaited<ReturnType<typeof updatePlatformUserStatus>>>
+    export type UpdatePlatformUserStatusMutationBody = BodyType<PlatformUserStatusInput>
+    export type UpdatePlatformUserStatusMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Activate, deactivate, delete, or recover a SCADA account
+ */
+export const useUpdatePlatformUserStatus = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformUserStatus>>, TError,{data: BodyType<PlatformUserStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePlatformUserStatus>>,
+        TError,
+        {data: BodyType<PlatformUserStatusInput>},
+        TContext
+      > => {
+      return useMutation(getUpdatePlatformUserStatusMutationOptions(options));
+    }
+
+export const getGetPlatformRolePermissionsUrl = () => {
+
+
+
+
+  return `/api/platform-admin/role-permissions`
+}
+
+/**
+ * @summary Get configurable SCADA role permissions
+ */
+export const getPlatformRolePermissions = async ( options?: Parameters<typeof customFetch>[1]): Promise<PlatformRolePermissions> => {
+
+  return customFetch<PlatformRolePermissions>(getGetPlatformRolePermissionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPlatformRolePermissionsQueryKey = () => {
+    return [
+    `/api/platform-admin/role-permissions`
+    ] as const;
+    }
+
+
+export const getGetPlatformRolePermissionsQueryOptions = <TData = Awaited<ReturnType<typeof getPlatformRolePermissions>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlatformRolePermissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPlatformRolePermissionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlatformRolePermissions>>> = ({ signal }) => getPlatformRolePermissions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlatformRolePermissions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPlatformRolePermissionsQueryResult = NonNullable<Awaited<ReturnType<typeof getPlatformRolePermissions>>>
+export type GetPlatformRolePermissionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get configurable SCADA role permissions
+ */
+
+export function useGetPlatformRolePermissions<TData = Awaited<ReturnType<typeof getPlatformRolePermissions>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlatformRolePermissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPlatformRolePermissionsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdatePlatformRolePermissionsUrl = () => {
+
+
+
+
+  return `/api/platform-admin/role-permissions`
+}
+
+/**
+ * @summary Update configurable SCADA role permissions
+ */
+export const updatePlatformRolePermissions = async (platformRolePermissions: PlatformRolePermissions, options?: Parameters<typeof customFetch>[1]): Promise<PlatformRolePermissions> => {
+
+  return customFetch<PlatformRolePermissions>(getUpdatePlatformRolePermissionsUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformRolePermissions)
+  }
+);}
+
+
+
+
+
+export const getUpdatePlatformRolePermissionsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformRolePermissions>>, TError,{data: BodyType<PlatformRolePermissions>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePlatformRolePermissions>>, TError,{data: BodyType<PlatformRolePermissions>}, TContext> => {
+
+const mutationKey = ['updatePlatformRolePermissions'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlatformRolePermissions>>, {data: BodyType<PlatformRolePermissions>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updatePlatformRolePermissions(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePlatformRolePermissionsMutationResult = NonNullable<Awaited<ReturnType<typeof updatePlatformRolePermissions>>>
+    export type UpdatePlatformRolePermissionsMutationBody = BodyType<PlatformRolePermissions>
+    export type UpdatePlatformRolePermissionsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update configurable SCADA role permissions
+ */
+export const useUpdatePlatformRolePermissions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformRolePermissions>>, TError,{data: BodyType<PlatformRolePermissions>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePlatformRolePermissions>>,
+        TError,
+        {data: BodyType<PlatformRolePermissions>},
+        TContext
+      > => {
+      return useMutation(getUpdatePlatformRolePermissionsMutationOptions(options));
+    }
 
 export const getGrantPlatformSiteAccessUrl = () => {
 

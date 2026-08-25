@@ -54,9 +54,11 @@ export async function platformAdminSessionMiddleware(req: Request, res: Response
       eq(platformAdminSessionsTable.sid, sid),
       gt(platformAdminSessionsTable.expire, new Date()),
       eq(platformAdminIdentitiesTable.enabled, true),
+      eq(usersTable.accountStatus, "active"),
     ));
 
   if (!session || !session.email) {
+    await db.delete(platformAdminSessionsTable).where(eq(platformAdminSessionsTable.sid, sid));
     clearPlatformAdminCookie(res);
     next();
     return;

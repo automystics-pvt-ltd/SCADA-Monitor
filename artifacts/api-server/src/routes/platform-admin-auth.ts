@@ -30,25 +30,31 @@ function setTemporaryCookie(res: Response, name: string, value: string) {
 }
 
 async function upsertIdentity(claims: Record<string, unknown>) {
-  const user = {
-    id: String(claims.sub),
-    email: typeof claims.email === "string" ? claims.email : null,
+  const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : null;
+  if (!isAllowedPlatformAdminEmail(email)) return null;
+
+  const [provisionedUser] = email
+    ? await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1)
+    : [];
+  if (!provisionedUser || provisionedUser.accountStatus !== "active") return null;
+
+  const [savedUser] = await db.update(usersTable).set({
+    email,
     firstName: typeof claims.first_name === "string" ? claims.first_name : null,
     lastName: typeof claims.last_name === "string" ? claims.last_name : null,
     profileImageUrl: typeof (claims.profile_image_url ?? claims.picture) === "string" ? String(claims.profile_image_url ?? claims.picture) : null,
-  };
-  if (!isAllowedPlatformAdminEmail(user.email)) return null;
-  const [savedUser] = await db.insert(usersTable).values(user).onConflictDoUpdate({
-    target: usersTable.id,
-    set: { ...user, updatedAt: new Date() },
-  }).returning();
-  const [identity] = await db.insert(platformAdminIdentitiesTable)
+    updatedAt: new Date(),
+  }).where(eq(usersTable.id, provisionedUser.id)).returning();
+
+  const [existingIdentity] = await db
+    .select()
+    .from(platformAdminIdentitiesTable)
+    .where(eq(platformAdminIdentitiesTable.userId, savedUser.id))
+    .limit(1);
+  if (existingIdentity && !existingIdentity.enabled) return null;
+  const identity = existingIdentity ?? (await db.insert(platformAdminIdentitiesTable)
     .values({ userId: savedUser.id, role: "super-admin", enabled: true })
-    .onConflictDoUpdate({
-      target: platformAdminIdentitiesTable.userId,
-      set: { enabled: true, updatedAt: new Date() },
-    })
-    .returning();
+    .returning())[0];
   return identity;
 }
 
