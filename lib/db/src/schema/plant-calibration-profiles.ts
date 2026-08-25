@@ -7,7 +7,7 @@ export const plantCalibrationProfilesTable = pgTable("plant_calibration_profiles
   siteName: text("site_name").notNull(),
   version: text("version").notNull(),
   status: text("status").notNull().default("approved"),
-  installedDcCapacityKwp: doublePrecision("installed_dc_capacity_kwp").notNull(),
+  installedDcCapacityKwp: doublePrecision("installed_dc_capacity_kwp"),
   sources: jsonb("sources").notNull(),
   approvedBy: text("approved_by").notNull(),
   approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),

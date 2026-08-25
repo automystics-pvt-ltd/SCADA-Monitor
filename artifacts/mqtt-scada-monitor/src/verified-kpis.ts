@@ -409,18 +409,21 @@ function calculateWithPlantProfile(rows: TelemetryKpiRow[], profile: PlantCalibr
     ? finish("totalEnergy", totalInputs.reduce((sum, item) => sum + item.value, 0), "kWh", totalInputs.length > 1 ? "inverter-energy-sum" : "totalizing-meter", `Σ latest cumulative counters from calibration profile ${profileVersion}`, totalInputs, [], snapshotWindow, profileVersion)
     : blank("totalEnergy", "No fresh reading matches an approved cumulative-energy counter in the selected plant profile.", snapshotWindow, profileVersion);
 
-  const capacityInput: CalculationInput = {
-    parameter: "installedDcCapacityKwp",
-    value: profile.installedDcCapacityKwp,
-    address: "calibration-profile",
-    provenance: snapshotWindow ? "replay" : "live",
-    unit: "kWp",
-    semantic: "profile-approved installed DC capacity",
-    observedAt: profile.approvedAt,
-  };
-  const specificYield = dailyEnergy.quality === "verified"
-    ? finish("specificYield", dailyEnergy.value! / profile.installedDcCapacityKwp, "kWh/kWp", "specific-yield", `Verified daily energy ÷ ${profile.installedDcCapacityKwp} kWp installed DC capacity`, [...dailyEnergy.inputs, capacityInput], [], snapshotWindow, profileVersion)
-    : blank("specificYield", "Specific yield is waiting for the profile-approved daily-energy counter.", snapshotWindow, profileVersion);
+  const capacity = profile.installedDcCapacityKwp;
+  const capacityInput: CalculationInput | null = typeof capacity === "number" && Number.isFinite(capacity) && capacity > 0
+    ? {
+      parameter: "installedDcCapacityKwp",
+      value: capacity,
+      address: "calibration-profile",
+      provenance: snapshotWindow ? "replay" : "live",
+      unit: "kWp",
+      semantic: "profile-approved installed DC capacity",
+      observedAt: profile.approvedAt,
+    }
+    : null;
+  const specificYield = dailyEnergy.quality === "verified" && capacityInput
+    ? finish("specificYield", dailyEnergy.value! / capacityInput.value, "kWh/kWp", "specific-yield", `Verified daily energy ÷ ${capacityInput.value} kWp installed DC capacity`, [...dailyEnergy.inputs, capacityInput], [], snapshotWindow, profileVersion)
+    : blank("specificYield", dailyEnergy.quality === "verified" ? "Specific yield is waiting for the profile-approved installed DC capacity." : "Specific yield is waiting for the profile-approved daily-energy counter.", snapshotWindow, profileVersion);
 
   return { acPower, dailyEnergy, totalEnergy, specificYield };
 }

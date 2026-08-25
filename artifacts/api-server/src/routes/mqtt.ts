@@ -209,7 +209,7 @@ type PublicPlantCalibrationProfile = {
   siteName: string;
   version: string;
   status: "approved";
-  installedDcCapacityKwp: number;
+  installedDcCapacityKwp: number | null;
   sources: CalibrationSource[];
   approvedBy: string;
   approvedAt: string;
@@ -452,19 +452,22 @@ function publicCalibrationProfile(record: {
   siteName: string;
   version: string;
   status: string;
-  installedDcCapacityKwp: number;
+  installedDcCapacityKwp: number | null;
   sources: unknown;
   approvedBy: string;
   approvedAt: Date;
 }): PublicPlantCalibrationProfile | null {
   if (record.status !== "approved" || !Array.isArray(record.sources)) return null;
   const sources = parseCalibrationSources(record.sources);
-  if (!sources || !Number.isFinite(record.installedDcCapacityKwp) || record.installedDcCapacityKwp <= 0) return null;
+  const installedDcCapacityKwp = typeof record.installedDcCapacityKwp === "number" && Number.isFinite(record.installedDcCapacityKwp) && record.installedDcCapacityKwp > 0
+    ? record.installedDcCapacityKwp
+    : null;
+  if (!sources) return null;
   return {
     siteName: record.siteName,
     version: record.version,
     status: "approved",
-    installedDcCapacityKwp: record.installedDcCapacityKwp,
+    installedDcCapacityKwp,
     sources,
     approvedBy: record.approvedBy,
     approvedAt: record.approvedAt.toISOString(),
@@ -2003,10 +2006,13 @@ router.post("/mqtt/calibration-preview", async (req, res): Promise<void> => {
 
 router.put("/mqtt/calibration-profile/:siteName", async (req, res): Promise<void> => {
   const siteName = parseSiteName(req.params.siteName);
-  const installedDcCapacityKwp = typeof req.body?.installedDcCapacityKwp === "number" ? req.body.installedDcCapacityKwp : Number(req.body?.installedDcCapacityKwp);
+  const capacityInput = req.body?.installedDcCapacityKwp;
+  const installedDcCapacityKwp = capacityInput === undefined || capacityInput === null || capacityInput === ""
+    ? null
+    : typeof capacityInput === "number" ? capacityInput : Number(capacityInput);
   const sources = parseCalibrationSources(req.body?.sources);
-  if (!siteName || siteName.length > 160 || !Number.isFinite(installedDcCapacityKwp) || installedDcCapacityKwp <= 0 || installedDcCapacityKwp > 10_000_000 || !sources) {
-    res.status(400).json({ message: "An installed DC capacity and one or more complete, confirmed source-register mappings are required." });
+  if (!siteName || siteName.length > 160 || (installedDcCapacityKwp !== null && (!Number.isFinite(installedDcCapacityKwp) || installedDcCapacityKwp <= 0 || installedDcCapacityKwp > 10_000_000)) || !sources) {
+    res.status(400).json({ message: "One or more complete, confirmed source-register mappings are required. Installed DC capacity is optional, but required before Specific Yield can be verified." });
     return;
   }
   if (!req.isAuthenticated()) {

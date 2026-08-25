@@ -20,3 +20,15 @@ For a dashboard flow visual, never animate a mixed raw aggregate when any of its
 **Why:** A mixed aggregate can contain retained or replayed values, so animating it would wrongly imply the complete plant total is current.
 
 **How to apply:** Use the selected live source tag only for the illustrative stream and label it `raw / scaling required`; use validated calculations for plant-level power claims.
+
+Reviewed counter roles are semantic evidence and should take precedence over vendor parameter spelling when selecting raw daily or cumulative energy evidence. Preserve a declared source unit alongside the raw counter, but do not relabel the number as an engineering KPI until the plant approves its scale.
+
+**Why:** Vendor labels such as `todayyield` can be daily energy counters without containing the expected `dailyenergy` text. Name-only selection can hide real live evidence, while displaying its MWh label as a validated value can imply an unapproved decimal scale.
+
+**How to apply:** Select raw daily and total-energy fallbacks using the reviewed `daily-counter` or `cumulative-counter` role as well as known names. Show the source unit in the evidence detail with `scaling required`; only an approved plant calibration profile may produce the final engineering KPI.
+
+An approved plant calibration profile may be role-specific. Installed DC capacity is optional unless calculating Specific Yield, so a confirmed Total Energy mapping can be verified without approving unrelated power, daily-energy, or capacity metadata.
+
+**Why:** Requiring a complete plant profile to approve one well-evidenced counter either hides valid energy evidence or pressures operators to fabricate unknown capacity values.
+
+**How to apply:** Permit partial profiles with one or more verified source mappings. Verify only the roles present; keep absent roles unavailable. Calculate Specific Yield only when both its approved daily counter and an approved positive installed DC capacity are present.

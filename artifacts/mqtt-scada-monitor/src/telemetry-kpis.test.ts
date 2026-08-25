@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation } from "./verified-kpis.ts";
 
 test("selects the newest named raw register and keeps replay provenance", () => {
@@ -223,6 +223,39 @@ test("uses main meter and totalizing meter fallbacks without inventing an energy
   assert.equal(totals.totalEnergy.value, 1220000);
 });
 
+test("uses reviewed daily and cumulative counter roles while preserving their source unit as raw evidence", () => {
+  const rows = [
+    {
+      name: "todayyield",
+      data: "40203",
+      raw_data: "3430323033",
+      reported_unit: "MWh",
+      source_counter_role: "daily-counter",
+      full_addr: "305003",
+      timestamp: 100,
+      provenance: "live",
+    },
+    {
+      name: "totalenergy",
+      data: "30474240",
+      raw_data: "3330343734323430",
+      reported_unit: "MWh",
+      source_counter_role: "cumulative-counter",
+      full_addr: "305008",
+      timestamp: 101,
+      provenance: "live",
+    },
+  ];
+
+  const daily = latestRawCounterMetric(rows, "daily-counter");
+  const totals = calculateScadaAggregates(rows);
+
+  assert.equal(daily?.value, 40203);
+  assert.equal(daily?.sourceUnit, "MWh");
+  assert.equal(totals.totalEnergy.value, 30474240);
+  assert.equal(totals.totalEnergy.source?.sourceUnit, "MWh");
+});
+
 test("uses the three-phase formula only when all inputs explicitly validate scaling", () => {
   const totals = calculateScadaAggregates([
     { name: "phaseABvoltage", data: "400", full_addr: "305019", timestamp: 100, scaling_validated: true },
@@ -325,6 +358,40 @@ test("withholds engineering KPIs when the plant has no approved calibration prof
   ], { calibrationProfile: null, asOf: 1_100, maximumAgeMs: 1_000 });
   assert.equal(kpis.acPower.quality, "awaiting-validation");
   assert.match(kpis.acPower.readiness, /No approved plant calibration profile/i);
+});
+
+test("verifies an approved total-energy source without inventing plant capacity or specific yield", () => {
+  const kpis = calculateVerifiedScadaKpis([
+    { name: "totalenergy", data: 30474240, full_addr: "305008", server_name: "ana", timestamp: 1_000 },
+  ], {
+    calibrationProfile: {
+      siteName: "trn246/modbus",
+      version: "calibration-total-energy-only",
+      status: "approved",
+      installedDcCapacityKwp: null,
+      approvedBy: "explicit-user-approval",
+      approvedAt: "2026-08-25T06:30:00.000Z",
+      sources: [{
+        role: "totalEnergy",
+        sourceName: "ana",
+        parameter: "totalenergy",
+        address: "305008",
+        unit: "MWh",
+        multiplier: 0.001,
+        counterRole: "cumulative-counter",
+        scalingConfirmed: true,
+      }],
+    },
+    asOf: 1_100_000,
+    maximumAgeMs: 1_000_000,
+  });
+
+  assert.equal(kpis.totalEnergy.quality, "verified");
+  assert.equal(kpis.totalEnergy.value, 30474240);
+  assert.equal(kpis.totalEnergy.unit, "kWh");
+  assert.equal(kpis.dailyEnergy.quality, "awaiting-validation");
+  assert.equal(kpis.specificYield.quality, "awaiting-validation");
+  assert.match(kpis.specificYield.readiness, /daily-energy counter/i);
 });
 
 test("sums approved inverter readings and excludes an extreme outlier", () => {

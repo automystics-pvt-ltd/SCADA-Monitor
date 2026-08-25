@@ -5,6 +5,7 @@ export type RawTelemetryMetric = {
   value: number;
   address: string;
   provenance: "live" | "retained" | "recovered" | "replay";
+  sourceUnit?: string;
 };
 
 export type RawInverterSignal = RawTelemetryMetric & {
@@ -31,7 +32,7 @@ export type PlantCalibrationProfile = {
   siteName: string;
   version: string;
   status: "approved";
-  installedDcCapacityKwp: number;
+  installedDcCapacityKwp: number | null;
   sources: PlantCalibrationSource[];
   approvedBy: string;
   approvedAt: string;
@@ -128,8 +129,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseCalibrationProfile(value: unknown): PlantCalibrationProfile | null {
   if (!isRecord(value) || typeof value.siteName !== "string" || typeof value.version !== "string" || value.status !== "approved") return null;
-  const capacity = typeof value.installedDcCapacityKwp === "number" ? value.installedDcCapacityKwp : Number(value.installedDcCapacityKwp);
-  if (!Number.isFinite(capacity) || capacity <= 0 || typeof value.approvedBy !== "string" || typeof value.approvedAt !== "string" || !Array.isArray(value.sources)) return null;
+  const capacityInput = value.installedDcCapacityKwp;
+  const capacity = capacityInput === undefined || capacityInput === null || capacityInput === ""
+    ? null
+    : typeof capacityInput === "number" ? capacityInput : Number(capacityInput);
+  if ((capacity !== null && (!Number.isFinite(capacity) || capacity <= 0)) || typeof value.approvedBy !== "string" || typeof value.approvedAt !== "string" || !Array.isArray(value.sources)) return null;
   const sources = value.sources.filter(isRecord).map((source) => {
     const multiplier = typeof source.multiplier === "number" ? source.multiplier : Number(source.multiplier);
     const roles = ["acPower", "dailyEnergy", "totalEnergy"];
@@ -247,7 +251,7 @@ export function isNewerSavedKpiSnapshot(next: SavedKpiSnapshot, current: SavedKp
 }
 
 function normalizedParameter(row: TelemetryKpiRow) {
-  return String(row.name ?? "").trim().toLowerCase();
+  return normalizedKey(row.name);
 }
 
 function rowTimestamp(row: TelemetryKpiRow) {
@@ -278,6 +282,18 @@ function normalizedKey(value: unknown) {
 function asRawMetric(row: TelemetryKpiRow): RawTelemetryMetric | null {
   const value = numericValue(row);
   if (value === null) return null;
+  const sourceUnit = [
+    row.reported_unit,
+    row.reportedUnit,
+    row.customer_unit,
+    row.customerUnit,
+    row.source_unit,
+    row.sourceUnit,
+    row.engineering_unit,
+    row.engineeringUnit,
+    row.unit,
+    row.units,
+  ].find((candidate) => typeof candidate === "string" && candidate.trim());
   const provenance = row.provenance === "retained" || row.provenance === "recovered" || row.provenance === "replay"
     ? row.provenance
     : "live";
@@ -286,7 +302,12 @@ function asRawMetric(row: TelemetryKpiRow): RawTelemetryMetric | null {
     value,
     address: String(row.full_addr ?? row.addr ?? "—"),
     provenance,
+    ...(typeof sourceUnit === "string" ? { sourceUnit: sourceUnit.trim() } : {}),
   };
+}
+
+function normalizedCounterRole(row: TelemetryKpiRow) {
+  return normalizedKey(row.source_counter_role ?? row.sourceCounterRole ?? row.counter_role ?? row.counterRole);
 }
 
 function declaredInverterIdentity(row: TelemetryKpiRow) {
@@ -312,12 +333,29 @@ function sourceName(row: TelemetryKpiRow) {
 }
 
 export function latestRawMetric(rows: TelemetryKpiRow[], parameterNames: string[]) {
-  const names = new Set(parameterNames.map((name) => name.toLowerCase()));
+  const names = new Set(parameterNames.map(normalizedKey));
   const matches = rows
     .filter((row) => names.has(normalizedParameter(row)))
     .map((row) => ({ row, metric: asRawMetric(row) }))
     .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null);
 
+  if (!matches.length) return null;
+  return matches.reduce((latest, candidate) => rowTimestamp(candidate.row) > rowTimestamp(latest.row) ? candidate : latest).metric;
+}
+
+/**
+ * Reviewed counter roles survive vendor spelling changes. For example,
+ * `todayyield` is a daily energy counter even though its label does not
+ * contain "dailyenergy". This stays raw evidence until a plant profile
+ * approves its engineering scale.
+ */
+export function latestRawCounterMetric(rows: TelemetryKpiRow[], counterRole: "daily-counter" | "cumulative-counter", parameterNames: string[] = []) {
+  const names = new Set(parameterNames.map(normalizedKey));
+  const expectedRole = normalizedKey(counterRole);
+  const matches = rows
+    .filter((row) => names.has(normalizedParameter(row)) || normalizedCounterRole(row) === expectedRole)
+    .map((row) => ({ row, metric: asRawMetric(row) }))
+    .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null);
   if (!matches.length) return null;
   return matches.reduce((latest, candidate) => rowTimestamp(candidate.row) > rowTimestamp(latest.row) ? candidate : latest).metric;
 }
@@ -482,9 +520,9 @@ export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
       source: null,
     }
     : (() => {
-      const totalizingMeter = latestMetricMatching(rows, (name) => ["totalenergy", "totalenergykwh", "lifetimeenergy", "lifetimeenergykwh"].includes(name));
+      const totalizingMeter = latestRawCounterMetric(rows, "cumulative-counter", ["totalenergy", "totalenergykwh", "lifetimeenergy", "lifetimeenergykwh"]);
       return totalizingMeter
-        ? { value: totalizingMeter.metric.value, method: "totalizing-meter" as const, unit: "raw" as const, included: [totalizingMeter.metric], excluded: [], source: totalizingMeter.metric }
+        ? { value: totalizingMeter.value, method: "totalizing-meter" as const, unit: "raw" as const, included: [totalizingMeter], excluded: [], source: totalizingMeter }
         : { value: null, method: "unavailable" as const, unit: "raw" as const, included: [], excluded: [], source: null };
     })();
 

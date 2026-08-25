@@ -6,7 +6,7 @@ import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { isSourceReportedEvidence, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
@@ -865,6 +865,7 @@ type RawKpiFallback = {
   method: string;
   inputs: RawTelemetryMetric[];
   readiness: string;
+  sourceUnit?: string;
 };
 
 function rawMetricFallback(metric: RawTelemetryMetric | null, formula: string, readiness: string): RawKpiFallback {
@@ -875,6 +876,7 @@ function rawMetricFallback(metric: RawTelemetryMetric | null, formula: string, r
     method: metric ? 'latest source register' : 'not reported',
     inputs: metric ? [metric] : [],
     readiness,
+    sourceUnit: metric?.sourceUnit,
   };
 }
 
@@ -901,12 +903,13 @@ function rawAggregateFallback(aggregate: ScadaAggregate, signal: 'power' | 'ener
         ? 'No raw active-power record has arrived from the broker.'
         : 'No raw cumulative-energy record has arrived from the broker.'
       : 'Exact raw source evidence is available; scaling and engineering units are not declared by the source.',
+    sourceUnit: aggregate.source?.sourceUnit ?? aggregate.included.find((input) => input.sourceUnit)?.sourceUnit,
   };
 }
 
 function rawKpiFallbacks(rows: TelemetryKpiRow[]): Record<'acPower' | 'dailyEnergy' | 'totalEnergy' | 'specificYield', RawKpiFallback> {
   const aggregates = calculateScadaAggregates(rows);
-  const daily = latestRawMetric(rows, ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']);
+  const daily = latestRawCounterMetric(rows, 'daily-counter', ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh', 'todayyield']);
   const specificYield = latestRawMetric(rows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']);
   return {
     acPower: rawAggregateFallback(aggregates.acPower, 'power'),
@@ -2548,7 +2551,7 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave, onPrev
   siteName: string;
   profile: PlantCalibrationProfile | null;
   canManage: boolean;
-  onSave: (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => Promise<void>;
+  onSave: (siteName: string, installedDcCapacityKwp: number | null, sources: PlantCalibrationSource[]) => Promise<void>;
   onPreview: (siteName: string, sources: PlantCalibrationSource[]) => Promise<CalibrationPreviewResponse>;
 }) {
   const [capacity, setCapacity] = useState('');
@@ -2559,7 +2562,7 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave, onPrev
   const [preview, setPreview] = useState<CalibrationPreviewResponse | null>(null);
   const [previewing, setPreviewing] = useState(false);
   useEffect(() => {
-    setCapacity(profile ? String(profile.installedDcCapacityKwp) : '');
+    setCapacity(profile?.installedDcCapacityKwp ? String(profile.installedDcCapacityKwp) : '');
     setSources(profile?.sources.length ? profile.sources : emptyCalibrationSources());
     setError('');
     setSaved('');
@@ -2592,14 +2595,13 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave, onPrev
     }
   };
   const save = async () => {
-    const installedDcCapacityKwp = Number(capacity);
-    const requiredRoles: PlantCalibrationSource['role'][] = ['acPower', 'dailyEnergy', 'totalEnergy'];
-    if (!Number.isFinite(installedDcCapacityKwp) || installedDcCapacityKwp <= 0) {
-      setError('Installed DC capacity must be a positive value in kWp.');
+    const installedDcCapacityKwp = capacity.trim() ? Number(capacity) : null;
+    if (installedDcCapacityKwp !== null && (!Number.isFinite(installedDcCapacityKwp) || installedDcCapacityKwp <= 0)) {
+      setError('Installed DC capacity must be a positive value in kWp when supplied.');
       return;
     }
-    if (requiredRoles.some((role) => !sources.some((source) => source.role === role))) {
-      setError('Add one confirmed mapping for total AC power, today’s energy, and total energy.');
+    if (!sources.length) {
+      setError('Add at least one confirmed source-register mapping.');
       return;
     }
     if (sources.some((source) => !source.sourceName.trim() || !source.parameter.trim() || !source.address.trim() || !Number.isFinite(source.multiplier) || source.multiplier <= 0)) {
@@ -2640,10 +2642,11 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave, onPrev
       <div data-testid="plant-calibration-access" className={`rounded-lg border px-3 py-2.5 text-[11px] leading-5 ${canManage ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300' : 'border-slate-500/20 bg-slate-500/5 text-slate-400'}`}>
         {canManage ? `You can approve engineering units and source scaling for ${siteName}.` : 'View-only access. An authorized Platform/Site Administrator must approve source mappings before live engineering KPIs are shown.'}
       </div>
-      {profile ? <div data-testid="plant-calibration-summary" className="rounded-lg border border-blue-500/20 bg-blue-500/[0.04] px-3 py-2 text-[10px] leading-5 text-slate-400"><span className="font-semibold text-blue-300">Active profile:</span> {profile.version} · approved {new Date(profile.approvedAt).toLocaleString()} · {profile.installedDcCapacityKwp.toLocaleString()} kWp</div> : <div data-testid="plant-calibration-missing" className="rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.03] px-3 py-2 text-[10px] leading-5 text-amber-300">No approved profile for this plant. Dashboard cards will retain raw evidence and withhold kW, kWh, and specific-yield KPIs.</div>}
+      {profile ? <div data-testid="plant-calibration-summary" className="rounded-lg border border-blue-500/20 bg-blue-500/[0.04] px-3 py-2 text-[10px] leading-5 text-slate-400"><span className="font-semibold text-blue-300">Active profile:</span> {profile.version} · approved {new Date(profile.approvedAt).toLocaleString()} · {profile.installedDcCapacityKwp ? `${profile.installedDcCapacityKwp.toLocaleString()} kWp` : 'installed capacity not approved'}</div> : <div data-testid="plant-calibration-missing" className="rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.03] px-3 py-2 text-[10px] leading-5 text-amber-300">No approved profile for this plant. Dashboard cards will retain raw evidence and withhold kW, kWh, and specific-yield KPIs.</div>}
       <label className="block">
-        <span className="mb-2 block text-xs font-bold text-slate-300">Installed DC capacity (kWp)</span>
+        <span className="mb-2 block text-xs font-bold text-slate-300">Installed DC capacity (kWp) <span className="font-normal text-slate-500">optional</span></span>
         <input inputMode="decimal" aria-label="Installed DC capacity in kWp" data-testid="input-calibration-capacity" value={capacity} onChange={(event) => setCapacity(event.target.value)} disabled={!canManage} placeholder="e.g. 50" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+        <p className="mt-1 text-[10px] leading-5 text-slate-500">Required only for Specific Yield. Individual power or energy source approvals can be saved without it.</p>
       </label>
       <div className="space-y-3">
         {sources.map((source, index) => <div key={`${source.role}-${index}`} className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
@@ -3307,7 +3310,7 @@ function AppShell() {
     setActiveSite(site);
     setWeatherState({ status: 'unavailable', message: 'Weather data unavailable for this site: configure a verified plant location.' });
   };
-  const saveCalibrationProfile = async (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => {
+  const saveCalibrationProfile = async (siteName: string, installedDcCapacityKwp: number | null, sources: PlantCalibrationSource[]) => {
     const response = await fetch(`/api/mqtt/calibration-profile/${encodeURIComponent(siteName)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -3490,8 +3493,8 @@ function AppShell() {
   const activeAlarms = alarmFaultReports.length;
   const rawKpis = useMemo(() => ({
     activePower: latestRawMetric(dashboardEvidenceRows, ['actpow']),
-    dailyEnergy: latestRawMetric(dashboardEvidenceRows, ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']),
-    totalEnergy: latestRawMetric(dashboardEvidenceRows, ['totalenergy', 'totalenergykwh', 'lifetimeenergy', 'lifetimeenergykwh']),
+    dailyEnergy: latestRawCounterMetric(dashboardEvidenceRows, 'daily-counter', ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh', 'todayyield']),
+    totalEnergy: latestRawCounterMetric(dashboardEvidenceRows, 'cumulative-counter', ['totalenergy', 'totalenergykwh', 'lifetimeenergy', 'lifetimeenergykwh']),
     specificYield: latestRawMetric(dashboardEvidenceRows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']),
     alarms: latestRawMetric(dashboardEvidenceRows, ['alarm', 'alarms', 'alarmcode', 'fault', 'faultcode']),
     inverters: rawInverterSignals(dashboardEvidenceRows),
@@ -3558,7 +3561,7 @@ function AppShell() {
     return {
       value: rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 }),
       unit: rawFallback.unit,
-      subtext: `${rawFallback.method} · ${registerList} · scaling required${showingSavedRecord ? ` · Last Saved: ${lastSavedLabel}` : ''}`,
+      subtext: `${rawFallback.method} · ${registerList}${rawFallback.sourceUnit ? ` · source unit ${rawFallback.sourceUnit}` : ''} · scaling required${showingSavedRecord ? ` · Last Saved: ${lastSavedLabel}` : ''}`,
       formula: rawFallback.formula,
     };
   };
