@@ -139,6 +139,9 @@
 @keyframes inverter-flow {
   to { stroke-dashoffset: -40; }
 }
+@keyframes scada-spinner {
+  to { transform: rotate(360deg); }
+}
 @keyframes border-glow {
   0%, 100% { border-color: var(--scada-border); }
   50% { border-color: var(--scada-accent); box-shadow: 0 0 15px var(--scada-accent-soft); }
@@ -1565,7 +1568,7 @@ button:not(:disabled):active,
   }
 
   .scada-theme main {
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    padding-bottom: max(.75rem, env(safe-area-inset-bottom));
   }
 
   .scada-theme [data-scroll-region] {
@@ -1661,7 +1664,13 @@ button:not(:disabled):active,
   .scada-nav-item,
   .scada-nav-icon-wrap,
   .scada-nav-arrow,
-  .scada-sidebar-brand-mark {
+  .scada-sidebar-brand-mark,
+  .scada-session-loading__mark,
+  .scada-session-loading__mark svg,
+  .pulse-soft,
+  .inverter-flow-path,
+  .scada-flow-live-beacon {
+    animation: none !important;
     transform: none !important;
   }
 }
@@ -2134,6 +2143,94 @@ button:not(:disabled):active,
   box-shadow: 0 26px 60px -36px rgba(0, 0, 0, .72);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+}
+.scada-public-shell {
+  height: 100dvh;
+  isolation: isolate;
+  overflow: hidden;
+}
+.scada-public-header {
+  min-height: 4.5rem;
+  box-shadow: 0 1px 0 var(--scada-highlight);
+}
+.scada-public-main {
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+.scada-public-shell .scada-auth-gate {
+  width: min(100%, 72rem);
+  min-height: 100%;
+  padding: clamp(.75rem, 3vw, 2rem);
+}
+.scada-session-loading {
+  display: grid;
+  width: min(100%, 30rem);
+  min-height: 100%;
+  place-content: center;
+  justify-items: center;
+  padding: 2rem;
+  text-align: center;
+}
+.scada-session-loading__mark {
+  display: grid;
+  width: 3.4rem;
+  height: 3.4rem;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--scada-accent) 28%, var(--scada-border));
+  border-radius: 1rem;
+  color: var(--scada-accent);
+  background: var(--scada-accent-soft);
+  animation: rise-in .35s ease both;
+}
+.scada-session-loading__mark svg { animation: scada-spinner .9s linear infinite; }
+.scada-session-loading__eyebrow {
+  margin-top: 1.15rem;
+  color: var(--scada-accent);
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.scada-session-loading h1 {
+  margin: .45rem 0 0;
+  color: var(--scada-text);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.scada-session-loading > p:last-child {
+  max-width: 22rem;
+  margin: .55rem 0 0;
+  color: var(--scada-muted);
+  font-size: .84rem;
+  line-height: 1.55;
+}
+.scada-app-header .scada-status-chip { min-width: 0; }
+@media (max-width: 639px) {
+  .scada-public-main { padding: .75rem; }
+  .scada-public-shell .scada-auth-gate {
+    min-height: 100%;
+    border-radius: 1rem;
+    padding: .75rem;
+  }
+  .scada-public-shell .scada-auth-card {
+    padding: 1rem;
+    border-radius: 1rem;
+  }
+  .scada-app-header {
+    gap: .6rem;
+    padding: .75rem;
+  }
+  .scada-app-header .order-3 {
+    gap: .4rem;
+    padding-top: .65rem;
+  }
+  .scada-app-header .order-3 .scada-status-chip {
+    flex: 1 1 calc(50% - .2rem);
+    min-width: 0;
+  }
+  .scada-app-header .order-3 .scada-status-chip--provenance {
+    flex-basis: 100%;
+  }
 }
 
 @media (min-width: 768px) {

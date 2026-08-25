@@ -26,6 +26,13 @@ const principal = {
   lastName: "Tester",
   profileImageUrl: null,
 };
+const globalPrincipal = {
+  id: `isolation-global-user-${fixtureId}`,
+  email: `isolation-global-${fixtureId}@example.com`,
+  firstName: "Global",
+  lastName: "Tester",
+  profileImageUrl: null,
+};
 const periodStart = "2026-08-01T00:00:00.000Z";
 const periodEnd = "2026-08-02T00:00:00.000Z";
 const validHistoryQuery = `from=${encodeURIComponent(periodStart)}&to=${encodeURIComponent(periodEnd)}`;
@@ -62,13 +69,20 @@ let server: ReturnType<express.Express["listen"]>;
 function testApp() {
   const app = express();
   app.use((req, _res, next) => {
-    const authenticated = req.get("x-scada-test-principal") === "assigned";
+    const sessionKind = req.get("x-scada-test-principal");
+    const scadaAuthenticated = sessionKind === "assigned" || sessionKind === "global";
+    const authenticated = scadaAuthenticated || sessionKind === "platform";
     const testRequest = req as Request & {
       user?: typeof principal;
+      scadaUser?: typeof principal;
       isAuthenticated(): boolean;
+      isScadaAuthenticated(): boolean;
     };
     testRequest.isAuthenticated = (() => authenticated) as Request["isAuthenticated"];
-    if (authenticated) testRequest.user = principal;
+    testRequest.isScadaAuthenticated = (() => scadaAuthenticated) as Request["isScadaAuthenticated"];
+    const currentPrincipal = sessionKind === "global" ? globalPrincipal : principal;
+    if (authenticated) testRequest.user = currentPrincipal;
+    if (scadaAuthenticated) testRequest.scadaUser = currentPrincipal;
     testRequest.log = logger as unknown as typeof req.log;
     next();
   });
@@ -82,6 +96,12 @@ async function requestEvidence(path: string, authenticated = true) {
   });
 }
 
+async function requestWithScadaPrincipal(path: string, principalType: "global" | "platform") {
+  return fetch(`${baseUrl}/api${path}`, {
+    headers: { "x-scada-test-principal": principalType },
+  });
+}
+
 async function closeStream(response: Response) {
   await response.body?.cancel();
 }
@@ -91,7 +111,7 @@ before(async () => {
     name: `Isolation organization ${fixtureId}`,
     slug: `isolation-${fixtureId}`,
   }).returning();
-  await db.insert(usersTable).values(principal);
+  await db.insert(usersTable).values([principal, globalPrincipal]);
   await db.insert(platformSitesTable).values([
     { siteName: assignedSite, organizationId: organization.id, timezone: "UTC" },
     { siteName: otherSite, organizationId: organization.id, timezone: "UTC" },
@@ -162,7 +182,7 @@ after(async () => {
   if (accessGrantId) await db.delete(platformSiteAccessTable).where(eq(platformSiteAccessTable.id, accessGrantId));
   await db.delete(platformSitesTable).where(inArray(platformSitesTable.siteName, [assignedSite, otherSite]));
   await db.delete(platformOrganizationsTable).where(eq(platformOrganizationsTable.slug, `isolation-${fixtureId}`));
-  await db.delete(usersTable).where(eq(usersTable.id, principal.id));
+  await db.delete(usersTable).where(inArray(usersTable.id, [principal.id, globalPrincipal.id]));
   if (globalPolicy === undefined) delete process.env.SCADA_ALLOW_GLOBAL_ACCESS;
   else process.env.SCADA_ALLOW_GLOBAL_ACCESS = globalPolicy;
 });
@@ -295,7 +315,7 @@ for (const globalEnabled of [false, true]) {
     else delete process.env.SCADA_ALLOW_GLOBAL_ACCESS;
     for (const [label, path] of unscopedEvidenceReads) {
       const response = await requestEvidence(path, false);
-      assert.equal(response.status, 403, `${label} must require an explicit active site scope`);
+      assert.equal(response.status, 401, `${label} must require SCADA operator sign-in`);
       await closeStream(response);
     }
   });
@@ -303,14 +323,32 @@ for (const globalEnabled of [false, true]) {
 
 test("global access can select any active managed site but cannot select an archived site", async () => {
   process.env.SCADA_ALLOW_GLOBAL_ACCESS = "true";
-  const activeSite = await requestEvidence(`/mqtt/snapshots?siteName=${encodeURIComponent(otherSite)}`, false);
+  const activeSite = await requestWithScadaPrincipal(`/mqtt/snapshots?siteName=${encodeURIComponent(otherSite)}`, "global");
   assert.equal(activeSite.status, 200);
 
   await db.update(platformSitesTable).set({ status: "archived" }).where(eq(platformSitesTable.siteName, otherSite));
   try {
-    const archivedSite = await requestEvidence(`/mqtt/snapshots?siteName=${encodeURIComponent(otherSite)}`, false);
+    const archivedSite = await requestWithScadaPrincipal(`/mqtt/snapshots?siteName=${encodeURIComponent(otherSite)}`, "global");
     assert.equal(archivedSite.status, 403);
   } finally {
     await db.update(platformSitesTable).set({ status: "active" }).where(eq(platformSitesTable.siteName, otherSite));
+  }
+});
+
+test("a Platform Admin identity without a SCADA session is denied every protected MQTT surface", async () => {
+  const protectedPaths = [
+    "/mqtt/status",
+    "/mqtt/site-access",
+    "/mqtt/site-locations",
+    `/mqtt/telemetry-mappings?siteName=${encodeURIComponent(assignedSite)}`,
+    `/mqtt/calibration-profile?siteName=${encodeURIComponent(assignedSite)}`,
+    `/mqtt/calibration-preview?siteName=${encodeURIComponent(assignedSite)}`,
+    ...namedEvidenceReads.map(([, path]) => path),
+    ...unscopedEvidenceReads.map(([, path]) => path),
+  ];
+  for (const path of protectedPaths) {
+    const response = await requestWithScadaPrincipal(path, "platform");
+    assert.equal(response.status, 401, `${path} must not accept a Platform Admin identity as a SCADA session`);
+    await closeStream(response);
   }
 });

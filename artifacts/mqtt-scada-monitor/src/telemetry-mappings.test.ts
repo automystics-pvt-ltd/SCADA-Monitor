@@ -87,6 +87,51 @@ test("clears a server-resolved display transform from already visible evidence",
   assert.equal(cleared?.reported_value, "120.5");
 });
 
+test("replaces or clears a camel-case mapping projection from saved evidence", () => {
+  const savedRow = {
+    originalName: "Act Pow",
+    normalizedName: "actpow",
+    sourceName: "Solar gateway",
+    sourceIdentity: "Solar gateway|actpow|305003",
+    address: "305003",
+    deviceId: "INV-01",
+    rawValue: "120.5",
+    reportedValue: "12.5",
+    reportedNumericValue: 12.5,
+    sourceUnit: "kW",
+    displayLabel: "Retired label",
+    category: "Electrical",
+    displayValue: "12500",
+    displayUnit: "W",
+    adminMappingId: "retired-map",
+    adminMappingDestination: "voltage",
+    adminMappingVersion: 1,
+    adminMappingScalingStatus: "approved",
+    adminMappingValidationStatus: "valid",
+    adminMappingInjectedInverterIdentity: true,
+    inverterIdentity: "inv4",
+  };
+
+  const [revised] = applyTelemetryMappings([savedRow], [{
+    ...mapping,
+    destination: "active-power",
+    displayUnit: "W",
+    scalingMultiplier: 1_000,
+    scalingOffset: 5,
+  }]);
+  assert.equal(revised?.admin_mapping_destination, "active-power");
+  assert.equal(revised?.display_value, 12_505);
+  assert.equal(revised?.inverter_id, "inv1");
+
+  const [cleared] = applyTelemetryMappings([savedRow], []);
+  assert.equal(cleared?.adminMappingDestination, undefined);
+  assert.equal(cleared?.displayLabel, "Act Pow");
+  assert.equal(cleared?.displayValue, undefined);
+  assert.equal(cleared?.displayUnit, undefined);
+  assert.equal(cleared?.inverterIdentity, undefined);
+  assert.equal(cleared?.mappingLifecycleStatus, "unmapped");
+});
+
 test("uses a mapping loaded after a long-lived consumer has already started", () => {
   const store = createTelemetryMappingStore();
   const rawRow = { name: "Act Pow", data: "120.5", server_name: "Solar gateway", full_addr: "305003", device_id: "INV-01" };

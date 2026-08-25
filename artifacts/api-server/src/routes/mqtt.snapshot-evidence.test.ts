@@ -1,6 +1,60 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canWriteScheduledSnapshot, isPersistenceWindowOpen, persistenceSchedule, snapshotEvidence } from "./mqtt.ts";
+import type { PlatformTelemetryMapping } from "@workspace/db";
+import {
+  canWriteScheduledSnapshot,
+  isPersistenceWindowOpen,
+  persistenceSchedule,
+  scadaTelemetryMappingResponse,
+  snapshotEvidence,
+} from "./mqtt.ts";
+
+test("returns every approved transform field needed by the SCADA mapping overlay", () => {
+  const mapping: PlatformTelemetryMapping = {
+    id: "map-1",
+    siteName: "Plant A",
+    deviceId: "INV-01",
+    sourceIdentity: "Plant A|Gateway A|vendorpower|40001",
+    sourceName: "Gateway A",
+    normalizedName: "vendorpower",
+    address: "40001",
+    destination: "active-power",
+    displayLabel: "Inverter AC power",
+    category: "Electrical",
+    inverterIdentity: "inv1",
+    sourceUnit: "kW",
+    displayUnit: "W",
+    scalingMultiplier: 1_000,
+    scalingOffset: 5,
+    scalingStatus: "approved",
+    status: "active",
+    version: 3,
+    createdBy: "admin-1",
+    updatedBy: "admin-1",
+    clearedAt: null,
+    createdAt: new Date("2026-08-25T07:00:00.000Z"),
+    updatedAt: new Date("2026-08-25T07:00:00.000Z"),
+  };
+
+  assert.deepEqual(scadaTelemetryMappingResponse(mapping), {
+    id: "map-1",
+    deviceId: "INV-01",
+    sourceIdentity: "Plant A|Gateway A|vendorpower|40001",
+    sourceName: "Gateway A",
+    normalizedName: "vendorpower",
+    address: "40001",
+    destination: "active-power",
+    displayLabel: "Inverter AC power",
+    category: "Electrical",
+    inverterIdentity: "inv1",
+    sourceUnit: "kW",
+    displayUnit: "W",
+    scalingMultiplier: 1_000,
+    scalingOffset: 5,
+    scalingStatus: "approved",
+    version: 3,
+  });
+});
 
 test("pauses scheduled saves and retry processing outside the plant-local 06:00–18:00 window", () => {
   const beforeClose = persistenceSchedule(new Date("2026-08-25T12:29:59.000Z"));

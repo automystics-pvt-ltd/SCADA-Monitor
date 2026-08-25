@@ -18,6 +18,9 @@ import {
   platformTelemetryMappingsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { getScadaSessionId, getScadaSessionUserId } from "../lib/auth";
+import { closeScadaSessionStreams, registerScadaSessionStream, unregisterScadaSessionStream } from "../lib/scada-session-streams";
+import { requireScadaSession } from "../middlewares/authMiddleware";
 import { allowGrantedSite, allowSitePermission, allowUnscopedScadaEvidence, grantedSiteNames, siteAccess } from "../middlewares/platformSiteAccess";
 import { deviceCommunicationState, heartbeatWindows, latestBootstrapMessages, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
@@ -40,6 +43,7 @@ import { queryBoundedScadaReport } from "../lib/scada-report-query";
 import { SnapshotOfflineQueue, type SnapshotOfflineQueueEntry } from "../lib/snapshot-offline-queue";
 
 const router: IRouter = Router();
+router.use("/mqtt", requireScadaSession);
 const defaultBrokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
 const defaultSubscriptionTopic = process.env.MQTT_TOPIC ?? "trn246/modbus";
 const mqttInstanceIdentity = process.env.MQTT_CLIENT_INSTANCE_ID ?? process.env.HOSTNAME ?? `pid-${process.pid}`;
@@ -133,6 +137,33 @@ const activeTelemetryMappingCache = new Map<string, {
 /** Clears the short-lived resolver cache after an audited Admin map changes. */
 export function invalidateTelemetryMappingCache() {
   activeTelemetryMappingCache.clear();
+}
+
+/**
+ * The monitor resolves mapping overlays locally for long-lived and saved
+ * evidence. Return the full approved display configuration, not only the
+ * source identity, so that a saved map can produce the same display evidence
+ * as the authoritative server resolver.
+ */
+export function scadaTelemetryMappingResponse(mapping: typeof platformTelemetryMappingsTable.$inferSelect) {
+  return {
+    id: mapping.id,
+    deviceId: mapping.deviceId,
+    sourceIdentity: mapping.sourceIdentity,
+    sourceName: mapping.sourceName,
+    normalizedName: mapping.normalizedName,
+    address: mapping.address,
+    destination: mapping.destination,
+    displayLabel: mapping.displayLabel,
+    category: mapping.category,
+    inverterIdentity: mapping.inverterIdentity,
+    sourceUnit: mapping.sourceUnit,
+    displayUnit: mapping.displayUnit,
+    scalingMultiplier: mapping.scalingMultiplier,
+    scalingOffset: mapping.scalingOffset,
+    scalingStatus: mapping.scalingStatus,
+    version: mapping.version,
+  };
 }
 
 async function activeTelemetryMappingsForSite(siteName: string) {
@@ -2490,7 +2521,7 @@ router.post("/mqtt/calibration-preview", async (req, res): Promise<void> => {
     res.status(400).json({ message: "A valid plant/site name and up to 100 draft source mappings are required." });
     return;
   }
-  if (!req.isAuthenticated()) {
+  if (!req.isScadaAuthenticated()) {
     res.status(401).json({ message: "Operator sign-in is required to verify calibration mappings against live broker evidence." });
     return;
   }
@@ -2523,7 +2554,7 @@ router.put("/mqtt/calibration-profile/:siteName", async (req, res): Promise<void
     res.status(400).json({ message: "One or more complete, confirmed source-register mappings are required. Installed DC capacity is optional, but required before Specific Yield can be verified." });
     return;
   }
-  if (!req.isAuthenticated()) {
+  if (!req.isScadaAuthenticated()) {
     res.status(401).json({ message: "Operator sign-in is required to approve a plant calibration profile." });
     return;
   }
@@ -2539,7 +2570,7 @@ router.put("/mqtt/calibration-profile/:siteName", async (req, res): Promise<void
   }
   const approvedAt = new Date();
   const version = `calibration-${approvedAt.toISOString()}`;
-  const approvedBy = req.user.email ? `email:${req.user.email.toLowerCase()}` : `id:${req.user.id}`;
+  const approvedBy = req.scadaUser.email ? `email:${req.scadaUser.email.toLowerCase()}` : `id:${req.scadaUser.id}`;
   try {
     const [record] = await db.insert(plantCalibrationProfilesTable).values({
       siteName,
@@ -2803,20 +2834,7 @@ router.get("/mqtt/telemetry-mappings", async (req, res): Promise<void> => {
     .orderBy(asc(platformTelemetryMappingsTable.displayLabel));
   res.set("Cache-Control", "no-store").json({
     siteName,
-    mappings: mappings.map((mapping) => ({
-      id: mapping.id,
-      deviceId: mapping.deviceId,
-      sourceIdentity: mapping.sourceIdentity,
-      sourceName: mapping.sourceName,
-      normalizedName: mapping.normalizedName,
-      address: mapping.address,
-      destination: mapping.destination,
-      displayLabel: mapping.displayLabel,
-      category: mapping.category,
-      inverterIdentity: mapping.inverterIdentity,
-      sourceUnit: mapping.sourceUnit,
-      version: mapping.version,
-    })),
+    mappings: mappings.map(scadaTelemetryMappingResponse),
   });
 });
 
@@ -3547,6 +3565,8 @@ router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
 });
 
 router.get("/mqtt/stream", async (req, res) => {
+  const scadaSessionId = getScadaSessionId(req);
+  const scadaUserId = req.isScadaAuthenticated() ? req.scadaUser.id : undefined;
   const siteName = parseSiteName(req.query.siteName);
   if (siteName) {
     if (!await allowGrantedSite(req, res, siteName)) return;
@@ -3569,6 +3589,7 @@ router.get("/mqtt/stream", async (req, res) => {
     flushing: false,
   };
   listeners.set(res, listenerState);
+  if (scadaSessionId && scadaUserId) registerScadaSessionStream(scadaSessionId, scadaUserId, res);
   send(res, "status", status());
   void latestSavedSnapshotEvidence(siteName || undefined)
     .then((snapshot) => {
@@ -3680,10 +3701,19 @@ router.get("/mqtt/stream", async (req, res) => {
   const heartbeat = setInterval(() => {
     send(res, "heartbeat", { at: new Date().toISOString() });
   }, 20_000);
+  const sessionValidation = scadaSessionId
+    ? setInterval(() => {
+      void getScadaSessionUserId(scadaSessionId).then((userId) => {
+        if (!userId) closeScadaSessionStreams(scadaSessionId);
+      }).catch((error) => logger.warn({ err: error }, "SCADA stream session validation failed"));
+    }, 15_000)
+    : undefined;
   req.on("close", () => {
     clearInterval(heartbeat);
     clearInterval(ledgerFanout);
+    if (sessionValidation) clearInterval(sessionValidation);
     listeners.delete(res);
+    if (scadaSessionId) unregisterScadaSessionStream(scadaSessionId, res);
     res.end();
   });
 });

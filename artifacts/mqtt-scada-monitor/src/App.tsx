@@ -19,7 +19,7 @@ import { persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
-  Download, Droplets, Grid2X2, LayoutGrid, LocateFixed, MapPin, Menu, PlugZap, Radio, RefreshCw, Search, Settings2,
+  Download, Droplets, Grid2X2, LayoutGrid, LocateFixed, LogOut, MapPin, Menu, PlugZap, Radio, RefreshCw, Search, Settings2,
   Thermometer, Wind, Wifi, WifiOff, X, Zap, Sun, Moon, Bell, FileText, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import type * as Recharts from 'recharts';
@@ -631,7 +631,7 @@ const powerTrendByRange = {
 };
 
 
-function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, collapsed, onToggleCollapse }: {
+function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, collapsed, onToggleCollapse, siteName }: {
   onSettings: () => void;
   mobileOpen: boolean;
   onClose: () => void;
@@ -639,6 +639,7 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
   onNavigate: (section: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  siteName?: string;
 }) {
   const navigationRef = useModalAccessibility(onClose, mobileOpen);
   const navigate = (section: string) => {
@@ -655,13 +656,13 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
           </div>
           <div className={`min-w-0 ${collapsed ? 'md:hidden' : ''}`}>
             <h1 className="truncate text-[13px] font-bold tracking-wide text-scada-text uppercase">Solar SCADA</h1>
-            <p className="truncate text-[9px] text-scada-accent font-bold uppercase tracking-widest mt-0.5">Northline Plant</p>
+            <p className="truncate text-[9px] text-scada-accent font-bold uppercase tracking-widest mt-0.5">{siteName || 'Operator console'}</p>
           </div>
         </div>
-        <button type="button" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} data-testid="button-toggle-navigation" title={collapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={onToggleCollapse} className={`ml-auto hidden rounded-lg p-2 text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring md:flex transition-colors ${collapsed ? 'md:ml-0' : ''}`}>
+        <button type="button" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} data-testid="button-toggle-navigation" title={collapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={onToggleCollapse} className={`ml-auto hidden h-11 w-11 items-center justify-center rounded-lg p-0 text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring md:flex transition-colors ${collapsed ? 'md:ml-0' : ''}`}>
           {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
         </button>
-        <button type="button" aria-label="Close navigation" data-testid="button-close-navigation" title="Close navigation" onClick={onClose} className="ml-auto rounded-lg p-2 text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring md:hidden transition-colors">
+        <button type="button" aria-label="Close navigation" data-testid="button-close-navigation" title="Close navigation" onClick={onClose} className="ml-auto flex h-11 w-11 items-center justify-center rounded-lg p-0 text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring md:hidden transition-colors">
           <X size={18} />
         </button>
       </div>
@@ -671,7 +672,6 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
           <p className={`px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-scada-muted ${collapsed ? 'md:hidden' : ''}`}>Overview</p>
           <nav className="space-y-1.5">
             <NavItem icon={LayoutDashboard} label="Dashboard" active={activeSection === 'overview'} onClick={() => navigate('overview')} collapsed={collapsed} />
-            <NavItem icon={Layers3} label="Plant Overview" active={activeSection === 'overview'} onClick={() => navigate('overview')} collapsed={collapsed} />
           </nav>
         </div>
         
@@ -700,7 +700,7 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
          <div className="scada-sidebar-accent-wash absolute inset-0" />
          <div className="relative z-10 flex h-full flex-col justify-end px-5 pb-4">
            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-scada-muted">Solar plant network</p>
-           <p className="mt-1 text-xs font-semibold text-scada-text">Northline operations</p>
+            <p className="mt-1 truncate text-xs font-semibold text-scada-text">{siteName || 'Authorized operations'}</p>
          </div>
        </div>
          <div className={`scada-sidebar-powered shrink-0 border-t border-scada-border px-4 py-3 text-[9px] leading-4 transition-[opacity,height,padding] duration-300 ${collapsed ? 'md:h-0 md:overflow-hidden md:border-t-0 md:px-0 md:py-0 md:opacity-0' : ''}`}>
@@ -865,12 +865,12 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
   return (
     <header className="scada-app-header flex min-h-[72px] flex-wrap shrink-0 items-center justify-between gap-3 border-b border-scada-border bg-scada-surface px-4 py-3 sm:px-4 2xl:flex-nowrap shadow-sm relative z-20">
       <div className="flex min-w-0 flex-1 items-center gap-3 md:gap-3">
-        <button type="button" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} data-testid="button-open-navigation" title="Open navigation" className="md:hidden shrink-0 text-scada-muted rounded-lg p-2 hover:bg-scada-hover focus-ring transition-colors" onClick={toggleMobileNav}>
+           <button type="button" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} data-testid="button-open-navigation" title="Open navigation" className="md:hidden flex h-11 w-11 shrink-0 items-center justify-center rounded-lg p-0 text-scada-muted hover:bg-scada-hover focus-ring transition-colors" onClick={toggleMobileNav}>
           <Menu size={20} />
         </button>
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2 md:gap-3">
-            <h2 className="truncate text-[15px] font-bold tracking-wider text-scada-text uppercase">TRN246 Solar Plant</h2>
+            <h2 className="truncate text-[15px] font-bold tracking-wider text-scada-text uppercase">{siteName || 'Solar SCADA'}</h2>
             <div className="shrink-0">
              <CustomBadge tone={connectionLabel === 'LIVE' || connectionLabel === 'DEMO' ? 'success' : 'warning'}><span className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor] ${connectionLabel === 'LIVE' || connectionLabel === 'DEMO' ? 'bg-[#00F2A6] pulse-soft' : 'bg-[#FFEA00]'}`} />{connectionLabel}</CustomBadge>
             </div>
@@ -879,16 +879,16 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 2xl:hidden">
-        <button type="button" aria-label="Open settings" data-testid="button-open-settings-header" title="Open settings" onClick={onSettings} className="flex h-10 w-10 items-center justify-center rounded-lg border border-scada-border text-scada-muted bg-scada-surface-raised hover:bg-scada-hover hover:text-scada-text focus-ring transition-all"><Settings2 size={16} /></button>
-        <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="flex h-10 w-10 items-center justify-center rounded-lg border border-scada-border text-scada-muted bg-scada-surface-raised hover:bg-scada-hover hover:text-scada-text focus-ring transition-all">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
-        <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications-compact" title="Open alarms and notifications" onClick={onNotifications} className="relative hidden h-10 w-10 items-center justify-center rounded-lg border border-scada-border text-scada-muted bg-scada-surface-raised hover:bg-scada-hover hover:text-scada-text focus-ring transition-all md:flex"><Bell size={16} /><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#F50057] shadow-[0_0_8px_#F50057]" /></button>
-        <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry-mobile" title="Refresh telemetry" onClick={onRefresh} className="flex h-10 w-10 items-center justify-center rounded-lg border border-scada-border text-scada-muted bg-scada-surface-raised hover:bg-scada-hover hover:text-scada-text focus-ring transition-all"><RefreshCw size={16} /></button>
-        <button type="button" aria-label="Export live telemetry as CSV" data-testid="button-export-telemetry-compact" title="Export live telemetry as CSV" onClick={onExport} className="hidden h-10 w-10 items-center justify-center rounded-lg border border-scada-border text-scada-muted bg-scada-surface-raised hover:bg-scada-hover hover:text-scada-text focus-ring transition-all md:flex"><Download size={16} /></button>
+         <button type="button" aria-label="Open settings" data-testid="button-open-settings-header" title="Open settings" onClick={onSettings} className="hidden h-11 w-11 items-center justify-center rounded-lg border border-scada-border bg-scada-surface-raised text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring transition-all sm:flex"><Settings2 size={16} /></button>
+         <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="flex h-11 w-11 items-center justify-center rounded-lg border border-scada-border bg-scada-surface-raised text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring transition-all">{theme === 'dark' ? <Moon size={16} /> : <Sun size={16} />}</button>
+         <button type="button" aria-label="Open alarms and notifications" data-testid="button-notifications-compact" title="Open alarms and notifications" onClick={onNotifications} className="relative hidden h-11 w-11 items-center justify-center rounded-lg border border-scada-border bg-scada-surface-raised text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring transition-all md:flex"><Bell size={16} /><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#F50057] shadow-[0_0_8px_#F50057]" /></button>
+         <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry-mobile" title="Refresh telemetry" onClick={onRefresh} className="flex h-11 w-11 items-center justify-center rounded-lg border border-scada-border bg-scada-surface-raised text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring transition-all"><RefreshCw size={16} /></button>
+         <button type="button" aria-label="Export live telemetry as CSV" data-testid="button-export-telemetry-compact" title="Export live telemetry as CSV" onClick={onExport} className="relative hidden h-11 w-11 items-center justify-center rounded-lg border border-scada-border bg-scada-surface-raised text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring transition-all md:flex"><Download size={16} /></button>
       </div>
       <div className="order-3 flex w-full min-w-0 flex-wrap items-center gap-2 border-t border-scada-border/70 pt-3 2xl:hidden" aria-label="Plant status summary">
-        <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-scada-border bg-scada-surface-raised px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-scada-text"><CloudSun size={12} className="text-scada-muted" />{temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}</span>
-        <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-scada-border bg-scada-surface-raised px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-scada-text"><Zap size={12} className="text-scada-muted" />{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span>
-        <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-scada-border bg-scada-surface-raised px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-scada-text"><MapPin size={12} className="text-scada-muted" />{weatherProvenance}</span>
+        <span className="scada-status-chip flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-scada-border bg-scada-surface-raised px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-scada-text" title={temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}><CloudSun size={12} className="shrink-0 text-scada-muted" /><span className="truncate">{temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}</span></span>
+        <span className="scada-status-chip flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-scada-border bg-scada-surface-raised px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-scada-text" title={irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}><Zap size={12} className="shrink-0 text-scada-muted" /><span className="truncate">{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span></span>
+        <span className="scada-status-chip scada-status-chip--provenance flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-scada-border bg-scada-surface-raised px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-scada-text" title={weatherProvenance} aria-label={`Weather source and location: ${weatherProvenance}`}><MapPin size={12} className="shrink-0 text-scada-muted" /><span className="truncate">{weatherProvenance}</span></span>
       </div>
       
       <div className="hidden min-w-0 flex-1 items-center justify-end gap-3 pl-4 2xl:flex">
@@ -925,6 +925,42 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
         </div>
       </div>
     </header>
+  );
+}
+
+function ScadaSessionLoading() {
+  return (
+    <section className="scada-session-loading" aria-live="polite">
+      <div className="scada-session-loading__mark"><RefreshCw size={20} aria-hidden="true" /></div>
+      <p className="scada-session-loading__eyebrow">Secure operator access</p>
+      <h1>Checking your SCADA session</h1>
+      <p>Verifying access before loading plant information.</p>
+    </section>
+  );
+}
+
+function PublicAuthShell({ theme, onToggleTheme, loading, onSignedIn }: {
+  theme: ThemeMode;
+  onToggleTheme: () => void;
+  loading: boolean;
+  onSignedIn: () => void;
+}) {
+  return (
+    <div className={`scada-public-shell scada-theme ${theme === 'dark' ? 'dark' : 'light'} flex min-h-[100dvh] flex-col bg-scada-bg text-scada-text`}>
+      <header className="scada-public-header flex shrink-0 items-center justify-between gap-4 border-b border-scada-border bg-scada-surface px-4 py-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-scada-accent/30 bg-scada-accent-soft text-scada-accent shadow-[0_0_12px_var(--scada-accent-soft)]"><Sun size={20} strokeWidth={2.5} /></div>
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-bold uppercase tracking-[.12em] text-scada-text">Solar SCADA</p>
+            <p className="truncate text-[10px] font-semibold uppercase tracking-[.16em] text-scada-muted">Secure operator console</p>
+          </div>
+        </div>
+        <button type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} data-testid="button-toggle-theme-wide" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={onToggleTheme} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-scada-border bg-scada-surface-raised text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring transition-all">{theme === 'dark' ? <Moon size={17} /> : <Sun size={17} />}</button>
+      </header>
+      <main className="scada-public-main flex min-h-0 flex-1 items-stretch justify-center overflow-y-auto p-3 sm:p-6">
+        {loading ? <ScadaSessionLoading /> : <ScadaCredentialLogin onSignedIn={onSignedIn} />}
+      </main>
+    </div>
   );
 }
 
@@ -2924,12 +2960,13 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave, onPrev
   );
 }
 
-function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, canManageCalibration, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile, onPreviewCalibrationProfile }: {
+function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, onSignOut, error, sites, initialSite, siteLocations, siteLocationError, canManageCalibration, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile, onPreviewCalibrationProfile }: {
   open: boolean;
   onClose: () => void;
   connected: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
+  onSignOut: () => void;
   error: string;
   sites: string[];
   initialSite: string;
@@ -3032,12 +3069,13 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error,
           )}
         </div>
         
-        <div className="scada-safe-drawer-footer border-t border-scada-border bg-scada-surface p-3 sm:p-3">
+        <div className="scada-safe-drawer-footer space-y-2 border-t border-scada-border bg-scada-surface p-3 sm:p-3">
           {connected ? (
              <button type="button" onClick={onDisconnect} data-testid="button-disconnect-broker" className="w-full flex items-center justify-center gap-2 py-3 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 text-sm font-bold rounded-lg transition-colors focus-ring"><WifiOff size={16} /> Disconnect</button>
           ) : (
              <button type="button" onClick={handleConnect} data-testid="button-connect-broker" className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-blue-500/20 transition-colors focus-ring"><PlugZap size={16} /> Connect to Broker</button>
           )}
+          <button type="button" onClick={onSignOut} data-testid="button-sign-out-scada" className="w-full flex items-center justify-center gap-2 py-2.5 border border-scada-border text-scada-muted hover:text-scada-text hover:bg-scada-muted/10 text-sm font-bold rounded-lg transition-colors focus-ring"><LogOut size={15} /> Sign out of SCADA</button>
         </div>
       </section>
     </>
@@ -3171,8 +3209,18 @@ function AppShell() {
   }, [applySnapshotMappings]);
   const streamRef = useRef<EventSource | null>(null);
   const streamGenerationRef = useRef(0);
+  const weatherRequestAbortRef = useRef<AbortController | null>(null);
   const seenTelemetryEventsRef = useRef(new Map<string, true>());
   const energyStreamScopeRef = useRef('');
+  const clearScadaSessionScope = useCallback(() => {
+    streamGenerationRef.current += 1;
+    streamRef.current?.close();
+    streamRef.current = null;
+    weatherRequestAbortRef.current?.abort();
+    weatherRequestAbortRef.current = null;
+    setConnected(false);
+    setStreamPhase('closed');
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('solar-scada-theme', theme);
@@ -3183,18 +3231,28 @@ function AppShell() {
     const controller = new AbortController();
     const loadScadaSession = async () => {
       try {
-        const response = await fetch('/api/auth/user', { signal: controller.signal, cache: 'no-store' });
+        const response = await fetch('/api/scada-auth/user', { signal: controller.signal, cache: 'no-store' });
         const payload = await readApiJson<{ user?: unknown | null }>(response, 'SCADA sign-in status could not be checked.');
-        setScadaSession({ loading: false, authenticated: payload.user !== null && payload.user !== undefined });
+        const authenticated = payload.user !== null && payload.user !== undefined;
+        if (!authenticated) clearScadaSessionScope();
+        setScadaSession({ loading: false, authenticated });
       } catch {
-        if (!controller.signal.aborted) setScadaSession({ loading: false, authenticated: false });
+        if (!controller.signal.aborted) {
+          clearScadaSessionScope();
+          setScadaSession({ loading: false, authenticated: false });
+        }
       }
     };
     void loadScadaSession();
     return () => controller.abort();
-  }, [authRefreshToken]);
+  }, [authRefreshToken, clearScadaSessionScope]);
   useEffect(() => {
     const controller = new AbortController();
+    if (!scadaSession.authenticated) {
+      setSiteAccessState({ sites: [], roles: {}, activations: {}, global: false, loading: false, error: '' });
+      setActiveSite('');
+      return () => controller.abort();
+    }
     const loadSiteAccess = async () => {
       setSiteAccessState((current) => ({ ...current, loading: true, error: '' }));
       try {
@@ -3209,9 +3267,14 @@ function AppShell() {
     };
     void loadSiteAccess();
     return () => controller.abort();
-  }, [authRefreshToken]);
+  }, [authRefreshToken, scadaSession.authenticated]);
   useEffect(() => {
     const controller = new AbortController();
+    if (!scadaSession.authenticated) {
+      setSiteLocations({});
+      setSiteLocationError('');
+      return () => controller.abort();
+    }
     const loadSiteLocations = async () => {
       try {
         const response = await fetch('/api/mqtt/site-locations', { signal: controller.signal, cache: 'no-store' });
@@ -3225,7 +3288,7 @@ function AppShell() {
     };
     void loadSiteLocations();
     return () => controller.abort();
-  }, [authRefreshToken]);
+  }, [authRefreshToken, scadaSession.authenticated]);
   useEffect(() => {
     if (mode !== 'live') return;
     if (!scadaSession.authenticated || !activeSite) {
@@ -3272,7 +3335,7 @@ function AppShell() {
     const controller = new AbortController();
     const loadLocationPermissions = async () => {
       try {
-        const response = await fetch('/api/auth/user', { signal: controller.signal, cache: 'no-store' });
+        const response = await fetch('/api/scada-auth/user', { signal: controller.signal, cache: 'no-store' });
         const payload = await response.json() as { canUpdatePlantLocations?: boolean };
         if (!response.ok) throw new Error('Unable to load location permissions.');
         setLocationAdmin(payload.canUpdatePlantLocations === true);
@@ -3350,11 +3413,17 @@ function AppShell() {
   }, [plantSiteName, refreshTelemetryMappings, scadaSession.authenticated]);
 
   useEffect(() => {
+    if (!scadaSession.authenticated) {
+      setWeatherState({ status: 'unavailable', message: 'Weather data is available after SCADA operator access is confirmed.' });
+      return;
+    }
     if (!weatherLocation) {
       setWeatherState({ status: 'unavailable', message: 'Weather data unavailable for this site: configure a verified plant location.' });
       return;
     }
     const controller = new AbortController();
+    weatherRequestAbortRef.current?.abort();
+    weatherRequestAbortRef.current = controller;
     const currentLocation = weatherLocation;
     const loadWeather = async () => {
       setWeatherState({ status: 'loading', location: currentLocation });
@@ -3376,9 +3445,10 @@ function AppShell() {
     const timer = window.setInterval(() => void loadWeather(), 5 * 60 * 1000);
     return () => {
       controller.abort();
+      if (weatherRequestAbortRef.current === controller) weatherRequestAbortRef.current = null;
       window.clearInterval(timer);
     };
-  }, [weatherLocation?.latitude, weatherLocation?.longitude, weatherLocation?.source, weatherRefreshToken]);
+  }, [scadaSession.authenticated, weatherLocation?.latitude, weatherLocation?.longitude, weatherLocation?.source, weatherRefreshToken]);
 
   const ingestPayload = (raw: string, topic: string, receivedAt?: string, replay = false, recovered = false, retained = false, inverterRecords?: unknown[], eventId?: string, calibratedParameter?: unknown) => {
     const identity = telemetryDeliveryIdentity(eventId, topic, receivedAt, raw);
@@ -3455,6 +3525,14 @@ function AppShell() {
   };
 
   const connect = () => {
+    if (!scadaSession.authenticated) {
+      streamGenerationRef.current += 1;
+      streamRef.current?.close();
+      streamRef.current = null;
+      setConnected(false);
+      setStreamPhase('closed');
+      return;
+    }
     setError('');
     if (mode === 'demo') {
       setConnected(true);
@@ -3567,6 +3645,11 @@ function AppShell() {
     stream.addEventListener('heartbeat', () => {
       if (generation === streamGenerationRef.current) setStreamPhase('connected');
     });
+    stream.addEventListener('auth-expired', () => {
+      if (generation !== streamGenerationRef.current) return;
+      clearScadaSessionScope();
+      setScadaSession({ loading: false, authenticated: false });
+    });
     stream.onerror = () => {
       if (generation !== streamGenerationRef.current) return;
       setStreamPhase('reconnecting');
@@ -3582,7 +3665,14 @@ function AppShell() {
   }, [plantSiteName, scadaSession.authenticated]);
 
   useEffect(() => {
-    if (mode !== 'live') return;
+    if (mode !== 'live' || !scadaSession.authenticated || !plantSiteName) {
+      streamGenerationRef.current += 1;
+      streamRef.current?.close();
+      streamRef.current = null;
+      setConnected(false);
+      setStreamPhase('closed');
+      return;
+    }
     connect();
     return () => {
       streamGenerationRef.current += 1;
@@ -3590,7 +3680,7 @@ function AppShell() {
       streamRef.current = null;
       setStreamPhase('closed');
     };
-  }, [acceptConfirmedSnapshot, mode, plantSiteName]);
+  }, [acceptConfirmedSnapshot, mode, plantSiteName, scadaSession.authenticated]);
 
   const disconnect = () => {
     streamGenerationRef.current += 1;
@@ -3598,6 +3688,12 @@ function AppShell() {
     streamRef.current = null;
     setConnected(false);
     setStreamPhase('closed');
+  };
+  const signOut = () => {
+    clearScadaSessionScope();
+    setSettingsOpen(false);
+    setScadaSession({ loading: false, authenticated: false });
+    void fetch('/api/scada-auth/logout', { method: 'POST' });
   };
 
   const handleCopy = (text: string) => {
@@ -4175,10 +4271,24 @@ function AppShell() {
         ? 'Reconnecting'
         : communicationLabel(deviceCommunication);
 
+  if (!scadaSession.authenticated) {
+    return (
+      <>
+        <PublicAuthShell
+          theme={theme}
+          onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')}
+          loading={scadaSession.loading}
+          onSignedIn={() => setAuthRefreshToken((current) => current + 1)}
+        />
+        <Toaster />
+      </>
+    );
+  }
+
   return (
     <div className={`scada-theme ${theme === 'dark' ? 'dark' : 'light'} flex h-[100dvh] max-h-[100dvh] overflow-hidden bg-scada-surface font-sans text-scada-text`}>
       {mobileNav && <button type="button" aria-label="Close navigation" data-testid="button-navigation-overlay" onClick={() => setMobileNav(false)} className="fixed inset-0 z-20 bg-black/40 backdrop-blur-[1px] md:hidden" />}
-      <Sidebar onSettings={() => { setMobileNav(false); setSettingsOpen(true); }} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} activeSection={activeSection} onNavigate={navigateTo} collapsed={navigationCollapsed} onToggleCollapse={() => setNavigationCollapsed((current) => !current)} />
+      <Sidebar onSettings={() => { setMobileNav(false); setSettingsOpen(true); }} mobileOpen={mobileNav} onClose={() => setMobileNav(false)} activeSection={activeSection} onNavigate={navigateTo} collapsed={navigationCollapsed} onToggleCollapse={() => setNavigationCollapsed((current) => !current)} siteName={plantSiteName} />
       
       <div className="scada-content-scroll flex h-full min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} onSettings={() => setSettingsOpen(true)} now={now} weather={weatherState} siteName={plantSiteName} />
@@ -4302,7 +4412,7 @@ function AppShell() {
           </>}
         </main>
       </div>
-       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} canManageCalibration={locationAdmin} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} onPreviewCalibrationProfile={previewCalibrationProfile} />
+       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} connected={connected} onConnect={connect} onDisconnect={disconnect} onSignOut={signOut} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} canManageCalibration={locationAdmin} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} onPreviewCalibrationProfile={previewCalibrationProfile} />
         {selectedInverter && (
           <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-scada-surface/75 backdrop-blur-sm"><span className="rounded-lg border border-scada-border bg-scada-surface px-4 py-3 text-xs font-semibold text-scada-text">Loading inverter details…</span></div>}>
             <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} siteName={selectedInverter.site} plantTimezone={persistence.timezone} mode={mode} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />

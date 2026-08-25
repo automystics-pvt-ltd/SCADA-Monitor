@@ -3,6 +3,7 @@ import { and, eq, gt } from "drizzle-orm";
 import type { Request, Response } from "express";
 import * as client from "openid-client";
 import { db, scadaSessionsTable, sessionsTable } from "@workspace/db";
+import { closeScadaSessionStreams } from "./scada-session-streams";
 
 export type AuthUser = {
   id: string;
@@ -137,7 +138,10 @@ export async function getScadaSessionUserId(sid: string) {
 }
 
 export async function clearScadaSession(res: Response, sid?: string) {
-  if (sid) await db.delete(scadaSessionsTable).where(eq(scadaSessionsTable.sid, sid));
+  if (sid) {
+    closeScadaSessionStreams(sid);
+    await db.delete(scadaSessionsTable).where(eq(scadaSessionsTable.sid, sid));
+  }
   res.clearCookie(SCADA_SESSION_COOKIE, { path: "/" });
 }
 

@@ -93,6 +93,7 @@ import {
 } from "../middlewares/platformAdminAuthorization";
 import { rolePermissions, type RolePermissionsConfig, type ScadaPermission } from "../middlewares/platformSiteAccessPolicy";
 import { hashScadaPassword, normalizeScadaUsername } from "../lib/auth";
+import { closeScadaUserStreams } from "../lib/scada-session-streams";
 import { mappingWorkspaceRows, telemetryMappingIdentityKey } from "../lib/telemetry-mapping-workspace";
 import { telemetryMappingIsUnchanged } from "../lib/telemetry-mapping-lifecycle";
 import { telemetryMappingRequiresDisplayUnit } from "../lib/telemetry-mapping-policy";
@@ -1111,6 +1112,7 @@ router.patch("/platform-admin/users", async (req: Request, res): Promise<void> =
       }
     }
     const passwordHash = data.password === undefined ? undefined : await hashScadaPassword(data.password);
+    if (passwordHash) closeScadaUserStreams(user.id);
     let completeOrganizationIds = organizationIds;
     if (organizationIds !== undefined || siteAccess !== undefined) {
       const existingGrants = siteAccess === undefined
@@ -1183,6 +1185,7 @@ router.post("/platform-admin/users/status", async (req: Request, res): Promise<v
     res.status(404).json({ error: "Choose an existing SCADA user." });
     return;
   }
+  if (data.accountStatus !== "active") closeScadaUserStreams(user.id);
   await db.transaction(async (tx) => {
     await tx.update(usersTable).set({
       accountStatus: data.accountStatus,

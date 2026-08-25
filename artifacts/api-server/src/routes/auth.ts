@@ -99,6 +99,14 @@ router.get("/auth/user", (req, res) => {
   });
 });
 
+router.get("/scada-auth/user", (req, res) => {
+  const user = req.isScadaAuthenticated() ? req.scadaUser : null;
+  res.set("Cache-Control", "no-store").json({
+    user,
+    canUpdatePlantLocations: isPlantLocationAdministrator(user ?? undefined),
+  });
+});
+
 router.post("/scada-auth/login", async (req: Request, res: Response): Promise<void> => {
   const rawUsername = typeof req.body?.username === "string" ? req.body.username : "";
   const password = typeof req.body?.password === "string" ? req.body.password : "";

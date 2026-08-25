@@ -20,7 +20,9 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthUser;
+      scadaUser?: AuthUser;
       isAuthenticated(): this is Request & { user: AuthUser };
+      isScadaAuthenticated(): this is Request & { scadaUser: AuthUser };
     }
   }
 }
@@ -48,6 +50,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   req.isAuthenticated = function (this: Request) {
     return this.user !== undefined;
   } as Request["isAuthenticated"];
+  req.isScadaAuthenticated = function (this: Request) {
+    return this.scadaUser !== undefined;
+  } as Request["isScadaAuthenticated"];
   const oidcSid = getSessionId(req);
   if (oidcSid) {
     const session = await getSession(oidcSid);
@@ -56,11 +61,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, refreshed.user.id)).limit(1);
       if (currentUser?.accountStatus === "active") {
         req.user = currentUser;
-        next();
-        return;
       }
     }
-    await clearSession(res, oidcSid);
+    if (!req.user) await clearSession(res, oidcSid);
   }
 
   const scadaSid = getScadaSessionId(req);
@@ -70,14 +73,22 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       ? await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1)
       : [];
     if (currentUser?.accountStatus === "active") {
-      req.user = currentUser;
+      req.scadaUser = currentUser;
+      req.user ??= currentUser;
       // Keep the persistent operator session alive while the app is actively
       // being used, without sharing or extending the Platform Admin session.
       setScadaSessionCookie(res, scadaSid);
-      next();
-      return;
+    } else {
+      await clearScadaSession(res, scadaSid);
     }
-    await clearScadaSession(res, scadaSid);
   }
   next();
+}
+
+export function requireScadaSession(req: Request, res: Response, next: NextFunction) {
+  if (req.isScadaAuthenticated()) {
+    next();
+    return;
+  }
+  res.status(401).json({ message: "SCADA operator sign-in is required." });
 }

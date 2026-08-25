@@ -6,7 +6,7 @@ import { canAccessSite, canAccessSitePermission, canAccessSiteRole, resolveSiteA
 const globalAccessEnabled = () => process.env.SCADA_ALLOW_GLOBAL_ACCESS === "true";
 
 export async function siteAccess(req: Request): Promise<ScadaSiteAccess> {
-  if (!req.isAuthenticated()) return resolveSiteAccess(false, [], globalAccessEnabled());
+  if (!req.isScadaAuthenticated()) return resolveSiteAccess(false, [], globalAccessEnabled());
   const [grants, configuration] = await Promise.all([
     db
     .select({
@@ -17,7 +17,7 @@ export async function siteAccess(req: Request): Promise<ScadaSiteAccess> {
     .from(platformSiteAccessTable)
     .innerJoin(platformSitesTable, eq(platformSiteAccessTable.siteName, platformSitesTable.siteName))
     .where(and(
-      eq(platformSiteAccessTable.userId, req.user.id),
+      eq(platformSiteAccessTable.userId, req.scadaUser.id),
       eq(platformSiteAccessTable.status, "active"),
       eq(platformSitesTable.status, "active"),
     )),

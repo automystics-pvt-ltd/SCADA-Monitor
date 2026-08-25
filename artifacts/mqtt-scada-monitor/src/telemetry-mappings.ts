@@ -81,11 +81,25 @@ export function applyTelemetryMappings<T extends TelemetryRow>(rows: T[], mappin
       admin_mapping_injected_source_unit: injectedSourceUnit,
       admin_mapping_injected_display_value: injectedDisplayValue,
       admin_mapping_injected_display_unit: injectedDisplayUnit,
+      adminMappingId: _serverMappingId,
+      adminMappingDestination: _serverMappingDestination,
+      adminMappingLabel: _serverMappingLabel,
+      adminMappingCategory: _serverMappingCategory,
+      adminMappingVersion: _serverMappingVersion,
+      adminMappingScalingStatus: _serverMappingScalingStatus,
+      adminMappingValidationStatus: _serverMappingValidationStatus,
+      adminMappingInjectedInverterIdentity: injectedServerInverter,
       ...withoutMapping
     } = row;
     const baseRow = { ...withoutMapping } as TelemetryRow;
-    const hadSavedMapping = Boolean(_mappingId || _mappingDestination);
-    if (injectedInverter) delete baseRow.inverter_id;
+    const hadSavedMapping = Boolean(
+      _mappingId || _mappingDestination || _serverMappingId || _serverMappingDestination,
+    );
+    if (injectedInverter || injectedServerInverter) {
+      delete baseRow.inverter_id;
+      delete baseRow.inverterId;
+      delete baseRow.inverterIdentity;
+    }
     if (injectedSourceUnit) delete baseRow.reported_unit;
     if (injectedDisplayValue || hadSavedMapping) {
       delete baseRow.display_value;
@@ -94,6 +108,17 @@ export function applyTelemetryMappings<T extends TelemetryRow>(rows: T[], mappin
     if (injectedDisplayUnit || hadSavedMapping) {
       delete baseRow.display_unit;
       delete baseRow.displayUnit;
+    }
+    // Saved snapshots carry the server's camel-case projection. Reset it to
+    // raw/source-reported evidence before applying the current mapping set so
+    // a clear or revision cannot leave retired display semantics behind.
+    if (_serverMappingId || _serverMappingDestination) {
+      const originalName = baseRow.originalName;
+      if (typeof originalName === "string" && originalName.trim()) baseRow.displayLabel = originalName;
+      baseRow.category = "Discovered / Other Parameters";
+      baseRow.value = sourceReportedNumber(baseRow);
+      baseRow.unit = (baseRow.sourceUnit ?? null) as unknown;
+      baseRow.mappingLifecycleStatus = "unmapped";
     }
 
     const name = normalized(baseRow.name ?? baseRow.parameter ?? baseRow.tag ?? baseRow.normalizedName ?? baseRow.originalName);

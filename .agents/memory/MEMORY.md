@@ -26,6 +26,7 @@
 - [Site-bound snapshot evidence](site-bound-snapshot-evidence.md) — Saved SCADA evidence must clear on site changes and cannot be reused across plants.
 - [Saved telemetry mapping visibility](saved-telemetry-mapping-visibility.md) — Preserve editable configuration rows without fabricating evidence; use the complete source identity.
 - [Authoritative telemetry mapping lifecycle](authoritative-telemetry-mapping-lifecycle.md) — Mapping state, discovery status, and audit history must remain race-safe and transactional.
+- [SCADA mapping contract](scada-mapping-contract.md) — SCADA must receive the full approved display transform with each active mapping, not only identity fields.
 - [Saved record time provenance](saved-record-time-provenance.md) — Label saved dashboard evidence with capture time, not its scheduled collection slot.
 - [Operational visual language](operational-visual-language.md) — Use graphite surfaces and one restrained solar accent; reserve colour for evidence and operational state.
 - [Proxied visual test routing](proxied-visual-test-routing.md) — Replit’s artifact proxy can expose a path prefix while Vite reports a root base; dashboard tests must use the browser path and exclude the dev banner.
