@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
@@ -27,95 +27,93 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --font-sans: var(--app-font-sans);
   --font-mono: var(--app-font-mono);
+
+  --color-scada-bg: var(--scada-bg);
+  --color-scada-sidebar: var(--scada-sidebar);
+  --color-scada-surface: var(--scada-surface);
+  --color-scada-surface-raised: var(--scada-surface-raised);
+  --color-scada-border: var(--scada-border);
+  --color-scada-text: var(--scada-text);
+  --color-scada-muted: var(--scada-muted);
+  --color-scada-hover: var(--scada-hover);
+  --color-scada-tooltip: var(--scada-tooltip);
+  --color-scada-accent: var(--scada-accent);
+  --color-scada-accent-soft: var(--scada-accent-soft);
 }
 
 :root {
-  /* Ultra-crisp light mode inspired by technical manuals and high-end hardware interfaces */
-  --background: #F9FAFB;
-  --foreground: #0F172A;
-  
+  --background: #F0F2F5;
+  --foreground: #090B0F;
   --card: #FFFFFF;
-  --card-foreground: #0F172A;
-  --card-border: #E2E8F0;
-  
+  --card-foreground: #090B0F;
+  --card-border: #D8E0E9;
   --popover: #FFFFFF;
-  --popover-foreground: #0F172A;
-  --popover-border: #E2E8F0;
-  
-  --primary: #2563EB;
+  --popover-foreground: #090B0F;
+  --popover-border: #D8E0E9;
+  --primary: #FF5C00;
   --primary-foreground: #FFFFFF;
-  
-  --secondary: #F1F5F9;
-  --secondary-foreground: #0F172A;
-  
-  --muted: #F1F5F9;
-  --muted-foreground: #475569;
-  
-  --accent: #F97316;
+  --secondary: #F0F2F5;
+  --secondary-foreground: #090B0F;
+  --muted: #F0F2F5;
+  --muted-foreground: #5C6B7B;
+  --accent: #FF5C00;
   --accent-foreground: #FFFFFF;
-  
   --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
-  
-  --border: #E2E8F0;
-  --input: #E2E8F0;
-  --ring: #2563EB;
+  --border: #D8E0E9;
+  --input: #D8E0E9;
+  --ring: #FF5C00;
 
-  --scada-bg: #F8FAFC;
+  --scada-bg: #EAECEF;
   --scada-sidebar: #FFFFFF;
   --scada-surface: #FFFFFF;
-  --scada-surface-raised: #F1F5F9;
-  --scada-border: #E2E8F0;
-  --scada-text: #0F172A;
-  --scada-muted: #475569;
-  --scada-hover: #F1F5F9;
+  --scada-surface-raised: #F6F8FA;
+  --scada-border: #D2D8DF;
+  --scada-text: #111418;
+  --scada-muted: #5C6B7B;
+  --scada-hover: #F0F2F5;
   --scada-tooltip: #FFFFFF;
-  --scada-shadow: 0 10px 40px -10px rgba(15, 23, 42, 0.08);
-  --scada-accent: #2563EB;
-  --scada-accent-soft: rgba(37, 99, 235, 0.1);
+  --scada-shadow: 0 8px 30px -10px rgba(0, 0, 0, 0.08);
+  --scada-accent: #FF5C00;
+  --scada-accent-soft: rgba(255, 92, 0, 0.12);
   --scada-highlight: rgba(255, 255, 255, 0.8);
-  --scada-control-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+  --scada-control-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
   
-  --app-font-sans: 'Inter', sans-serif;
+  --app-font-sans: 'Plus Jakarta Sans', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
 }
 
 .dark {
-  /* Deep, authoritative dark mode for industrial SCADA. OLED-friendly blacks and high-contrast accents */
-  --background: #030712;
+  --background: #06080B;
   --foreground: #F8FAFC;
-
-  --card: #090B13;
+  --card: #0A0D14;
   --card-foreground: #F8FAFC;
-  --card-border: #1E293B;
-
-  --popover: #090B13;
+  --card-border: #181E29;
+  --popover: #0A0D14;
   --popover-foreground: #F8FAFC;
-  --popover-border: #1E293B;
-
-  --secondary: #1E293B;
+  --popover-border: #181E29;
+  --secondary: #181E29;
   --secondary-foreground: #F8FAFC;
+  --muted: #0D111A;
+  --muted-foreground: #8B9BB4;
+  --border: #181E29;
+  --input: #181E29;
+  --ring: #FF5C00;
 
-  --muted: #0F172A;
-  --muted-foreground: #94A3B8;
-
-  --border: #1E293B;
-  --input: #1E293B;
-
-  --scada-bg: #030712;
-  --scada-sidebar: #050811;
-  --scada-surface: #090B13;
-  --scada-surface-raised: #0F1322;
-  --scada-border: #1E293B;
-  --scada-text: #F8FAFC;
-  --scada-muted: #94A3B8;
-  --scada-hover: #1E293B;
-  --scada-tooltip: #0F1322;
-  --scada-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 20px -5px rgba(37, 99, 235, 0.1);
-  --scada-accent: #3B82F6;
-  --scada-accent-soft: rgba(59, 130, 246, 0.15);
+  --scada-bg: #06080B;
+  --scada-sidebar: #0A0D14;
+  --scada-surface: #0E121B;
+  --scada-surface-raised: #141A26;
+  --scada-border: #1D2536;
+  --scada-text: #E6EDF5;
+  --scada-muted: #8A9BB3;
+  --scada-hover: #1D2536;
+  --scada-tooltip: #0A0D14;
+  --scada-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.9), 0 0 10px -5px rgba(255, 92, 0, 0.1);
+  --scada-accent: #FF5C00;
+  --scada-accent-soft: rgba(255, 92, 0, 0.15);
   --scada-highlight: rgba(255, 255, 255, 0.05);
-  --scada-control-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --scada-control-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
 
 @layer base {
