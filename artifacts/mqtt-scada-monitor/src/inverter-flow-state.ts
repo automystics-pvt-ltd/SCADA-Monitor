@@ -1,7 +1,7 @@
 export type InverterFlowQuality = 'reported' | 'raw' | 'unavailable';
 export type InverterFlowStatus = 'online' | 'stale' | 'offline';
 export type InverterFlowMode = 'demo' | 'live';
-export type InverterFlowProvenance = 'live' | 'retained' | 'recovered' | 'replay' | undefined;
+export type InverterFlowProvenance = 'live' | 'retained' | 'recovered' | 'replay' | 'snapshot' | undefined;
 
 export function inverterFlowState({
   value,
@@ -16,10 +16,13 @@ export function inverterFlowState({
   mode: InverterFlowMode;
   provenance?: InverterFlowProvenance;
 }) {
-  const liveSourceTag = mode === 'live' && provenance === 'live';
-  const streaming = value !== null && value > 0 && quality !== 'unavailable' && (status === 'online' || (liveSourceTag && status !== 'offline'));
+  const liveSourceTag = provenance === 'live';
+  const canStream = mode === 'demo' || liveSourceTag;
+  const streaming = canStream && value !== null && value > 0 && quality !== 'unavailable' && status === 'online';
   const rawLiveTelemetry = liveSourceTag && quality === 'raw' && streaming;
-  const statusLabel = quality === 'raw'
+  const statusLabel = provenance === 'snapshot'
+    ? 'Last saved power record'
+    : quality === 'raw'
     ? `${rawLiveTelemetry ? 'Live raw telemetry stream' : mode === 'live' ? 'Raw source tag' : 'Raw source stream'} · scaling required`
     : value === null
       ? 'No reported power value'

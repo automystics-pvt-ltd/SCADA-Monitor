@@ -3516,6 +3516,37 @@ function AppShell() {
     .sort((left, right) => right.observedAt - left.observedAt)[0] ?? null,
   [dashboardEvidenceRows]);
   const dashboardFlowReading = useMemo(() => {
+    const sourceRowForRawInput = (input: RawTelemetryMetric | undefined) => {
+      if (!input) return undefined;
+      return dashboardEvidenceRows
+        .filter((candidate) => {
+          const parameter = String(candidate.name ?? '').trim().toLowerCase();
+          const address = String(candidate.full_addr ?? candidate.addr ?? '—');
+          const value = typeof candidate.data === 'number' ? candidate.data : Number(candidate.data);
+          return parameter === input.parameter.toLowerCase() && address === input.address && Number.isFinite(value) && value === input.value;
+        })
+        .sort((left, right) => (telemetryEpoch(right) ?? 0) - (telemetryEpoch(left) ?? 0))[0];
+    };
+    const isFreshTimestamp = (timestamp: string | undefined) => {
+      const epoch = timestamp ? Date.parse(timestamp) : NaN;
+      const age = now - epoch;
+      return Number.isFinite(epoch) && age >= 0 && age <= DEVICE_ONLINE_MAX_AGE_MS;
+    };
+    const isFreshSourceRow = (row: ModbusRow | undefined) => {
+      const epoch = row ? telemetryEpoch(row) : null;
+      const age = epoch === null ? NaN : now - epoch;
+      return Number.isFinite(epoch) && age >= 0 && age <= DEVICE_ONLINE_MAX_AGE_MS;
+    };
+    const observationRange = (rows: Array<ModbusRow | undefined>) => {
+      const datedRows = rows
+        .filter((row): row is ModbusRow => row !== undefined && telemetryEpoch(row) !== null)
+        .sort((left, right) => (telemetryEpoch(left) ?? 0) - (telemetryEpoch(right) ?? 0));
+      if (!datedRows.length) return undefined;
+      const first = telemetryDateTime(datedRows[0]!).full;
+      const last = telemetryDateTime(datedRows[datedRows.length - 1]!).full;
+      return first === last ? first : `${first} – ${last}`;
+    };
+    const savedSnapshotTime = savedKpiSnapshot?.capturedAt ?? savedKpiSnapshot?.scheduledFor;
     if (mode === 'demo') {
       return {
         value: totalAcPower,
@@ -3523,22 +3554,33 @@ function AppShell() {
         quality: totalAcPower === null ? 'unavailable' as const : 'reported' as const,
         status: totalAcPower === null ? 'offline' as const : 'online' as const,
         sourceLabel: 'Demo inverter aggregate',
+        inverterCount: onlinePowerReadings.length || undefined,
       };
     }
     if (calculations.acPower.quality === 'verified') {
-      const live = calculations.acPower.provenance === 'live' && electricalLiveState === 'fresh';
+      const liveInputsFresh = calculations.acPower.inputs.length > 0
+        && calculations.acPower.inputs.every((input) => isFreshTimestamp(input.observedAt));
+      const live = calculations.acPower.provenance === 'live' && electricalLiveState === 'fresh' && liveInputsFresh;
+      const saved = calculations.acPower.provenance === 'snapshot';
+      const calculationObservation = observationRange(
+        calculations.acPower.inputs.map((input) => input.observedAt ? { date_iso_8601: input.observedAt } : undefined),
+      );
       return {
         value: calculations.acPower.value,
         unit: calculations.acPower.unit ?? '',
         quality: calculations.acPower.value === null ? 'unavailable' as const : 'reported' as const,
-        provenance: calculations.acPower.provenance === 'live' ? 'live' as const : calculations.acPower.provenance === 'replay' ? 'replay' as const : undefined,
+        provenance: live ? 'live' as const : saved ? 'snapshot' as const : calculations.acPower.provenance === 'replay' ? 'replay' as const : undefined,
         status: live ? 'online' as const : 'stale' as const,
-        sourceLabel: `${live ? 'Validated live' : 'Validated saved'} · ${calculations.acPower.profileVersion}`,
+        sourceLabel: `${live ? 'Validated live' : saved ? 'Last saved validated' : 'Validated historical'} · ${calculations.acPower.profileVersion}`,
+        observedAt: saved ? savedSnapshotTime : calculationObservation ?? calculations.acPower.calculatedAt,
+        observationLabel: saved ? 'Saved snapshot' : calculations.acPower.inputs.length > 1 ? 'Contributing timestamps' : 'Observed',
+        inverterCount: calculations.acPower.method === 'inverter-sum' ? calculations.acPower.inputs.length : undefined,
       };
     }
     if (latestApprovedPlantPower) {
       const { row, value } = latestApprovedPlantPower;
-      const live = row.provenance === 'live' && electricalLiveState === 'fresh';
+      const live = row.provenance === 'live' && electricalLiveState === 'fresh' && isFreshSourceRow(row);
+      const saved = showingSavedRecord;
       const unit = typeof row.engineering_unit === 'string' && row.engineering_unit.trim()
         ? row.engineering_unit
         : typeof row.unit === 'string' && row.unit.trim()
@@ -3548,32 +3590,48 @@ function AppShell() {
         value,
         unit,
         quality: 'reported' as const,
-        provenance: live ? 'live' as const : undefined,
+        provenance: live ? 'live' as const : saved ? 'snapshot' as const : row.provenance === 'replay' ? 'replay' as const : undefined,
         status: live ? 'online' as const : 'stale' as const,
-        sourceLabel: `Approved ${String(row.name ?? 'active power')} register · ${String(row.full_addr ?? row.addr ?? '—')}`,
+        sourceLabel: `${live ? 'Approved live' : saved ? 'Last saved approved' : 'Approved historical'} ${String(row.name ?? 'active power')} register · ${String(row.full_addr ?? row.addr ?? '—')}`,
+        observedAt: saved ? savedSnapshotTime : telemetryDateTime(row).full,
+        observationLabel: saved ? 'Saved snapshot' : 'Observed',
       };
     }
     const liveRawInput = rawFallbacks.acPower.inputs.find((input) => input.provenance === 'live');
-    if (liveRawInput) {
+    const rawInputRows = rawFallbacks.acPower.inputs.map(sourceRowForRawInput);
+    const allRawInputsFresh = rawFallbacks.acPower.inputs.length > 0
+      && rawFallbacks.acPower.inputs.every((input, index) => input.provenance === 'live' && isFreshSourceRow(rawInputRows[index]));
+    const liveRawInputRow = sourceRowForRawInput(liveRawInput);
+    if (liveRawInput && liveRawInputRow && isFreshSourceRow(liveRawInputRow) && !showingSavedRecord) {
+      const isLiveInverterAggregate = rawFallbacks.acPower.method === 'inverter sum' && allRawInputsFresh;
       return {
-        value: liveRawInput.value,
+        value: isLiveInverterAggregate ? rawFallbacks.acPower.value : liveRawInput.value,
         unit: 'raw',
         quality: 'raw' as const,
         provenance: 'live' as const,
-        status: 'stale' as const,
-        sourceLabel: `Live ${liveRawInput.parameter} register · ${liveRawInput.address}`,
+        status: electricalLiveState === 'fresh' ? 'online' as const : 'stale' as const,
+        sourceLabel: isLiveInverterAggregate
+          ? `Live raw inverter aggregate · ${rawFallbacks.acPower.inputs.length} registers`
+          : `Live ${liveRawInput.parameter} register · ${liveRawInput.address}`,
+        observedAt: isLiveInverterAggregate ? observationRange(rawInputRows) : telemetryDateTime(liveRawInputRow).full,
+        observationLabel: isLiveInverterAggregate ? 'Contributing timestamps' : 'Observed',
+        inverterCount: isLiveInverterAggregate ? rawFallbacks.acPower.inputs.length : undefined,
       };
     }
     const liveInputs = rawFallbacks.acPower.inputs.length > 0 && rawFallbacks.acPower.inputs.every((input) => input.provenance === 'live');
+    const rawInput = rawFallbacks.acPower.inputs[0];
     return {
       value: rawFallbacks.acPower.value,
       unit: rawFallbacks.acPower.unit,
       quality: rawFallbacks.acPower.value === null ? 'unavailable' as const : 'raw' as const,
-      provenance: liveInputs ? 'live' as const : rawFallbacks.acPower.inputs[0]?.provenance,
-      status: liveInputs ? 'stale' as const : 'offline' as const,
-      sourceLabel: rawFallbacks.acPower.method,
+      provenance: showingSavedRecord ? 'snapshot' as const : liveInputs ? 'live' as const : rawInput?.provenance,
+      status: !showingSavedRecord && allRawInputsFresh && electricalLiveState === 'fresh' ? 'online' as const : rawFallbacks.acPower.value === null ? 'offline' as const : 'stale' as const,
+      sourceLabel: showingSavedRecord ? `Last saved raw evidence · ${rawFallbacks.acPower.method}` : rawFallbacks.acPower.method,
+      observedAt: showingSavedRecord ? savedSnapshotTime : observationRange(rawInputRows),
+      observationLabel: showingSavedRecord ? 'Saved snapshot' : rawInputRows.length > 1 ? 'Contributing timestamps' : 'Observed',
+      inverterCount: rawFallbacks.acPower.method === 'inverter sum' ? rawFallbacks.acPower.inputs.length : undefined,
     };
-  }, [calculations.acPower, electricalLiveState, latestApprovedPlantPower, mode, rawFallbacks.acPower, totalAcPower]);
+  }, [calculations.acPower, dashboardEvidenceRows, electricalLiveState, latestApprovedPlantPower, mode, now, onlinePowerReadings.length, rawFallbacks.acPower, savedKpiSnapshot, showingSavedRecord, totalAcPower]);
   const deviceCommunication = mode === 'demo'
     ? 'live'
     : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');

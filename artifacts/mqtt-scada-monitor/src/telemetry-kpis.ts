@@ -271,11 +271,14 @@ function normalizedKey(value: unknown) {
 function asRawMetric(row: TelemetryKpiRow): RawTelemetryMetric | null {
   const value = numericValue(row);
   if (value === null) return null;
+  const provenance = row.provenance === "retained" || row.provenance === "recovered" || row.provenance === "replay"
+    ? row.provenance
+    : "live";
   return {
     parameter: String(row.name ?? "register"),
     value,
     address: String(row.full_addr ?? row.addr ?? "—"),
-    provenance: row.provenance === "replay" ? "replay" : "live",
+    provenance,
   };
 }
 

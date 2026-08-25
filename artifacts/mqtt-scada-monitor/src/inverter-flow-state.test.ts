@@ -3,8 +3,8 @@ import test from 'node:test';
 import { inverterFlowState } from './inverter-flow-state.ts';
 
 test('streams fresh live broker power without relabeling raw evidence as engineering data', () => {
-  const rawLive = inverterFlowState({ value: 10494, quality: 'raw', status: 'stale', mode: 'live', provenance: 'live' });
-  const validatedLive = inverterFlowState({ value: 4030.9, quality: 'reported', status: 'online', mode: 'live' });
+  const rawLive = inverterFlowState({ value: 10494, quality: 'raw', status: 'online', mode: 'live', provenance: 'live' });
+  const validatedLive = inverterFlowState({ value: 4030.9, quality: 'reported', status: 'online', mode: 'live', provenance: 'live' });
 
   assert.equal(rawLive.streaming, true);
   assert.equal(rawLive.rawLiveTelemetry, true);
@@ -13,9 +13,24 @@ test('streams fresh live broker power without relabeling raw evidence as enginee
   assert.match(validatedLive.statusLabel, /Live broker power stream/i);
 });
 
-test('does not turn retained or unmapped source tags into a live stream', () => {
-  assert.equal(inverterFlowState({ value: 10494, quality: 'raw', status: 'stale', mode: 'live', provenance: 'retained' }).streaming, false);
-  assert.equal(inverterFlowState({ value: 10494, quality: 'raw', status: 'stale', mode: 'live' }).streaming, false);
+test('pauses a live source when telemetry freshness expires', () => {
+  const staleLive = inverterFlowState({ value: 10494, quality: 'reported', status: 'stale', mode: 'live', provenance: 'live' });
+
+  assert.equal(staleLive.streaming, false);
+  assert.match(staleLive.statusLabel, /paused/i);
+});
+
+test('does not turn retained, recovered, replayed, or unmapped source tags into a live stream', () => {
+  for (const provenance of ['retained', 'recovered', 'replay', undefined] as const) {
+    assert.equal(inverterFlowState({ value: 10494, quality: 'raw', status: 'online', mode: 'live', provenance }).streaming, false);
+  }
+});
+
+test('preserves a saved positive value without animating it as live', () => {
+  const saved = inverterFlowState({ value: 10494, quality: 'reported', status: 'online', mode: 'live', provenance: 'snapshot' });
+
+  assert.equal(saved.streaming, false);
+  assert.match(saved.statusLabel, /saved power record/i);
 });
 
 test('pauses the inverter flow for unavailable, stale, offline, or zero telemetry', () => {

@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { inverterFlowState, type InverterFlowProvenance, type InverterFlowQuality, type InverterFlowStatus } from '../inverter-flow-state';
 
 type DashboardPowerFlowProps = {
@@ -8,6 +9,9 @@ type DashboardPowerFlowProps = {
   provenance?: InverterFlowProvenance;
   status: InverterFlowStatus;
   sourceLabel: string;
+  observedAt?: string;
+  observationLabel?: string;
+  inverterCount?: number;
 };
 
 function formatFlowReading(value: number | null, unit: string) {
@@ -24,19 +28,46 @@ export function DashboardPowerFlow({
   provenance,
   status,
   sourceLabel,
+  observedAt,
+  observationLabel = 'Observed',
+  inverterCount,
 }: DashboardPowerFlowProps) {
   const flow = inverterFlowState({ value, quality, status, mode, provenance });
-  const statusTone = flow.rawLiveTelemetry ? 'raw' : flow.streaming ? 'active' : 'paused';
+  const statusTone = provenance === 'snapshot' ? 'saved' : flow.rawLiveTelemetry ? 'raw' : flow.streaming ? 'active' : 'paused';
   const reading = formatFlowReading(value, unit);
+  const timestampLabel = observedAt
+    ? (() => {
+      const parsed = new Date(observedAt);
+      return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : observedAt;
+    })()
+    : 'Timestamp unavailable';
+  const powerInKw = value === null || value <= 0
+    ? 0
+    : unit.toLowerCase() === 'w'
+      ? value / 1000
+      : unit.toLowerCase() === 'mw'
+        ? value * 1000
+        : value;
+  const flowIntensity = flow.streaming ? Math.min(1, Math.max(0.16, Math.log10(1 + powerInKw) / 4)) : 0;
+  const flowStyle = {
+    '--dashboard-flow-speed': `${Math.max(0.48, 1.65 - flowIntensity * 1.1)}s`,
+    '--dashboard-flow-opacity': `${0.48 + flowIntensity * 0.52}`,
+    '--dashboard-flow-glow-opacity': `${flowIntensity * 0.28}`,
+  } as CSSProperties;
+  const inverterLabel = inverterCount
+    ? `${inverterCount} inverter${inverterCount === 1 ? '' : 's'}`
+    : 'Inverter';
 
   return (
     <section
       aria-label="Plant power-flow visualization"
       className="scada-dashboard-flow relative isolate overflow-hidden rounded-2xl border px-3 py-4 sm:px-5 sm:py-5"
       data-testid="dashboard-power-flow"
-      data-flow-state={flow.streaming ? 'streaming' : 'paused'}
+      data-flow-state={flow.streaming ? 'streaming' : value === 0 ? 'zero' : provenance === 'snapshot' ? 'saved' : 'paused'}
       data-stream-mode={mode}
       data-quality={quality}
+      data-flow-provenance={provenance ?? 'unavailable'}
+      style={flowStyle}
     >
       <div className="scada-dashboard-flow-grid pointer-events-none absolute inset-0" />
       <div className="scada-dashboard-flow-glow pointer-events-none absolute inset-0" />
@@ -46,6 +77,8 @@ export function DashboardPowerFlow({
           <p className="mt-1 text-sm font-bold text-slate-100">
             {mode === 'demo'
               ? 'Demo power flow'
+              : provenance === 'snapshot'
+                ? 'Last saved power record'
               : flow.rawLiveTelemetry
                 ? 'Live raw telemetry stream'
                 : quality === 'raw'
@@ -109,19 +142,20 @@ export function DashboardPowerFlow({
       <div className="scada-dashboard-flow-label-grid relative z-10 grid grid-cols-2 gap-2 min-[640px]:grid-cols-4" aria-label="Plant energy lane equipment">
         <div className="scada-dashboard-flow-label scada-dashboard-flow-label--solar"><span className="scada-dashboard-flow-label-mark scada-dashboard-flow-label-mark--solar" />Solar array</div>
         <div className="scada-dashboard-flow-label scada-dashboard-flow-label--load"><span className="scada-dashboard-flow-label-mark scada-dashboard-flow-label-mark--load" />Plant load</div>
-        <div className="scada-dashboard-flow-label scada-dashboard-flow-label--inverter"><span className="scada-dashboard-flow-label-mark scada-dashboard-flow-label-mark--inverter" />Inverter</div>
-        <div className="scada-dashboard-flow-label scada-dashboard-flow-label--grid"><span className="scada-dashboard-flow-label-mark scada-dashboard-flow-label-mark--grid" />Grid</div>
+        <div className="scada-dashboard-flow-label scada-dashboard-flow-label--inverter"><span className="scada-dashboard-flow-label-mark scada-dashboard-flow-label-mark--inverter" />{inverterLabel}</div>
+        <div className="scada-dashboard-flow-label scada-dashboard-flow-label--grid"><span className="scada-dashboard-flow-label-mark scada-dashboard-flow-label-mark--grid" />Plant output / grid</div>
       </div>
 
       <div className="relative z-10 mt-2 grid grid-cols-1 gap-2 min-[480px]:grid-cols-2">
         <div className="scada-dashboard-flow-reading">
-          <span>Source power</span>
+          <span>Actual AC power</span>
           <strong className={quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}>{reading}</strong>
+          <small>{observationLabel} {timestampLabel}</small>
         </div>
         <div className="scada-dashboard-flow-reading min-[480px]:text-right">
-          <span>Reported export</span>
-          <strong className={quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}>{reading}</strong>
-          <small>{sourceLabel}</small>
+          <span>Telemetry source</span>
+          <strong className={`block truncate ${quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}`} title={sourceLabel}>{sourceLabel}</strong>
+          <small>{inverterCount ? `${inverterLabel} contributing` : provenance === 'snapshot' ? 'Saved evidence — animation paused' : flow.streaming ? 'Fresh telemetry — animation active' : 'No fresh power flow'}</small>
         </div>
       </div>
     </section>

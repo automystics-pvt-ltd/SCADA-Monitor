@@ -275,12 +275,13 @@
   background-size: 25px 25px;
 }
 .scada-dashboard-flow-glow {
-  background: linear-gradient(90deg, transparent 15%, rgba(0, 229, 255, .04) 48%, transparent 82%);
+  background: linear-gradient(90deg, transparent 15%, rgba(0, 229, 255, var(--dashboard-flow-glow-opacity, .04)) 48%, transparent 82%);
   mix-blend-mode: screen;
 }
 .dashboard-flow-path {
-  animation: inverter-flow 1s linear infinite;
+  animation: inverter-flow var(--dashboard-flow-speed, 1s) linear infinite;
   filter: drop-shadow(0 0 4px rgba(0, 229, 255, .6));
+  opacity: var(--dashboard-flow-opacity, 1);
 }
 .dashboard-flow-path-delayed { animation-delay: -.5s; }
 .scada-dashboard-flow-state {
@@ -315,6 +316,10 @@
   background: #F59E0B;
   box-shadow: 0 0 9px rgba(245, 158, 11, .45);
   animation: pulse-soft 1.5s ease-in-out infinite;
+}
+.scada-dashboard-flow-state--saved .scada-dashboard-flow-state-dot {
+  background: #A78BFA;
+  box-shadow: 0 0 9px rgba(167, 139, 250, .4);
 }
 .scada-dashboard-flow-reading {
   min-width: 0;
