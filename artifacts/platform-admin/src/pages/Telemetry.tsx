@@ -327,7 +327,19 @@ function ParameterMappingRow({
           ) : needsConfirmedUnit ? (
             <p className="text-[9px] text-amber-700 dark:text-amber-300">Choose a confirmed unit before saving. Suggestions are not applied automatically when the source did not report one.</p>
           ) : null}
-          <p className="text-[9px] text-muted-foreground font-mono">Actual = reported × {scalingMultiplier} + {scalingOffset}</p>
+          {isMapped ? (
+            <p className="text-[9px] text-muted-foreground font-mono">
+              Actual = reported × {scalingMultiplier} + {scalingOffset}
+            </p>
+          ) : isDirty ? (
+            <p className="text-[9px] text-muted-foreground font-mono">
+              Draft = reported × {scalingMultiplier} + {scalingOffset} · not saved
+            </p>
+          ) : (
+            <p className="text-[9px] text-muted-foreground/70 font-mono">
+              No approved transform saved
+            </p>
+          )}
         </div>
       </TableCell>
 
