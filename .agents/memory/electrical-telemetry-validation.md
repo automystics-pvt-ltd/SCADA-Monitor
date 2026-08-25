@@ -27,6 +27,12 @@ Reviewed counter roles are semantic evidence and should take precedence over ven
 
 **How to apply:** Select raw daily and total-energy fallbacks using the reviewed `daily-counter` or `cumulative-counter` role as well as known names. Show the source unit in the evidence detail with `scaling required`; only an approved plant calibration profile may produce the final engineering KPI.
 
+When a row is explicitly source-reported, use its reported/customer value and reported unit for the current evidence display; retain its transport raw register value separately and keep it unverified until scaling is approved.
+
+**Why:** The transport payload can be an encoded register string while the device also provides the current customer-facing value and source unit. Displaying the transport value as the live KPI hides the actual source reading.
+
+**How to apply:** Prefer `reported_value`/`customer_value` and their declared unit only for source-reported evidence. If a row is explicitly marked raw, ignore any convenience reported-value field and continue to show the raw register evidence.
+
 An approved plant calibration profile may be role-specific. Installed DC capacity is optional unless calculating Specific Yield, so a confirmed Total Energy mapping can be verified without approving unrelated power, daily-energy, or capacity metadata.
 
 **Why:** Requiring a complete plant profile to approve one well-evidenced counter either hides valid energy evidence or pressures operators to fabricate unknown capacity values.

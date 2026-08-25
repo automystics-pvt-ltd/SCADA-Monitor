@@ -6,6 +6,7 @@ export type RawTelemetryMetric = {
   address: string;
   provenance: "live" | "retained" | "recovered" | "replay";
   sourceUnit?: string;
+  sourceReported?: boolean;
 };
 
 export type RawInverterSignal = RawTelemetryMetric & {
@@ -288,8 +289,32 @@ function rowTimestamp(row: TelemetryKpiRow) {
   return 0;
 }
 
+function numericCandidate(value: unknown) {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sourceReportedValue(row: TelemetryKpiRow) {
+  const mappingStatus = row.source_mapping_status ?? row.sourceMappingStatus;
+  if (mappingStatus !== undefined && mappingStatus !== null && mappingStatus !== "" && mappingStatus !== "source-reported") return null;
+  for (const candidate of [
+    row.reported_value,
+    row.reportedValue,
+    row.customer_value,
+    row.customerValue,
+    row.engineering_value,
+    row.engineeringValue,
+  ]) {
+    const value = numericCandidate(candidate);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
 function numericValue(row: TelemetryKpiRow) {
-  const value = typeof row.data === "number" ? row.data : typeof row.data === "string" ? Number(row.data) : NaN;
+  const reported = sourceReportedValue(row);
+  if (reported !== null) return reported;
+  const value = numericCandidate(row.data);
   return Number.isFinite(value) ? value : null;
 }
 
@@ -321,6 +346,7 @@ function asRawMetric(row: TelemetryKpiRow): RawTelemetryMetric | null {
     address: String(row.full_addr ?? row.addr ?? "—"),
     provenance,
     ...(typeof sourceUnit === "string" ? { sourceUnit: sourceUnit.trim() } : {}),
+    ...(sourceReportedValue(row) !== null ? { sourceReported: true } : {}),
   };
 }
 

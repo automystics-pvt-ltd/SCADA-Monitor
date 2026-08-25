@@ -870,7 +870,7 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
 
 type RawKpiFallback = {
   value: number | null;
-  unit: 'raw';
+  unit: string;
   formula: string;
   method: string;
   inputs: RawTelemetryMetric[];
@@ -881,7 +881,7 @@ type RawKpiFallback = {
 function rawMetricFallback(metric: RawTelemetryMetric | null, formula: string, readiness: string): RawKpiFallback {
   return {
     value: metric?.value ?? null,
-    unit: 'raw',
+    unit: metric?.sourceUnit ?? 'raw',
     formula,
     method: metric ? 'latest source register' : 'not reported',
     inputs: metric ? [metric] : [],
@@ -904,7 +904,7 @@ function rawAggregateFallback(aggregate: ScadaAggregate, signal: 'power' | 'ener
             : 'No cumulative-energy source register is currently available';
   return {
     value: aggregate.value,
-    unit: 'raw',
+    unit: aggregate.source?.sourceUnit ?? aggregate.included.find((input) => input.sourceUnit)?.sourceUnit ?? 'raw',
     formula,
     method: aggregate.method.replaceAll('-', ' '),
     inputs: aggregate.included,
@@ -912,7 +912,9 @@ function rawAggregateFallback(aggregate: ScadaAggregate, signal: 'power' | 'ener
       ? signal === 'power'
         ? 'No raw active-power record has arrived from the broker.'
         : 'No raw cumulative-energy record has arrived from the broker.'
-      : 'Exact raw source evidence is available; scaling and engineering units are not declared by the source.',
+      : aggregate.included.some((input) => input.sourceReported)
+        ? 'Source-reported value and unit are available; scaling confirmation is still required for verified KPIs.'
+        : 'Exact raw source evidence is available; scaling and engineering units are not declared by the source.',
     sourceUnit: aggregate.source?.sourceUnit ?? aggregate.included.find((input) => input.sourceUnit)?.sourceUnit,
   };
 }
@@ -1703,7 +1705,7 @@ function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }:
             ? `${calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${calculation.unit}`
             : rawFallback.value === null
               ? 'Not reported'
-              : `${rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 })} raw`;
+              : `${rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${rawFallback.unit}`;
           const inputs = verified ? calculation.inputs : rawFallback.inputs;
           const formula = verified ? calculation.formula : rawFallback.formula;
           const method = verified ? calculation.method.replaceAll('-', ' ') : rawFallback.method;
@@ -1716,7 +1718,7 @@ function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }:
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{calculation.label}</p>
                   <p className={`mt-1 text-sm font-bold ${verified ? 'text-emerald-400' : rawFallback.value === null ? 'text-slate-400' : 'text-amber-300'}`}>{displayValue}</p>
                 </div>
-                <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase ${verified ? 'bg-emerald-500/10 text-emerald-400' : rawFallback.value === null ? 'bg-slate-800 text-slate-400' : 'bg-amber-500/10 text-amber-300'}`}>{verified ? 'Verified' : rawFallback.value === null ? 'Not reported' : 'Raw evidence'}</span>
+                <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase ${verified ? 'bg-emerald-500/10 text-emerald-400' : rawFallback.value === null ? 'bg-slate-800 text-slate-400' : 'bg-amber-500/10 text-amber-300'}`}>{verified ? 'Verified' : rawFallback.value === null ? 'Not reported' : rawFallback.inputs.some((input) => input.sourceReported) ? 'Source reported' : 'Raw evidence'}</span>
               </div>
             </summary>
             <div className="mt-3 border-t border-[#1E293B] pt-3 text-[11px] leading-5 text-slate-400">
@@ -1726,7 +1728,7 @@ function CalculationSummaryPanel({ calculations, rawRows = [], className = '' }:
               {calculation.snapshotWindow && <p className="mt-1"><strong className="text-slate-300">Saved window:</strong> {new Date(calculation.snapshotWindow.startedAt).toLocaleString()} – {new Date(calculation.snapshotWindow.endedAt).toLocaleString()}</p>}
               {inputs.length > 0 && <div className="mt-2"><strong className="text-slate-300">Included evidence:</strong><ul className="mt-1 space-y-1">{inputs.map((source) => {
                 const observedAt = verified ? (source as VerifiedKpiCalculation['inputs'][number]).observedAt : undefined;
-                const unit = verified ? (source as VerifiedKpiCalculation['inputs'][number]).unit : 'raw';
+                const unit = verified ? (source as VerifiedKpiCalculation['inputs'][number]).unit : (source as RawTelemetryMetric).sourceUnit ?? 'raw';
                 return <li key={`${source.parameter}-${source.address}-${observedAt ?? 'raw'}`} className="rounded bg-[#090B13] px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {unit} · register {source.address}{observedAt ? ` · ${new Date(observedAt).toLocaleString()}` : ''}</li>;
               })}</ul></div>}
               {calculation.excluded.length > 0 && <div className="mt-2"><strong className="text-amber-300">Excluded outliers:</strong><ul className="mt-1 space-y-1">{calculation.excluded.map((source) => <li key={`${source.parameter}-${source.address}-${source.observedAt}`} className="rounded bg-amber-500/5 px-2 py-1">{source.parameter} · {source.value.toLocaleString()} {source.unit} · register {source.address}</li>)}</ul></div>}
@@ -3585,7 +3587,7 @@ function AppShell() {
     };
   }, [hasValidSavedSnapshot, liveKpiCalculations, savedKpiCalculations, showingSavedRecord]);
   const rawKpiValue = (metric: RawTelemetryMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
-  const rawKpiUnit = (metric: RawTelemetryMetric | null) => metric ? 'raw' : '';
+  const rawKpiUnit = (metric: RawTelemetryMetric | null) => metric?.sourceUnit ?? (metric ? 'raw' : '');
   const calculationValue = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 }) : '—';
   const calculationUnit = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.unit ?? '' : '';
   const calculationContext = (calculation: VerifiedKpiCalculation) => {
@@ -3615,7 +3617,7 @@ function AppShell() {
     return {
       value: rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 }),
       unit: rawFallback.unit,
-      subtext: `${rawFallback.method} · ${registerList}${rawFallback.sourceUnit ? ` · source unit ${rawFallback.sourceUnit}` : ''} · scaling required${showingSavedRecord ? ` · Last Saved: ${lastSavedLabel}` : ''}`,
+      subtext: `${rawFallback.method} · ${registerList}${rawFallback.sourceUnit ? ` · source unit ${rawFallback.sourceUnit}` : ''} · ${rawFallback.inputs.some((input) => input.sourceReported) ? 'source-reported; scaling confirmation required' : 'scaling required'}${showingSavedRecord ? ` · Last Saved: ${lastSavedLabel}` : ''}`,
       formula: rawFallback.formula,
     };
   };
@@ -3632,7 +3634,10 @@ function AppShell() {
         && ['activepower', 'acpower', 'realpower'].includes(semantic);
     })
     .map((row) => {
-      const value = typeof row.data === 'number' ? row.data : typeof row.data === 'string' ? Number(row.data) : NaN;
+      const reported = sourceReportedValue(row);
+      const value = typeof reported === 'number'
+        ? reported
+        : typeof row.data === 'number' ? row.data : typeof row.data === 'string' ? Number(row.data) : NaN;
       return { row, value, observedAt: telemetryEpoch(row) ?? 0 };
     })
     .filter((candidate) => Number.isFinite(candidate.value))
@@ -3743,13 +3748,13 @@ function AppShell() {
       const isLiveInverterAggregate = rawFallbacks.acPower.method === 'inverter sum' && allRawInputsFresh;
       return {
         value: isLiveInverterAggregate ? rawFallbacks.acPower.value : liveRawInput.value,
-        unit: 'raw',
-        quality: 'raw' as const,
+        unit: liveRawInput.sourceUnit ?? 'raw',
+        quality: liveRawInput.sourceReported ? 'reported' as const : 'raw' as const,
         provenance: 'live' as const,
         status: electricalLiveState === 'fresh' ? 'online' as const : 'stale' as const,
         sourceLabel: isLiveInverterAggregate
-          ? `Live raw inverter aggregate · ${rawFallbacks.acPower.inputs.length} registers`
-          : `Live ${liveRawInput.parameter} register · ${liveRawInput.address}`,
+          ? `Live ${liveRawInput.sourceReported ? 'source-reported' : 'raw'} inverter aggregate · ${rawFallbacks.acPower.inputs.length} registers`
+          : `Live ${liveRawInput.sourceReported ? 'source-reported' : 'raw'} ${liveRawInput.parameter} register · ${liveRawInput.address}`,
         observedAt: isLiveInverterAggregate ? observationRange(rawInputRows) : telemetryDateTime(liveRawInputRow).full,
         observationLabel: isLiveInverterAggregate ? 'Contributing timestamps' : 'Observed',
         inverterCount: isLiveInverterAggregate ? rawFallbacks.acPower.inputs.length : undefined,

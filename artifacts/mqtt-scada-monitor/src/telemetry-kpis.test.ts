@@ -17,6 +17,28 @@ test("selects the newest named raw register and keeps replay provenance", () => 
   });
 });
 
+test("prefers an explicit customer-reported value and its source unit over transport raw data", () => {
+  const metric = latestRawMetric([{
+    name: "actpow",
+    data: "31393536383339343234",
+    raw_data: "31393536383339343234",
+    reported_value: "1956839424",
+    reported_unit: "kW",
+    full_addr: "305031",
+    server_name: "ana",
+    provenance: "live",
+  }], ["actpow"]);
+
+  assert.deepEqual(metric, {
+    parameter: "actpow",
+    value: 1956839424,
+    address: "305031",
+    provenance: "live",
+    sourceUnit: "kW",
+    sourceReported: true,
+  });
+});
+
 test("reports only numeric inverter register signals", () => {
   const signals = rawInverterSignals([
     { name: "inv2", data: "1041", addr: 2, provenance: "replay" },
