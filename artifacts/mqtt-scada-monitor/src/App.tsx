@@ -2901,17 +2901,29 @@ function ScadaCredentialLogin({ onSignedIn }: { onSignedIn: () => void }) {
   };
 
   return (
-    <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-blue-500/30 bg-blue-500/[.04] p-5 text-center sm:p-8">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-xl border border-[#1E293B] bg-[#090B13] p-5 text-left shadow-2xl sm:p-6">
-        <MapPin size={28} className="mx-auto mb-4 text-blue-300" />
-        <h1 className="text-center text-lg font-bold text-slate-100">Sign in to SCADA</h1>
-        <p className="mt-2 text-center text-sm leading-6 text-slate-400">Use the username and password created for you in Platform Admin. Your SCADA session remains separate from Platform Admin.</p>
-        <label className="mt-5 block text-xs font-semibold uppercase tracking-wide text-slate-400" htmlFor="scada-username">Username</label>
-        <input id="scada-username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" required className="mt-2 w-full rounded-lg border border-[#334155] bg-[#0f172a] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" />
-        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-400" htmlFor="scada-password">Password</label>
-        <input id="scada-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required className="mt-2 w-full rounded-lg border border-[#334155] bg-[#0f172a] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" />
-        {error && <p role="alert" className="mt-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs leading-5 text-rose-200">{error}</p>}
-        <button type="submit" disabled={submitting} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60">{submitting ? 'Signing in…' : 'Sign in to SCADA'}</button>
+    <section aria-labelledby="scada-sign-in-title" className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-[color-mix(in_srgb,var(--scada-accent)_35%,transparent)] bg-[var(--scada-accent-soft)] p-4 text-center sm:p-8">
+      <form onSubmit={submit} className="w-full max-w-md rounded-2xl border border-[var(--scada-border)] bg-[var(--scada-surface)] p-6 text-left shadow-[var(--scada-shadow)] sm:p-8">
+        <div className="flex flex-col items-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[color-mix(in_srgb,var(--scada-accent)_25%,transparent)] bg-[var(--scada-accent-soft)] text-[var(--scada-accent)]">
+            <MapPin size={28} aria-hidden="true" />
+          </div>
+          <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--scada-accent)]">Secure operator access</p>
+          <h1 id="scada-sign-in-title" className="mt-2 text-center text-xl font-bold tracking-tight text-[var(--scada-text)]">Sign in to SCADA</h1>
+          <p className="mt-3 max-w-sm text-center text-sm leading-6 text-[var(--scada-muted)]">Use the username and password created for you in Platform Admin. Your SCADA session remains separate from Platform Admin.</p>
+        </div>
+        <div className="mt-7 space-y-4">
+          <label className="block" htmlFor="scada-username">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--scada-muted)]">Username</span>
+            <input id="scada-username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" required placeholder="Enter your username" className="mt-2 h-12 w-full rounded-xl border border-[var(--scada-border)] bg-[var(--scada-surface-raised)] px-3.5 text-sm text-[var(--scada-text)] outline-none transition placeholder:text-[var(--scada-muted)] focus:border-[var(--scada-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--scada-accent)_25%,transparent)] focus-ring" />
+          </label>
+          <label className="block" htmlFor="scada-password">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--scada-muted)]">Password</span>
+            <input id="scada-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required placeholder="Enter your password" className="mt-2 h-12 w-full rounded-xl border border-[var(--scada-border)] bg-[var(--scada-surface-raised)] px-3.5 text-sm text-[var(--scada-text)] outline-none transition placeholder:text-[var(--scada-muted)] focus:border-[var(--scada-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--scada-accent)_25%,transparent)] focus-ring" />
+          </label>
+        </div>
+        {error && <p id="scada-login-error" role="alert" aria-live="polite" className="mt-4 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3.5 py-3 text-xs leading-5 text-rose-700 dark:text-rose-200">{error}</p>}
+        <button type="submit" disabled={submitting} aria-busy={submitting} className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--scada-accent)] px-4 text-sm font-bold text-white shadow-lg shadow-blue-500/15 transition hover:brightness-110 focus-ring disabled:cursor-not-allowed disabled:opacity-60">{submitting && <RefreshCw size={16} className="animate-spin" aria-hidden="true" />}{submitting ? 'Signing in…' : 'Sign in to SCADA'}</button>
+        <p className="mt-5 text-center text-[11px] leading-5 text-[var(--scada-muted)]">Access is limited to active SCADA operator accounts. Contact your platform administrator if you need access.</p>
       </form>
     </section>
   );

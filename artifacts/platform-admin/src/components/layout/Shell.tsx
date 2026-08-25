@@ -106,8 +106,8 @@ function PlatformAdminSignIn({ theme, setTheme }: { theme: string; setTheme: (th
   }
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-br from-background via-background to-muted/40 px-4 py-8 sm:px-6">
-      <div className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-md items-center">
+    <div className="min-h-[100dvh] overflow-y-auto bg-gradient-to-br from-background via-background to-muted/40 px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto flex min-h-[calc(100dvh-3rem)] max-w-md items-center py-2 sm:min-h-[calc(100dvh-4rem)]">
         <section className="w-full rounded-2xl border border-border bg-card p-6 shadow-xl shadow-black/10 sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -122,7 +122,7 @@ function PlatformAdminSignIn({ theme, setTheme }: { theme: string; setTheme: (th
             <button
               type="button"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               aria-label={theme === "dark" ? "Use light mode" : "Use dark mode"}
             >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -138,7 +138,7 @@ function PlatformAdminSignIn({ theme, setTheme }: { theme: string; setTheme: (th
 
           <a
             href="/api/platform-admin/google/login?returnTo=/platform-admin/"
-            className="mt-6 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M21.35 12.28c0-.78-.07-1.53-.2-2.25H12v4.26h5.23a4.47 4.47 0 0 1-1.94 2.93v2.77h3.15c1.84-1.7 2.91-4.2 2.91-7.71Z" /><path d="M12 21.75c2.62 0 4.82-.87 6.43-2.36l-3.15-2.77c-.87.58-1.99.92-3.28.92-2.52 0-4.66-1.7-5.42-3.99H3.32v2.86A9.72 9.72 0 0 0 12 21.75Z" /><path d="M6.58 13.55A5.85 5.85 0 0 1 6.28 12c0-.54.09-1.07.3-1.55V7.59H3.32A9.74 9.74 0 0 0 2.25 12c0 1.57.38 3.06 1.07 4.41l3.26-2.86Z" /><path d="M12 6.46c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.81 3.53 14.62 2.25 12 2.25a9.72 9.72 0 0 0-8.68 5.34l3.26 2.86c.76-2.29 2.9-3.99 5.42-3.99Z" /></svg>
             Continue with Google
@@ -149,18 +149,18 @@ function PlatformAdminSignIn({ theme, setTheme }: { theme: string; setTheme: (th
           {!challengeId ? (
             <form onSubmit={requestCode} className="space-y-3">
               <label className="block text-sm font-medium text-foreground">Administrator email
-                <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder="admin@company.com" className="mt-1.5 h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder="admin@company.com" aria-label="Administrator email" className="mt-1.5 h-12 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
               </label>
-              <button type="submit" disabled={busy} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 text-sm font-semibold text-primary transition hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="submit" disabled={busy} aria-busy={busy} className="flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 text-sm font-semibold text-primary transition hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60">
                 <Mail className="h-4 w-4" />{busy ? "Sending code…" : "Email me a sign-in code"}
               </button>
             </form>
           ) : (
             <form onSubmit={verifyCode} className="space-y-3">
               <label className="block text-sm font-medium text-foreground">Six-digit code
-                <input value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" required placeholder="000000" className="mt-1.5 h-12 w-full rounded-lg border border-input bg-background px-3 text-center font-mono text-lg tracking-[0.4em] outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                <input value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" required placeholder="000000" aria-label="Six-digit verification code" className="mt-1.5 h-12 w-full rounded-lg border border-input bg-background px-3 text-center font-mono text-lg tracking-[0.4em] outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" />
               </label>
-              <button type="submit" disabled={busy || code.length !== 6} className="flex h-11 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="submit" disabled={busy || code.length !== 6} aria-busy={busy} className="flex h-12 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60">
                 {busy ? "Verifying…" : "Verify and sign in"}
               </button>
               <button type="button" onClick={resetOtp} className="w-full text-sm font-medium text-muted-foreground hover:text-foreground">Use a different email</button>
