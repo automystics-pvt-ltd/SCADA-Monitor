@@ -477,6 +477,12 @@ export default function Telemetry() {
   const selectedSite = useMemo(() => sites?.find(s => s.siteName === selectedSiteName), [sites, selectedSiteName])
   const filteredDevices = useMemo(() => devices?.filter(d => d.siteName === selectedSiteName) || [], [devices, selectedSiteName])
 
+  useEffect(() => {
+    if (selectedSiteName) return
+    const activeSites = sites?.filter((site) => site.activationStatus === "active") ?? []
+    if (activeSites.length === 1) setSelectedSiteName(activeSites[0].siteName)
+  }, [sites, selectedSiteName])
+
   const handleSiteChange = (val: string) => {
     setSelectedSiteName(val)
     setSelectedDeviceId("")
