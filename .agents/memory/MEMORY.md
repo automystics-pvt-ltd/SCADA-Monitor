@@ -6,6 +6,7 @@
 - [SCADA telemetry freshness](scada-telemetry-freshness.md) — Replay and cached telemetry may support traceability, but never reset current operational freshness or cross demo/live provenance.
 - [Lazy module boundaries](lazy-module-boundaries.md) — On-demand monitor modules must not import the App entry at runtime; Vite HMR treats that cycle as an error.
 - [Plant location administration](plant-location-administration.md) — Coordinate writes are a global administrator action; site data remains centrally stored and generic.
+- [SCADA session boundary](scada-session-boundary.md) — Platform Admin grants belong to the same user identity, but require a separate SCADA session before operator telemetry can load.
 - [Versioned SCADA snapshot identity](versioned-scada-snapshot-identity.md) — Keep new 15-minute snapshots idempotent without deleting legacy records.
 - [Live MQTT delivery ordering](live-mqtt-delivery-ordering.md) — Keep SSE identities contiguous and replay both durable and in-memory evidence during asynchronous archival.
 - [MQTT consumer handoff](mqtt-consumer-handoff.md) — After an API restart, wait for the previous consumer lease to expire before diagnosing broker delivery.
