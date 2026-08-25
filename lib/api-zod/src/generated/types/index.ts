@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './downloadPlatformDatabaseBackup200';
 export * from './healthStatus';
 export * from './platformAdminAuthUserResponse';
 export * from './platformAdminOverview';
@@ -13,6 +14,20 @@ export * from './platformAdminOverviewCommunication';
 export * from './platformAdminUser';
 export * from './platformAuditEvent';
 export * from './platformAuditEventMetadata';
+export * from './platformDatabaseColumn';
+export * from './platformDatabaseHealth';
+export * from './platformDatabaseHealthStatus';
+export * from './platformDatabaseMigration';
+export * from './platformDatabaseMigrations';
+export * from './platformDatabaseMigrationsStatus';
+export * from './platformDatabaseMigrationStatus';
+export * from './platformDatabaseQueryInput';
+export * from './platformDatabaseQueryResult';
+export * from './platformDatabaseQueryResultRowsItem';
+export * from './platformDatabaseRows';
+export * from './platformDatabaseRowsInput';
+export * from './platformDatabaseRowsRowsItem';
+export * from './platformDatabaseTable';
 export * from './platformMqttConfig';
 export * from './platformMqttConfigApplyState';
 export * from './platformMqttConfigInput';
@@ -22,5 +37,8 @@ export * from './platformSite';
 export * from './platformSiteAccess';
 export * from './platformSiteAccessInput';
 export * from './platformSiteAccessInputRole';
+export * from './platformSiteAccessUpdateInput';
+export * from './platformSiteAccessUpdateInputRole';
+export * from './platformSiteAccessUpdateInputStatus';
 export * from './platformSiteInput';
 export * from './platformUser';

@@ -148,6 +148,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlatformSiteAccess"
+    patch:
+      operationId: updatePlatformSiteAccess
+      tags: [platform-admin]
+      summary: Update or revoke a user's site access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSiteAccessUpdateInput"
+      responses:
+        "200":
+          description: Updated access grant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSiteAccess"
   /platform-admin/mqtt-config:
     get:
       operationId: getPlatformMqttConfig
@@ -208,6 +225,107 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/PlatformAuditEvent"
+  /platform-admin/database/health:
+    get:
+      operationId: getPlatformDatabaseHealth
+      tags: [platform-admin]
+      summary: Check platform database health
+      responses:
+        "200":
+          description: Database health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformDatabaseHealth"
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformDatabaseHealth"
+  /platform-admin/database/tables:
+    get:
+      operationId: listPlatformDatabaseTables
+      tags: [platform-admin]
+      summary: List approved application tables
+      responses:
+        "200":
+          description: Approved tables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformDatabaseTable"
+  /platform-admin/database/rows:
+    post:
+      operationId: browsePlatformDatabaseTable
+      tags: [platform-admin]
+      summary: Browse approved application table records
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformDatabaseRowsInput"
+      responses:
+        "200":
+          description: Paged records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformDatabaseRows"
+  /platform-admin/database/migrations:
+    get:
+      operationId: getPlatformDatabaseMigrations
+      tags: [platform-admin]
+      summary: View platform schema status
+      responses:
+        "200":
+          description: Schema status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformDatabaseMigrations"
+  /platform-admin/database/backup:
+    get:
+      operationId: downloadPlatformDatabaseBackup
+      tags: [platform-admin]
+      summary: Download an audited application-data backup
+      responses:
+        "200":
+          description: JSON application-data export
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "503":
+          description: Backup unavailable
+  /platform-admin/database/query:
+    post:
+      operationId: runPlatformDatabaseQuery
+      tags: [platform-admin]
+      summary: Run a constrained read-only database query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformDatabaseQueryInput"
+      responses:
+        "200":
+          description: Query result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformDatabaseQueryResult"
+        "400":
+          description: Query rejected
+        "408":
+          description: Query timed out
+        "413":
+          description: Result too large
 components:
   schemas:
     HealthStatus:
@@ -349,4 +467,102 @@ components:
           type: object
           additionalProperties: true
       required: [id, actorEmail, action, targetType, targetId, createdAt, metadata]
+    PlatformSiteAccessUpdateInput:
+      type: object
+      properties:
+        userId: { type: string }
+        siteName: { type: string }
+        role: { type: string, enum: [viewer, operator, site-admin] }
+        status: { type: string, enum: [active, revoked] }
+      required: [userId, siteName, role, status]
+    PlatformDatabaseHealth:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        latencyMs: { type: number }
+        database: { type: string }
+        schema: { type: string }
+        checkedAt: { type: string, format: date-time }
+        message: { type: string }
+      required: [status, latencyMs, database, schema, checkedAt]
+    PlatformDatabaseTable:
+      type: object
+      properties:
+        name: { type: string }
+        label: { type: string }
+        description: { type: string }
+        recordCount: { type: number }
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformDatabaseColumn"
+      required: [name, label, description, recordCount, columns]
+    PlatformDatabaseColumn:
+      type: object
+      properties:
+        name: { type: string }
+        type: { type: string }
+        nullable: { type: boolean }
+      required: [name, type, nullable]
+    PlatformDatabaseRows:
+      type: object
+      properties:
+        table:
+          $ref: "#/components/schemas/PlatformDatabaseTable"
+        page: { type: number }
+        pageSize: { type: number }
+        totalRecords: { type: number }
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required: [table, page, pageSize, totalRecords, rows]
+    PlatformDatabaseRowsInput:
+      type: object
+      properties:
+        tableName: { type: string }
+        page: { type: number, minimum: 1, default: 1 }
+        pageSize: { type: number, minimum: 1, maximum: 200, default: 50 }
+        search: { type: string, maxLength: 80 }
+      required: [tableName]
+    PlatformDatabaseMigration:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string, enum: [available, present, missing] }
+      required: [name, status]
+    PlatformDatabaseMigrations:
+      type: object
+      properties:
+        status: { type: string, enum: [ready, degraded] }
+        latest: { type: string }
+        expectedTables: { type: number }
+        presentTables: { type: number }
+        migrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformDatabaseMigration"
+        checkedAt: { type: string, format: date-time }
+      required: [status, latest, expectedTables, presentTables, migrations, checkedAt]
+    PlatformDatabaseQueryInput:
+      type: object
+      properties:
+        query: { type: string, minLength: 1, maxLength: 5000 }
+      required: [query]
+    PlatformDatabaseQueryResult:
+      type: object
+      properties:
+        columns:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        rowCount: { type: number }
+        truncated: { type: boolean }
+        durationMs: { type: number }
+      required: [columns, rows, rowCount, truncated, durationMs]
 

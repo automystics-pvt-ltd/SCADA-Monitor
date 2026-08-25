@@ -19,6 +19,7 @@ import Sites from "@/pages/Sites"
 import Access from "@/pages/Access"
 import Platform from "@/pages/Platform"
 import Audit from "@/pages/Audit"
+import Database from "@/pages/Database"
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,7 @@ function Router() {
           <Route path="/sites" component={Sites} />
           <Route path="/access" component={Access} />
           <Route path="/platform" component={Platform} />
+          <Route path="/database" component={Database} />
           <Route path="/audit" component={Audit} />
           <Route component={NotFound} />
         </Switch>

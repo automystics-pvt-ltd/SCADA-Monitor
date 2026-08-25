@@ -1,0 +1,72 @@
+### Enhanced Prompt — Centralized Platform Admin Site Configuration & Authentication
+
+All **Plant/Site information, configuration, and initial setup must be managed exclusively through the separate Platform Admin backend**. Do not allow normal SCADA users or Site Engineers to create or modify the core site configuration unless explicitly authorized by the Platform Admin.
+
+Platform Admin should be able to configure and manage:
+
+* Organization details
+* Plant/Site name and identity
+* Site address
+* Latitude & Longitude
+* Location name
+* Weather timezone
+* Plant capacity
+* Device/Inverter configuration
+* MQTT/Broker configuration
+* Telemetry settings
+* Data-saving configuration
+* Site operational settings
+* User/site assignments
+* Roles and permissions
+* Site activation/deactivation
+* Site-specific access controls
+
+Once the Platform Admin completes the **initial site configuration**, the SCADA application should automatically consume the approved configuration. Avoid duplicate configuration screens or conflicting site settings elsewhere in the application.
+
+### User & Password Management
+
+Platform Admin should have centralized control to:
+
+* Create users
+* Assign users to organizations/sites
+* Assign roles and permissions
+* Activate/deactivate users
+* Reset user passwords
+* Force password reset
+* Manage authentication status
+* Review last login and access activity
+
+### Production Platform Admin Authentication
+
+For the **initial production Platform Admin account**, use a **whitelisted administrator email address** as the only authorized identity.
+
+The initial authentication flow should be:
+
+**Whitelisted Email → OTP Verification → Platform Admin Backend**
+
+For security, **do not use a permanent hard-coded OTP such as `666666` in production**. If a development/bypass mechanism is required, make it explicitly **development-only**, disabled in production builds, controlled through secure server-side configuration, and never accepted as a production authentication credential.
+
+After initial access, require the Platform Admin to establish a secure password and/or production-grade MFA/OTP authentication.
+
+### Critical Isolation
+
+Maintain two completely separate experiences:
+
+**Platform Admin Backend**
+→ Full platform configuration
+→ Site management
+→ Database management
+→ User/access management
+→ Authentication management
+→ Device/MQTT configuration
+→ Audit and system administration
+
+**Existing SCADA Application**
+→ Live monitoring
+→ Historical monitoring
+→ Electrical/Energy analytics
+→ Alarms/Faults
+→ Reports
+→ Authorized site/device access
+
+**Do not modify, remove, or disturb any existing SCADA functionality, MQTT/Modbus communication, telemetry processing, database logic, or existing user workflows.** The Platform Admin backend should act as the centralized configuration and governance layer for the existing SCADA platform.

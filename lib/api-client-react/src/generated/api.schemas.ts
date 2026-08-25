@@ -171,3 +171,132 @@ export interface PlatformMqttConfigInput {
   timezone: string;
 }
 
+export type PlatformSiteAccessUpdateInputRole = typeof PlatformSiteAccessUpdateInputRole[keyof typeof PlatformSiteAccessUpdateInputRole];
+
+
+export const PlatformSiteAccessUpdateInputRole = {
+  viewer: 'viewer',
+  operator: 'operator',
+  'site-admin': 'site-admin',
+} as const;
+
+export type PlatformSiteAccessUpdateInputStatus = typeof PlatformSiteAccessUpdateInputStatus[keyof typeof PlatformSiteAccessUpdateInputStatus];
+
+
+export const PlatformSiteAccessUpdateInputStatus = {
+  active: 'active',
+  revoked: 'revoked',
+} as const;
+
+export interface PlatformSiteAccessUpdateInput {
+  userId: string;
+  siteName: string;
+  role: PlatformSiteAccessUpdateInputRole;
+  status: PlatformSiteAccessUpdateInputStatus;
+}
+
+export type PlatformDatabaseHealthStatus = typeof PlatformDatabaseHealthStatus[keyof typeof PlatformDatabaseHealthStatus];
+
+
+export const PlatformDatabaseHealthStatus = {
+  ok: 'ok',
+  degraded: 'degraded',
+} as const;
+
+export interface PlatformDatabaseHealth {
+  status: PlatformDatabaseHealthStatus;
+  latencyMs: number;
+  database: string;
+  schema: string;
+  checkedAt: string;
+  message?: string;
+}
+
+export interface PlatformDatabaseColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+}
+
+export interface PlatformDatabaseTable {
+  name: string;
+  label: string;
+  description: string;
+  recordCount: number;
+  columns: PlatformDatabaseColumn[];
+}
+
+export type PlatformDatabaseRowsRowsItem = { [key: string]: unknown };
+
+export interface PlatformDatabaseRows {
+  table: PlatformDatabaseTable;
+  page: number;
+  pageSize: number;
+  totalRecords: number;
+  rows: PlatformDatabaseRowsRowsItem[];
+}
+
+export interface PlatformDatabaseRowsInput {
+  tableName: string;
+  /** @minimum 1 */
+  page?: number;
+  /**
+     * @minimum 1
+     * @maximum 200
+     */
+  pageSize?: number;
+  /** @maxLength 80 */
+  search?: string;
+}
+
+export type PlatformDatabaseMigrationStatus = typeof PlatformDatabaseMigrationStatus[keyof typeof PlatformDatabaseMigrationStatus];
+
+
+export const PlatformDatabaseMigrationStatus = {
+  available: 'available',
+  present: 'present',
+  missing: 'missing',
+} as const;
+
+export interface PlatformDatabaseMigration {
+  name: string;
+  status: PlatformDatabaseMigrationStatus;
+}
+
+export type PlatformDatabaseMigrationsStatus = typeof PlatformDatabaseMigrationsStatus[keyof typeof PlatformDatabaseMigrationsStatus];
+
+
+export const PlatformDatabaseMigrationsStatus = {
+  ready: 'ready',
+  degraded: 'degraded',
+} as const;
+
+export interface PlatformDatabaseMigrations {
+  status: PlatformDatabaseMigrationsStatus;
+  latest: string;
+  expectedTables: number;
+  presentTables: number;
+  migrations: PlatformDatabaseMigration[];
+  checkedAt: string;
+}
+
+export interface PlatformDatabaseQueryInput {
+  /**
+     * @minLength 1
+     * @maxLength 5000
+     */
+  query: string;
+}
+
+export type PlatformDatabaseQueryResultRowsItem = { [key: string]: unknown };
+
+export interface PlatformDatabaseQueryResult {
+  columns: string[];
+  rows: PlatformDatabaseQueryResultRowsItem[];
+  rowCount: number;
+  truncated: boolean;
+  durationMs: number;
+}
+
+export type DownloadPlatformDatabaseBackup200 = { [key: string]: unknown };
+

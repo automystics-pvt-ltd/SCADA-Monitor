@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import {
   Activity,
   Building2,
+  Database,
   Key,
   LayoutDashboard,
   LogOut,
@@ -26,6 +27,7 @@ const navigation = [
   { name: "Sites", href: "/sites", icon: MapPin },
   { name: "Access Grants", href: "/access", icon: Key },
   { name: "Platform Health", href: "/platform", icon: Server },
+  { name: "Database", href: "/database", icon: Database },
   { name: "Audit Log", href: "/audit", icon: ShieldAlert },
 ]
 

@@ -20,10 +20,18 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  DownloadPlatformDatabaseBackup200,
   HealthStatus,
   PlatformAdminAuthUserResponse,
   PlatformAdminOverview,
   PlatformAuditEvent,
+  PlatformDatabaseHealth,
+  PlatformDatabaseMigrations,
+  PlatformDatabaseQueryInput,
+  PlatformDatabaseQueryResult,
+  PlatformDatabaseRows,
+  PlatformDatabaseRowsInput,
+  PlatformDatabaseTable,
   PlatformMqttConfig,
   PlatformMqttConfigInput,
   PlatformOrganization,
@@ -31,6 +39,7 @@ import type {
   PlatformSite,
   PlatformSiteAccess,
   PlatformSiteAccessInput,
+  PlatformSiteAccessUpdateInput,
   PlatformSiteInput,
   PlatformUser
 } from './api.schemas';
@@ -738,6 +747,77 @@ export const useGrantPlatformSiteAccess = <TError = ErrorType<unknown>,
       return useMutation(getGrantPlatformSiteAccessMutationOptions(options));
     }
 
+export const getUpdatePlatformSiteAccessUrl = () => {
+
+
+
+
+  return `/api/platform-admin/access`
+}
+
+/**
+ * @summary Update or revoke a user's site access
+ */
+export const updatePlatformSiteAccess = async (platformSiteAccessUpdateInput: PlatformSiteAccessUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformSiteAccess> => {
+
+  return customFetch<PlatformSiteAccess>(getUpdatePlatformSiteAccessUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformSiteAccessUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdatePlatformSiteAccessMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSiteAccess>>, TError,{data: BodyType<PlatformSiteAccessUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSiteAccess>>, TError,{data: BodyType<PlatformSiteAccessUpdateInput>}, TContext> => {
+
+const mutationKey = ['updatePlatformSiteAccess'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlatformSiteAccess>>, {data: BodyType<PlatformSiteAccessUpdateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updatePlatformSiteAccess(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePlatformSiteAccessMutationResult = NonNullable<Awaited<ReturnType<typeof updatePlatformSiteAccess>>>
+    export type UpdatePlatformSiteAccessMutationBody = BodyType<PlatformSiteAccessUpdateInput>
+    export type UpdatePlatformSiteAccessMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update or revoke a user's site access
+ */
+export const useUpdatePlatformSiteAccess = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSiteAccess>>, TError,{data: BodyType<PlatformSiteAccessUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePlatformSiteAccess>>,
+        TError,
+        {data: BodyType<PlatformSiteAccessUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdatePlatformSiteAccessMutationOptions(options));
+    }
+
 export const getGetPlatformMqttConfigUrl = () => {
 
 
@@ -1033,4 +1113,454 @@ export function useListPlatformAuditEvents<TData = Awaited<ReturnType<typeof lis
 
 
 
+
+export const getGetPlatformDatabaseHealthUrl = () => {
+
+
+
+
+  return `/api/platform-admin/database/health`
+}
+
+/**
+ * @summary Check platform database health
+ */
+export const getPlatformDatabaseHealth = async ( options?: Parameters<typeof customFetch>[1]): Promise<PlatformDatabaseHealth> => {
+
+  return customFetch<PlatformDatabaseHealth>(getGetPlatformDatabaseHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPlatformDatabaseHealthQueryKey = () => {
+    return [
+    `/api/platform-admin/database/health`
+    ] as const;
+    }
+
+
+export const getGetPlatformDatabaseHealthQueryOptions = <TData = Awaited<ReturnType<typeof getPlatformDatabaseHealth>>, TError = ErrorType<PlatformDatabaseHealth>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlatformDatabaseHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPlatformDatabaseHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlatformDatabaseHealth>>> = ({ signal }) => getPlatformDatabaseHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlatformDatabaseHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPlatformDatabaseHealthQueryResult = NonNullable<Awaited<ReturnType<typeof getPlatformDatabaseHealth>>>
+export type GetPlatformDatabaseHealthQueryError = ErrorType<PlatformDatabaseHealth>
+
+
+/**
+ * @summary Check platform database health
+ */
+
+export function useGetPlatformDatabaseHealth<TData = Awaited<ReturnType<typeof getPlatformDatabaseHealth>>, TError = ErrorType<PlatformDatabaseHealth>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlatformDatabaseHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPlatformDatabaseHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListPlatformDatabaseTablesUrl = () => {
+
+
+
+
+  return `/api/platform-admin/database/tables`
+}
+
+/**
+ * @summary List approved application tables
+ */
+export const listPlatformDatabaseTables = async ( options?: Parameters<typeof customFetch>[1]): Promise<PlatformDatabaseTable[]> => {
+
+  return customFetch<PlatformDatabaseTable[]>(getListPlatformDatabaseTablesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPlatformDatabaseTablesQueryKey = () => {
+    return [
+    `/api/platform-admin/database/tables`
+    ] as const;
+    }
+
+
+export const getListPlatformDatabaseTablesQueryOptions = <TData = Awaited<ReturnType<typeof listPlatformDatabaseTables>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformDatabaseTables>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPlatformDatabaseTablesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlatformDatabaseTables>>> = ({ signal }) => listPlatformDatabaseTables({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlatformDatabaseTables>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPlatformDatabaseTablesQueryResult = NonNullable<Awaited<ReturnType<typeof listPlatformDatabaseTables>>>
+export type ListPlatformDatabaseTablesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List approved application tables
+ */
+
+export function useListPlatformDatabaseTables<TData = Awaited<ReturnType<typeof listPlatformDatabaseTables>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformDatabaseTables>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPlatformDatabaseTablesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getBrowsePlatformDatabaseTableUrl = () => {
+
+
+
+
+  return `/api/platform-admin/database/rows`
+}
+
+/**
+ * @summary Browse approved application table records
+ */
+export const browsePlatformDatabaseTable = async (platformDatabaseRowsInput: PlatformDatabaseRowsInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformDatabaseRows> => {
+
+  return customFetch<PlatformDatabaseRows>(getBrowsePlatformDatabaseTableUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformDatabaseRowsInput)
+  }
+);}
+
+
+
+
+
+export const getBrowsePlatformDatabaseTableMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof browsePlatformDatabaseTable>>, TError,{data: BodyType<PlatformDatabaseRowsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof browsePlatformDatabaseTable>>, TError,{data: BodyType<PlatformDatabaseRowsInput>}, TContext> => {
+
+const mutationKey = ['browsePlatformDatabaseTable'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof browsePlatformDatabaseTable>>, {data: BodyType<PlatformDatabaseRowsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  browsePlatformDatabaseTable(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BrowsePlatformDatabaseTableMutationResult = NonNullable<Awaited<ReturnType<typeof browsePlatformDatabaseTable>>>
+    export type BrowsePlatformDatabaseTableMutationBody = BodyType<PlatformDatabaseRowsInput>
+    export type BrowsePlatformDatabaseTableMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Browse approved application table records
+ */
+export const useBrowsePlatformDatabaseTable = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof browsePlatformDatabaseTable>>, TError,{data: BodyType<PlatformDatabaseRowsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof browsePlatformDatabaseTable>>,
+        TError,
+        {data: BodyType<PlatformDatabaseRowsInput>},
+        TContext
+      > => {
+      return useMutation(getBrowsePlatformDatabaseTableMutationOptions(options));
+    }
+
+export const getGetPlatformDatabaseMigrationsUrl = () => {
+
+
+
+
+  return `/api/platform-admin/database/migrations`
+}
+
+/**
+ * @summary View platform schema status
+ */
+export const getPlatformDatabaseMigrations = async ( options?: Parameters<typeof customFetch>[1]): Promise<PlatformDatabaseMigrations> => {
+
+  return customFetch<PlatformDatabaseMigrations>(getGetPlatformDatabaseMigrationsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPlatformDatabaseMigrationsQueryKey = () => {
+    return [
+    `/api/platform-admin/database/migrations`
+    ] as const;
+    }
+
+
+export const getGetPlatformDatabaseMigrationsQueryOptions = <TData = Awaited<ReturnType<typeof getPlatformDatabaseMigrations>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlatformDatabaseMigrations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPlatformDatabaseMigrationsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlatformDatabaseMigrations>>> = ({ signal }) => getPlatformDatabaseMigrations({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlatformDatabaseMigrations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPlatformDatabaseMigrationsQueryResult = NonNullable<Awaited<ReturnType<typeof getPlatformDatabaseMigrations>>>
+export type GetPlatformDatabaseMigrationsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary View platform schema status
+ */
+
+export function useGetPlatformDatabaseMigrations<TData = Awaited<ReturnType<typeof getPlatformDatabaseMigrations>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlatformDatabaseMigrations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPlatformDatabaseMigrationsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDownloadPlatformDatabaseBackupUrl = () => {
+
+
+
+
+  return `/api/platform-admin/database/backup`
+}
+
+/**
+ * @summary Download an audited application-data backup
+ */
+export const downloadPlatformDatabaseBackup = async ( options?: Parameters<typeof customFetch>[1]): Promise<DownloadPlatformDatabaseBackup200> => {
+
+  return customFetch<DownloadPlatformDatabaseBackup200>(getDownloadPlatformDatabaseBackupUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDownloadPlatformDatabaseBackupQueryKey = () => {
+    return [
+    `/api/platform-admin/database/backup`
+    ] as const;
+    }
+
+
+export const getDownloadPlatformDatabaseBackupQueryOptions = <TData = Awaited<ReturnType<typeof downloadPlatformDatabaseBackup>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadPlatformDatabaseBackup>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDownloadPlatformDatabaseBackupQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadPlatformDatabaseBackup>>> = ({ signal }) => downloadPlatformDatabaseBackup({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof downloadPlatformDatabaseBackup>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type DownloadPlatformDatabaseBackupQueryResult = NonNullable<Awaited<ReturnType<typeof downloadPlatformDatabaseBackup>>>
+export type DownloadPlatformDatabaseBackupQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download an audited application-data backup
+ */
+
+export function useDownloadPlatformDatabaseBackup<TData = Awaited<ReturnType<typeof downloadPlatformDatabaseBackup>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadPlatformDatabaseBackup>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDownloadPlatformDatabaseBackupQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunPlatformDatabaseQueryUrl = () => {
+
+
+
+
+  return `/api/platform-admin/database/query`
+}
+
+/**
+ * @summary Run a constrained read-only database query
+ */
+export const runPlatformDatabaseQuery = async (platformDatabaseQueryInput: PlatformDatabaseQueryInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformDatabaseQueryResult> => {
+
+  return customFetch<PlatformDatabaseQueryResult>(getRunPlatformDatabaseQueryUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformDatabaseQueryInput)
+  }
+);}
+
+
+
+
+
+export const getRunPlatformDatabaseQueryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runPlatformDatabaseQuery>>, TError,{data: BodyType<PlatformDatabaseQueryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runPlatformDatabaseQuery>>, TError,{data: BodyType<PlatformDatabaseQueryInput>}, TContext> => {
+
+const mutationKey = ['runPlatformDatabaseQuery'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runPlatformDatabaseQuery>>, {data: BodyType<PlatformDatabaseQueryInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  runPlatformDatabaseQuery(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunPlatformDatabaseQueryMutationResult = NonNullable<Awaited<ReturnType<typeof runPlatformDatabaseQuery>>>
+    export type RunPlatformDatabaseQueryMutationBody = BodyType<PlatformDatabaseQueryInput>
+    export type RunPlatformDatabaseQueryMutationError = ErrorType<void>
+
+    /**
+ * @summary Run a constrained read-only database query
+ */
+export const useRunPlatformDatabaseQuery = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runPlatformDatabaseQuery>>, TError,{data: BodyType<PlatformDatabaseQueryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runPlatformDatabaseQuery>>,
+        TError,
+        {data: BodyType<PlatformDatabaseQueryInput>},
+        TContext
+      > => {
+      return useMutation(getRunPlatformDatabaseQueryMutationOptions(options));
+    }
 

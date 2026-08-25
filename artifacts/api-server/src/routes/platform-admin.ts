@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { and, asc, count, desc, eq } from "drizzle-orm";
 import { Router, type IRouter, type Request } from "express";
 import {
@@ -5,15 +6,24 @@ import {
   CreatePlatformOrganizationResponse,
   CreatePlatformSiteBody,
   CreatePlatformSiteResponse,
+  BrowsePlatformDatabaseTableBody,
+  BrowsePlatformDatabaseTableResponse,
+  GetPlatformDatabaseHealthResponse,
+  GetPlatformDatabaseMigrationsResponse,
   GetPlatformAdminAuthUserResponse,
   GetPlatformAdminOverviewResponse,
   GetPlatformMqttConfigResponse,
   GrantPlatformSiteAccessBody,
   GrantPlatformSiteAccessResponse,
+  ListPlatformDatabaseTablesResponse,
   ListPlatformAuditEventsResponse,
   ListPlatformOrganizationsResponse,
   ListPlatformSitesResponse,
   ListPlatformUsersResponse,
+  RunPlatformDatabaseQueryBody,
+  RunPlatformDatabaseQueryResponse,
+  UpdatePlatformSiteAccessBody,
+  UpdatePlatformSiteAccessResponse,
   UpdatePlatformMqttConfigBody,
   UpdatePlatformMqttConfigResponse,
 } from "@workspace/api-zod";
@@ -28,6 +38,14 @@ import {
   usersTable,
 } from "@workspace/db";
 import { applyMqttConfiguration, getMqttRuntimeStatus, type MqttRuntimeConfiguration } from "./mqtt";
+import {
+  browseApprovedDatabaseTable,
+  createApplicationBackup,
+  listApprovedDatabaseTables,
+  platformDatabaseHealth,
+  platformMigrationStatus,
+  runReadOnlyDatabaseQuery,
+} from "../lib/platform-admin-database";
 import {
   platformAdminSessionMiddleware,
   requirePlatformAdmin,
@@ -159,18 +177,31 @@ router.get("/platform-admin/organizations", async (_req, res): Promise<void> => 
 
 router.post("/platform-admin/organizations", async (req: Request, res): Promise<void> => {
   const data = CreatePlatformOrganizationBody.parse(req.body);
-  const [organization] = await db.insert(platformOrganizationsTable).values({
-    name: data.name.trim(),
-    slug: data.slug.trim().toLowerCase(),
-  }).returning();
-  await audit(req.platformAdmin!, "organization.created", "organization", organization.id, { slug: organization.slug });
-  res.status(201).json(CreatePlatformOrganizationResponse.parse({
-    id: organization.id,
-    name: organization.name,
-    slug: organization.slug,
-    status: organization.status,
-    siteCount: 0,
-  }));
+  const name = data.name.trim();
+  const slug = data.slug.trim().toLowerCase();
+  if (name.length < 2 || slug.length < 2) {
+    res.status(400).json({ error: "Organization name and slug cannot be blank." });
+    return;
+  }
+  try {
+    const [organization] = await db.insert(platformOrganizationsTable).values({ name, slug }).returning();
+    await audit(req.platformAdmin!, "organization.created", "organization", organization.id, { slug: organization.slug });
+    res.status(201).json(CreatePlatformOrganizationResponse.parse({
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
+      status: organization.status,
+      siteCount: 0,
+    }));
+  } catch (error) {
+    const code = hasRecord(error) && typeof error.code === "string" ? error.code : "";
+    req.log.warn({ err: error, slug }, "Platform organization creation failed");
+    if (code === "23505") {
+      res.status(409).json({ error: "That organization slug is already in use." });
+      return;
+    }
+    res.status(500).json({ error: "The organization could not be created. Try again." });
+  }
 });
 
 router.get("/platform-admin/sites", async (_req, res): Promise<void> => {
@@ -197,37 +228,53 @@ router.get("/platform-admin/sites", async (_req, res): Promise<void> => {
 
 router.post("/platform-admin/sites", async (req: Request, res): Promise<void> => {
   const data = CreatePlatformSiteBody.parse(req.body);
+  const siteName = data.siteName.trim();
+  const timezone = data.timezone.trim();
+  if (siteName.length < 2 || timezone.length < 1) {
+    res.status(400).json({ error: "Site name and timezone cannot be blank." });
+    return;
+  }
   const [organization] = await db.select().from(platformOrganizationsTable)
     .where(and(eq(platformOrganizationsTable.id, data.organizationId), eq(platformOrganizationsTable.status, "active"))).limit(1);
   if (!organization) {
     res.status(400).json({ error: "Choose an active organization." });
     return;
   }
-  const [site] = await db.insert(platformSitesTable).values({
-    siteName: data.siteName.trim(),
-    organizationId: data.organizationId,
-    timezone: data.timezone.trim(),
-  }).returning();
-  if (typeof data.latitude === "number" && typeof data.longitude === "number") {
-    await db.insert(plantLocationsTable).values({
+  try {
+    const [site] = await db.insert(platformSitesTable).values({
+      siteName,
+      organizationId: data.organizationId,
+      timezone,
+    }).returning();
+    if (typeof data.latitude === "number" && typeof data.longitude === "number") {
+      await db.insert(plantLocationsTable).values({
+        siteName: site.siteName,
+        latitude: data.latitude,
+        longitude: data.longitude,
+      }).onConflictDoUpdate({
+        target: plantLocationsTable.siteName,
+        set: { latitude: data.latitude, longitude: data.longitude, updatedAt: new Date() },
+      });
+    }
+    await audit(req.platformAdmin!, "site.created", "site", site.siteName, { organizationId: site.organizationId, timezone: site.timezone });
+    res.status(201).json(CreatePlatformSiteResponse.parse({
       siteName: site.siteName,
+      organizationId: site.organizationId,
+      organizationName: organization.name,
       latitude: data.latitude,
       longitude: data.longitude,
-    }).onConflictDoUpdate({
-      target: plantLocationsTable.siteName,
-      set: { latitude: data.latitude, longitude: data.longitude, updatedAt: new Date() },
-    });
+      timezone: site.timezone,
+      status: site.status,
+    }));
+  } catch (error) {
+    const code = hasRecord(error) && typeof error.code === "string" ? error.code : "";
+    req.log.warn({ err: error, siteName }, "Platform site creation failed");
+    if (code === "23505") {
+      res.status(409).json({ error: "That site name is already in use." });
+      return;
+    }
+    res.status(500).json({ error: "The site could not be created. Try again." });
   }
-  await audit(req.platformAdmin!, "site.created", "site", site.siteName, { organizationId: site.organizationId, timezone: site.timezone });
-  res.status(201).json(CreatePlatformSiteResponse.parse({
-    siteName: site.siteName,
-    organizationId: site.organizationId,
-    organizationName: organization.name,
-    latitude: data.latitude,
-    longitude: data.longitude,
-    timezone: site.timezone,
-    status: site.status,
-  }));
 });
 
 router.get("/platform-admin/users", async (_req, res): Promise<void> => {
@@ -284,6 +331,44 @@ router.post("/platform-admin/access", async (req: Request, res): Promise<void> =
     userId: grant.userId,
     siteName: grant.siteName,
     organizationId: site.organizationId,
+    role: grant.role,
+    status: grant.status,
+  }));
+});
+
+router.patch("/platform-admin/access", async (req: Request, res): Promise<void> => {
+  const data = UpdatePlatformSiteAccessBody.parse(req.body);
+  const [site, user] = await Promise.all([
+    db.select().from(platformSitesTable).where(eq(platformSitesTable.siteName, data.siteName)).limit(1),
+    db.select().from(usersTable).where(eq(usersTable.id, data.userId)).limit(1),
+  ]);
+  if (!site[0]) {
+    res.status(400).json({ error: "Choose a managed site." });
+    return;
+  }
+  if (!user[0]) {
+    res.status(400).json({ error: "Choose an existing SCADA user." });
+    return;
+  }
+  const [grant] = await db.insert(platformSiteAccessTable).values({
+    userId: data.userId,
+    siteName: data.siteName,
+    role: data.role,
+    status: data.status,
+  }).onConflictDoUpdate({
+    target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
+    set: { role: data.role, status: data.status, updatedAt: new Date() },
+  }).returning();
+  await audit(req.platformAdmin!, data.status === "revoked" ? "site-access.revoked" : "site-access.updated", "site-access", grant.id, {
+    userId: grant.userId,
+    siteName: grant.siteName,
+    role: grant.role,
+    status: grant.status,
+  });
+  res.json(UpdatePlatformSiteAccessResponse.parse({
+    userId: grant.userId,
+    siteName: grant.siteName,
+    organizationId: site[0].organizationId,
     role: grant.role,
     status: grant.status,
   }));
@@ -355,6 +440,103 @@ router.get("/platform-admin/audit", async (_req, res): Promise<void> => {
     createdAt: event.createdAt.toISOString(),
     metadata: hasRecord(event.metadata) ? event.metadata : {},
   }))));
+});
+
+router.get("/platform-admin/database/health", async (req: Request, res): Promise<void> => {
+  const health = await platformDatabaseHealth();
+  void audit(req.platformAdmin!, "database.health.read", "database", "health", { status: health.status, latencyMs: health.latencyMs })
+    .catch((error) => req.log.warn({ err: error }, "Platform database health audit could not be recorded"));
+  res.status(health.status === "ok" ? 200 : 503).json(GetPlatformDatabaseHealthResponse.parse(health));
+});
+
+router.get("/platform-admin/database/tables", async (req: Request, res): Promise<void> => {
+  try {
+    const tables = await listApprovedDatabaseTables();
+    await audit(req.platformAdmin!, "database.tables.listed", "database", "approved-tables", { tableCount: tables.length });
+    res.json(ListPlatformDatabaseTablesResponse.parse(tables));
+  } catch (error) {
+    req.log.error({ err: error }, "Platform database table list failed");
+    res.status(503).json({ error: "Approved database tables are temporarily unavailable." });
+  }
+});
+
+router.post("/platform-admin/database/rows", async (req: Request, res): Promise<void> => {
+  const data = BrowsePlatformDatabaseTableBody.parse(req.body);
+  if (!Number.isInteger(data.page) || !Number.isInteger(data.pageSize)) {
+    res.status(400).json({ error: "Page and page size must be whole numbers." });
+    return;
+  }
+  try {
+    const records = await browseApprovedDatabaseTable({
+      tableName: data.tableName,
+      page: data.page,
+      pageSize: data.pageSize,
+      search: data.search,
+    });
+    await audit(req.platformAdmin!, "database.table.browsed", "database-table", records.table.name, {
+      page: records.page,
+      pageSize: records.pageSize,
+      searchApplied: Boolean(data.search?.trim()),
+    });
+    res.json(BrowsePlatformDatabaseTableResponse.parse(records));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to browse this table.";
+    await audit(req.platformAdmin!, "database.table.rejected", "database-table", data.tableName, { reason: message });
+    res.status(400).json({ error: message });
+  }
+});
+
+router.get("/platform-admin/database/migrations", async (req: Request, res): Promise<void> => {
+  try {
+    const migrations = await platformMigrationStatus();
+    await audit(req.platformAdmin!, "database.migrations.read", "database", "schema", {
+      status: migrations.status,
+      presentTables: migrations.presentTables,
+      expectedTables: migrations.expectedTables,
+    });
+    res.json(GetPlatformDatabaseMigrationsResponse.parse(migrations));
+  } catch (error) {
+    req.log.error({ err: error }, "Platform migration status query failed");
+    res.status(503).json({ error: "Database schema status is temporarily unavailable." });
+  }
+});
+
+router.get("/platform-admin/database/backup", async (req: Request, res): Promise<void> => {
+  try {
+    const backup = await createApplicationBackup();
+    await audit(req.platformAdmin!, "database.backup.downloaded", "database", "application-export", {
+      tableCount: backup.tables.length,
+      rowLimitPerTable: backup.rowLimitPerTable,
+    });
+    const stamp = backup.generatedAt.replace(/[:.]/g, "-");
+    res
+      .set("Content-Type", "application/json; charset=utf-8")
+      .set("Content-Disposition", `attachment; filename="platform-application-export-${stamp}.json"`)
+      .set("Cache-Control", "no-store")
+      .json(backup);
+  } catch (error) {
+    req.log.error({ err: error }, "Platform application backup failed");
+    res.status(503).json({ error: "Application data export is temporarily unavailable." });
+  }
+});
+
+router.post("/platform-admin/database/query", async (req: Request, res): Promise<void> => {
+  const data = RunPlatformDatabaseQueryBody.parse(req.body);
+  try {
+    const result = await runReadOnlyDatabaseQuery(data.query);
+    await audit(req.platformAdmin!, "database.query.executed", "database-query", result.queryFingerprint, {
+      queryLength: result.queryLength,
+      rowCount: result.rowCount,
+      truncated: result.truncated,
+      durationMs: result.durationMs,
+    });
+    res.json(RunPlatformDatabaseQueryResponse.parse(result));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Database query was rejected.";
+    const fingerprint = crypto.createHash("sha256").update(data.query.trim()).digest("hex").slice(0, 16);
+    await audit(req.platformAdmin!, "database.query.rejected", "database-query", fingerprint, { queryLength: data.query.length, reason: message });
+    res.status(/five-second/i.test(message) ? 408 : 400).json({ error: message });
+  }
 });
 
 export default router;

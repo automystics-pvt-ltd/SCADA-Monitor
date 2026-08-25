@@ -183,6 +183,25 @@ export const GrantPlatformSiteAccessResponse = zod.object({
 
 
 /**
+ * @summary Update or revoke a user's site access
+ */
+export const UpdatePlatformSiteAccessBody = zod.object({
+  "userId": zod.string(),
+  "siteName": zod.string(),
+  "role": zod.enum(['viewer', 'operator', 'site-admin']),
+  "status": zod.enum(['active', 'revoked'])
+})
+
+export const UpdatePlatformSiteAccessResponse = zod.object({
+  "userId": zod.string(),
+  "siteName": zod.string(),
+  "organizationId": zod.string(),
+  "role": zod.string(),
+  "status": zod.string()
+})
+
+
+/**
  * @summary Get safe MQTT configuration
  */
 export const GetPlatformMqttConfigResponse = zod.object({
@@ -264,5 +283,115 @@ export const ListPlatformAuditEventsResponseItem = zod.object({
   "metadata": zod.record(zod.string(), zod.unknown())
 })
 export const ListPlatformAuditEventsResponse = zod.array(ListPlatformAuditEventsResponseItem)
+
+
+/**
+ * @summary Check platform database health
+ */
+export const GetPlatformDatabaseHealthResponse = zod.object({
+  "status": zod.enum(['ok', 'degraded']),
+  "latencyMs": zod.number(),
+  "database": zod.string(),
+  "schema": zod.string(),
+  "checkedAt": zod.coerce.date(),
+  "message": zod.string().optional()
+})
+
+
+/**
+ * @summary List approved application tables
+ */
+export const ListPlatformDatabaseTablesResponseItem = zod.object({
+  "name": zod.string(),
+  "label": zod.string(),
+  "description": zod.string(),
+  "recordCount": zod.number(),
+  "columns": zod.array(zod.object({
+  "name": zod.string(),
+  "type": zod.string(),
+  "nullable": zod.boolean()
+}))
+})
+export const ListPlatformDatabaseTablesResponse = zod.array(ListPlatformDatabaseTablesResponseItem)
+
+
+/**
+ * @summary Browse approved application table records
+ */
+export const browsePlatformDatabaseTableBodyPageDefault = 1;
+
+export const browsePlatformDatabaseTableBodyPageSizeDefault = 50;
+export const browsePlatformDatabaseTableBodyPageSizeMax = 200;
+
+export const browsePlatformDatabaseTableBodySearchMax = 80;
+
+
+
+export const BrowsePlatformDatabaseTableBody = zod.object({
+  "tableName": zod.string(),
+  "page": zod.number().min(1).default(browsePlatformDatabaseTableBodyPageDefault),
+  "pageSize": zod.number().min(1).max(browsePlatformDatabaseTableBodyPageSizeMax).default(browsePlatformDatabaseTableBodyPageSizeDefault),
+  "search": zod.string().max(browsePlatformDatabaseTableBodySearchMax).optional()
+})
+
+export const BrowsePlatformDatabaseTableResponse = zod.object({
+  "table": zod.object({
+  "name": zod.string(),
+  "label": zod.string(),
+  "description": zod.string(),
+  "recordCount": zod.number(),
+  "columns": zod.array(zod.object({
+  "name": zod.string(),
+  "type": zod.string(),
+  "nullable": zod.boolean()
+}))
+}),
+  "page": zod.number(),
+  "pageSize": zod.number(),
+  "totalRecords": zod.number(),
+  "rows": zod.array(zod.record(zod.string(), zod.unknown()))
+})
+
+
+/**
+ * @summary View platform schema status
+ */
+export const GetPlatformDatabaseMigrationsResponse = zod.object({
+  "status": zod.enum(['ready', 'degraded']),
+  "latest": zod.string(),
+  "expectedTables": zod.number(),
+  "presentTables": zod.number(),
+  "migrations": zod.array(zod.object({
+  "name": zod.string(),
+  "status": zod.enum(['available', 'present', 'missing'])
+})),
+  "checkedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Download an audited application-data backup
+ */
+export const DownloadPlatformDatabaseBackupResponse = zod.record(zod.string(), zod.unknown())
+
+
+/**
+ * @summary Run a constrained read-only database query
+ */
+export const runPlatformDatabaseQueryBodyQueryMax = 5000;
+
+
+
+export const RunPlatformDatabaseQueryBody = zod.object({
+  "query": zod.string().min(1).max(runPlatformDatabaseQueryBodyQueryMax)
+})
+
+export const RunPlatformDatabaseQueryResponse = zod.object({
+  "columns": zod.array(zod.string()),
+  "rows": zod.array(zod.record(zod.string(), zod.unknown())),
+  "rowCount": zod.number(),
+  "truncated": zod.boolean(),
+  "durationMs": zod.number()
+})
 
 

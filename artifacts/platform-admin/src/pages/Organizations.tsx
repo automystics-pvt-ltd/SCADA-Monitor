@@ -64,8 +64,12 @@ export default function Organizations() {
           setIsCreateOpen(false)
           form.reset()
         },
-        onError: () => {
-          toast({ title: "Failed to create organization", variant: "destructive" })
+        onError: (error) => {
+          toast({
+            title: "Failed to create organization",
+            description: error instanceof Error ? error.message : "Check the organization details and try again.",
+            variant: "destructive",
+          })
         },
       }
     )

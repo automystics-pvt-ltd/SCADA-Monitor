@@ -2,6 +2,7 @@ import { useState } from "react"
 import { 
   useListPlatformUsers, 
   useGrantPlatformSiteAccess,
+  useUpdatePlatformSiteAccess,
   useListPlatformSites,
   getListPlatformUsersQueryKey
 } from "@workspace/api-client-react"
@@ -38,7 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Key, ShieldPlus } from "lucide-react"
+import { Key, RotateCcw, ShieldOff, ShieldPlus } from "lucide-react"
 
 const accessSchema = z.object({
   siteName: z.string().min(1, "Site is required"),
@@ -50,6 +51,7 @@ export default function Access() {
   const { data: users, isLoading: isLoadingUsers } = useListPlatformUsers()
   const { data: sites } = useListPlatformSites()
   const grantAccess = useGrantPlatformSiteAccess()
+  const updateAccess = useUpdatePlatformSiteAccess()
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
@@ -86,6 +88,21 @@ export default function Access() {
     )
   }
 
+  const setGrantStatus = (userId: string, siteName: string, role: "viewer" | "operator" | "site-admin", status: "active" | "revoked") => {
+    updateAccess.mutate(
+      { data: { userId, siteName, role, status } },
+      {
+        onSuccess: () => {
+          toast({ title: status === "revoked" ? "Site access revoked" : "Site access restored" })
+          queryClient.invalidateQueries({ queryKey: getListPlatformUsersQueryKey() })
+        },
+        onError: () => {
+          toast({ title: "Unable to update access", variant: "destructive" })
+        },
+      },
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -98,9 +115,9 @@ export default function Access() {
       <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Grant Site Access</DialogTitle>
+            <DialogTitle>Grant or Update Site Access</DialogTitle>
             <DialogDescription>
-              Grant {selectedUser?.email} access to a specific site.
+              Assign or update {selectedUser?.email} for a specific managed site.
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
@@ -156,7 +173,7 @@ export default function Access() {
                   Cancel
                 </Button>
                 <Button type="submit" disabled={grantAccess.isPending}>
-                  {grantAccess.isPending ? "Granting..." : "Grant Access"}
+                  {grantAccess.isPending ? "Saving..." : "Save Access"}
                 </Button>
               </DialogFooter>
             </form>
@@ -199,9 +216,22 @@ export default function Access() {
                       {user.access.length > 0 ? (
                         <div className="flex gap-2 flex-wrap max-w-md">
                           {user.access.map(acc => (
-                            <Badge key={`${acc.siteName}-${acc.role}`} variant="secondary" className="text-xs">
-                              {acc.siteName} <span className="opacity-50 ml-1">({acc.role})</span>
-                            </Badge>
+                            <div key={`${acc.siteName}-${acc.role}`} className="inline-flex items-center gap-1">
+                              <Badge variant={acc.status === "active" ? "secondary" : "outline"} className="text-xs">
+                                {acc.siteName} <span className="opacity-50 ml-1">({acc.role}, {acc.status})</span>
+                              </Badge>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                disabled={updateAccess.isPending}
+                                title={acc.status === "active" ? `Revoke ${acc.siteName} access` : `Restore ${acc.siteName} access`}
+                                onClick={() => setGrantStatus(user.id, acc.siteName, acc.role as "viewer" | "operator" | "site-admin", acc.status === "active" ? "revoked" : "active")}
+                              >
+                                {acc.status === "active" ? <ShieldOff className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                              </Button>
+                            </div>
                           ))}
                         </div>
                       ) : (
@@ -211,7 +241,7 @@ export default function Access() {
                     <TableCell className="text-right">
                       <Button variant="outline" size="sm" onClick={() => setSelectedUser({id: user.id, email: user.email || user.name})}>
                         <ShieldPlus className="h-4 w-4 mr-2" />
-                        Grant
+                        Manage
                       </Button>
                     </TableCell>
                   </TableRow>

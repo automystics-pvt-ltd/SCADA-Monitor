@@ -3,7 +3,8 @@ import {
   useListPlatformSites, 
   useCreatePlatformSite,
   useListPlatformOrganizations,
-  getListPlatformSitesQueryKey
+  getListPlatformSitesQueryKey,
+  getListPlatformOrganizationsQueryKey,
 } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
@@ -75,12 +76,19 @@ export default function Sites() {
       {
         onSuccess: () => {
           toast({ title: "Site created" })
-          queryClient.invalidateQueries({ queryKey: getListPlatformSitesQueryKey() })
+          void Promise.all([
+            queryClient.invalidateQueries({ queryKey: getListPlatformSitesQueryKey() }),
+            queryClient.invalidateQueries({ queryKey: getListPlatformOrganizationsQueryKey() }),
+          ])
           setIsCreateOpen(false)
           form.reset()
         },
-        onError: () => {
-          toast({ title: "Failed to create site", variant: "destructive" })
+        onError: (error) => {
+          toast({
+            title: "Failed to create site",
+            description: error instanceof Error ? error.message : "Check the site details and try again.",
+            variant: "destructive",
+          })
         },
       }
     )

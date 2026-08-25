@@ -1,0 +1,51 @@
+From the separate Platform Admin backend, provide a dedicated Telemetry Connection Test and Site Activation capability without affecting any existing SCADA functionality.
+Platform Admin should be able to select a configured Plant/Site and Device/Inverter and perform a live telemetry test to verify that the device is actually communicating and data is being received correctly.
+Telemetry Test
+Provide a professional “Test Telemetry” action that validates:
+Device → Network → MQTT/Broker → Topic/Subscription → Telemetry Reception → Data Processing
+Show the test result clearly:
+Connection status
+Broker status
+Device status
+Topic/subscription status
+Last telemetry received
+Telemetry frequency
+Actual Value received
+Timestamp
+Data quality
+Number of messages received
+Communication errors, if any
+The test must be based on actual incoming telemetry, not simply a successful network ping or configuration check.
+Site Activation
+Once the Platform Admin successfully verifies the telemetry and clicks “Connect & Activate Site”:
+Site Status = ACTIVE
+The site must remain ACTIVE continuously and must not automatically deactivate because of temporary:
+MQTT disconnection
+Broker reconnection
+Device telemetry delay
+Network interruption
+Temporary device offline condition
+Application restart
+The site should only become Inactive/Disabled when the Platform Admin explicitly performs the action from the Platform Admin backend.
+Provide a clear control such as:
+Activate Site → Confirm → Site Active
+and
+Deactivate Site → Confirm → Site Inactive
+with appropriate confirmation and audit logging.
+Immediate Application Synchronization
+Any configuration or status change made by Platform Admin must immediately reflect in the existing SCADA application without requiring users to manually refresh the page.
+For example:
+Platform Admin → Activate Site → Backend Configuration Updated → Event/Real-Time Sync → SCADA Application Immediately Shows Site Active
+Similarly:
+Platform Admin → Deactivate Site → Backend Updated → SCADA Application Immediately Reflects Site Inactive
+Use an appropriate real-time synchronization mechanism such as WebSocket/SSE/event-based updates or another reliable server-driven mechanism.
+Critical Distinction
+Do not treat temporary telemetry loss as site deactivation.
+Site Activation Status and Device Communication Status must be separate:
+Site: ACTIVE
+Device: Temporarily Offline / Telemetry Delayed
+The site remains active while the communication issue is being resolved.
+Only the Platform Admin can change the site's permanent Active/Inactive configuration.
+Reliability Requirement
+All activation, deactivation, telemetry-test results, and configuration changes should be persisted, auditable, and immediately synchronized across the platform.
+Do not modify or break the existing SCADA application, MQTT/Modbus communication, data-saving logic, authentication, reports, or user workflows. This functionality should be added as a centralized Platform Admin capability on top of the existing system.
