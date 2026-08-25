@@ -3866,7 +3866,7 @@ function AppShell() {
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
               <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
-            <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2">
+            <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6">
               <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} savedRows={showingSavedRecord ? savedSnapshotRows : []} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} onOpenAlarms={() => navigateTo('alarms')} />
             </div>
           </div>
