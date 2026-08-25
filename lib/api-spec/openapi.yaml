@@ -758,9 +758,13 @@ components:
         dataQuality: { type: string, enum: [validated, raw, source-reported] }
         scalingStatus: { type: string, enum: [validated, raw] }
         mappingValidationStatus: { type: [string, "null"], enum: [valid, not-numeric, non-finite, null] }
+        observationCount: { type: number, minimum: 0, multipleOf: 1 }
+        mappingLifecycleStatus: { type: string, enum: [unmapped, mapped] }
+        firstSeenAt: { type: [string, "null"], format: date-time }
+        lastSeenAt: { type: [string, "null"], format: date-time }
         freshness: { type: string, enum: [live, stale, saved, retained, recovered, replay] }
         mapping: { anyOf: [{ $ref: "#/components/schemas/PlatformTelemetryMapping" }, { type: "null" }] }
-      required: [observationId, signalKey, siteName, deviceId, deviceName, topic, originalName, normalizedName, displayLabel, category, evidenceAvailable, rawValue, reportedValue, reportedNumericValue, displayValue, displayNumericValue, displayUnit, sourceUnit, address, sourceName, sourceIdentity, observedAt, receivedAt, provenance, dataQuality, scalingStatus, mappingValidationStatus, freshness, mapping]
+      required: [observationId, signalKey, siteName, deviceId, deviceName, topic, originalName, normalizedName, displayLabel, category, evidenceAvailable, rawValue, reportedValue, reportedNumericValue, displayValue, displayNumericValue, displayUnit, sourceUnit, address, sourceName, sourceIdentity, observedAt, receivedAt, provenance, dataQuality, scalingStatus, mappingValidationStatus, observationCount, mappingLifecycleStatus, firstSeenAt, lastSeenAt, freshness, mapping]
     PlatformTelemetryParameterList:
       type: object
       properties:

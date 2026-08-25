@@ -1,0 +1,63 @@
+### Enhanced Prompt — Backend-First SCADA Data Architecture
+
+The Solar SCADA application **must not depend on live telemetry to render or load the frontend**. The application should remain fully functional even when live device telemetry, MQTT communication, or device connectivity temporarily has an issue.
+
+Implement a **backend-first architecture**:
+
+**Backend Latest Saved Record → Frontend Dashboard Loads Immediately → Live Telemetry Runs Independently**
+
+* On every Dashboard load, fetch the **latest successfully saved and validated record from the backend**.
+* Display that record immediately so the application always loads with genuine data.
+* Do not wait for MQTT/live telemetry before rendering the Dashboard.
+* Do not show a blank screen, loading indefinitely, “No Data,” or “Waiting for Device” when a valid saved record already exists.
+* The latest saved record must remain visible until a newer valid record is successfully saved.
+
+### Live Data as an Independent Layer
+
+Live telemetry should operate independently from the saved-data layer:
+
+**Saved Data Layer → Reliable Dashboard/Analytics/Reports**
+
+**Live Data Layer → Real-Time Monitoring**
+
+If live telemetry is unavailable, the application should continue working normally using the latest backend record.
+
+Clearly show a user-friendly status such as:
+
+> **Live Data Temporarily Unavailable**
+> Last live data received: **10:55:31 AM**
+> Dashboard displaying latest saved data from: **10:45:00 AM**
+
+Do not simply display technical errors such as *MQTT disconnected* unless appropriate. Explain the actual condition in a customer-friendly way.
+
+### 15-Minute Saving
+
+Continue the existing requirement:
+
+**06:00 AM → 06:15 AM → 06:30 AM → … → 06:00 PM**
+
+Every 15-minute record must be:
+
+**Live Telemetry → Validate → Complete Snapshot → Backend Save → Confirm → Available to Frontend**
+
+If saving temporarily fails, use the backend retry/cache mechanism and synchronize automatically once connectivity is restored.
+
+### Data Priority
+
+Use this strict priority:
+
+**1. Latest Valid Live Telemetry** — when genuinely available
+**2. Latest Successfully Saved Backend Record** — when live telemetry is unavailable
+**3. No Data Available** — only when the backend has never received a valid saved record
+
+Never fabricate or estimate values.
+
+### Critical Requirement
+
+The **frontend application must never be blocked by live telemetry**.
+
+The system should always provide:
+
+**Fast App Load → Latest Backend Record → Independent Live Monitoring → 15-Minute Historical Persistence → Automatic Recovery**
+
+This ensures the SCADA application remains **fast, stable, informative, and usable even during temporary live-data interruptions**, while clearly communicating the actual live-data status and timestamp to the user.

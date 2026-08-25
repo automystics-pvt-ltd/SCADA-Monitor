@@ -1,0 +1,140 @@
+Never silently drop a parameter or field.
+
+Reliable Transaction Architecture
+
+Use a backend-controlled pipeline:
+
+MQTT/Device → Ingestion → Validation → Mapping → Normalization → Snapshot Assembly → Queue → Database Transaction → Confirmation
+
+Before marking a snapshot as saved, verify that:
+
+All expected parameters were processed.
+Required fields are present.
+Values are valid.
+Units/mappings are valid.
+Device and timestamp are correct.
+The database transaction completed successfully.
+
+Only then mark the record as:
+
+Saved / Confirmed
+
+Network & Database Failure Handling
+
+If the database, API, network, MQTT broker, or backend temporarily fails:
+
+Do not lose the telemetry snapshot.
+
+Place the validated snapshot into a durable backend queue/outbox/retry mechanism and automatically synchronize it when connectivity returns.
+
+Implement:
+
+Automatic retry
+Exponential backoff
+Idempotent writes
+Duplicate prevention
+Transaction handling
+Failed-record tracking
+Retry status
+Sync confirmation
+Dead-letter/error handling for records that repeatedly fail
+
+A record must never be duplicated because of a retry.
+
+Database Performance & Scalability
+
+The database must be designed carefully because SCADA telemetry can become very data-heavy as plants, devices, parameters, and historical periods increase.
+
+Use appropriate:
+
+Indexing
+Partitioning/retention strategy where appropriate
+Batch inserts
+Bulk operations
+Connection pooling
+Query optimization
+Pagination
+Archival strategy
+Efficient schema design
+Parameter metadata tables
+Device/site configuration tables
+Historical telemetry tables
+
+Avoid unnecessary database calls and N+1 query patterns.
+
+Do not repeatedly write static metadata when it can be referenced through configuration tables.
+
+Separate configuration/master data from high-volume telemetry/history data.
+
+Data Integrity
+
+The backend must maintain complete traceability:
+
+Device → Parameter → Source Value → Source Unit → Mapping → Actual Value → Display Unit → Timestamp → Saved Record
+
+Never:
+
+Fabricate values
+Guess units
+Overwrite valid telemetry incorrectly
+Drop parameters silently
+Save partially constructed snapshots as complete records
+Create duplicate records
+Treat stale data as fresh telemetry
+
+If a parameter is unavailable, explicitly record its data-quality/state information rather than silently substituting another value.
+
+Frontend Performance
+
+All heavy processing, validation, aggregation, retry, synchronization, and database operations should be handled primarily by the backend, so the SCADA application remains:
+
+Fast → Lightweight → Responsive → Non-blocking → Smooth
+
+The frontend should request only the data it needs instead of loading massive telemetry datasets.
+
+Use:
+
+API pagination
+Server-side filtering
+Server-side aggregation
+Incremental updates
+Caching where appropriate
+Efficient payloads
+Lazy loading
+Background synchronization
+
+Historical/report queries must never block live SCADA telemetry processing.
+
+Live vs Saved Data
+
+Maintain strict separation:
+
+Live Data → Current device telemetry only.
+
+Saved Data → Only records successfully persisted and confirmed by the backend.
+
+If a save is in progress, retrying, or temporarily unavailable, continue displaying the latest confirmed saved record in saved-data sections.
+
+Never display an unconfirmed record as saved.
+
+Required Backend State
+
+Every scheduled snapshot should have a clear lifecycle such as:
+
+Captured → Validating → Queued → Saving → Confirmed
+
+or, if unsuccessful:
+
+Failed → Retrying → Synced
+
+This provides complete operational traceability.
+
+Critical Requirement
+
+The backend should guarantee:
+
+Every 15-minute SCADA snapshot is captured accurately, validated completely, persisted reliably, protected against duplication/loss, and made available for Dashboard, Analytics, and Reports without slowing down live monitoring.
+
+The architecture must remain scalable for multiple organizations, plants, inverters, devices, and large historical datasets, while maintaining high performance and data integrity.
+
+Do not solve backend performance issues by reducing, dropping, sampling, or hiding important SCADA parameters. Optimize the architecture so the complete required telemetry can be retained reliably without compromising application performance.

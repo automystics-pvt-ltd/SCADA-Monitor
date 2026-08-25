@@ -24,3 +24,4 @@
 - [Approved telemetry display transforms](approved-telemetry-display-transforms.md) — Admin mappings may produce an approved display value, but raw/reported evidence and KPI calibration stay separate.
 - [Site-bound snapshot evidence](site-bound-snapshot-evidence.md) — Saved SCADA evidence must clear on site changes and cannot be reused across plants.
 - [Saved telemetry mapping visibility](saved-telemetry-mapping-visibility.md) — Preserve editable configuration rows without fabricating evidence; use the complete source identity.
+- [Authoritative telemetry mapping lifecycle](authoritative-telemetry-mapping-lifecycle.md) — Mapping state, discovery status, and audit history must remain race-safe and transactional.

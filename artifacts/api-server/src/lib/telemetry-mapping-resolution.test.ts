@@ -134,3 +134,16 @@ test("refuses a mapping with a different source identity or device", () => {
   assert.equal(wrongSource.adminMappingDestination, undefined);
   assert.equal(wrongDevice.adminMappingDestination, undefined);
 });
+
+test("removes a saved projection when an exact mapping is cleared before retained evidence reloads", () => {
+  const [previouslyMapped] = applyActiveTelemetryMappings([parameter], [mapping()]);
+  const [cleared] = applyActiveTelemetryMappings([previouslyMapped], []);
+
+  assert.equal(cleared.adminMappingDestination, undefined);
+  assert.equal(cleared.adminMappingVersion, undefined);
+  assert.equal(cleared.displayValue, null);
+  assert.equal(cleared.value, parameter.reportedNumericValue);
+  assert.equal(cleared.mappingLifecycleStatus, "unmapped");
+  assert.equal(cleared.rawValue, parameter.rawValue);
+  assert.equal(cleared.reportedValue, parameter.reportedValue);
+});

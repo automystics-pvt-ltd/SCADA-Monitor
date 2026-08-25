@@ -151,6 +151,10 @@ function ParameterMappingRow({
             {parameter.sourceUnit ? `Reported unit: ${parameter.sourceUnit}` : "No source unit reported"}
           </Badge>
         </div>
+        <div className="text-[10px] text-muted-foreground/80 pl-3.5 mt-1">
+          <span className="font-mono">{parameter.observationCount} observation{parameter.observationCount === 1 ? '' : 's'}</span>
+          {parameter.lastSeenAt && <span> · Last seen {format(new Date(parameter.lastSeenAt), 'MMM d, HH:mm:ss')}</span>}
+        </div>
         {parameter.address && (
           <div className="font-mono text-[10px] text-muted-foreground/70 truncate max-w-[250px] pl-3.5 mt-0.5" title={parameter.address}>
             ADDR: {parameter.address}
@@ -410,6 +414,7 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
   )
   
   const [searchTerm, setSearchTerm] = useState("")
+  const [workspaceView, setWorkspaceView] = useState<'queue' | 'all'>('queue')
   
   const upsertMapping = useUpsertPlatformTelemetryMapping()
   const clearMapping = useClearPlatformTelemetryMapping()
@@ -445,7 +450,11 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
   }
 
   const parameters = data?.parameters || []
-  const filtered = parameters.filter(p => 
+  const unmappedParameters = parameters.filter((parameter) =>
+    parameter.mappingLifecycleStatus === 'unmapped' && parameter.mapping === null
+  )
+  const workspaceParameters = workspaceView === 'queue' ? unmappedParameters : parameters
+  const filtered = workspaceParameters.filter(p =>
     !searchTerm || 
     p.sourceName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.sourceIdentity.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -483,16 +492,51 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
             </CardDescription>
           </div>
           <div className="flex-none">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input 
-                placeholder="Filter parameters..." 
-                className="pl-9 w-full md:w-[250px] bg-background border-primary/20 focus-visible:ring-primary/30"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-              />
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex rounded-md border bg-background p-0.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={workspaceView === 'queue' ? 'secondary' : 'ghost'}
+                  onClick={() => setWorkspaceView('queue')}
+                  className="h-8 gap-1.5 text-xs"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                  Unmapped queue
+                  <Badge variant="outline" className="h-4 min-w-4 px-1 text-[9px] tabular-nums">
+                    {unmappedParameters.length}
+                  </Badge>
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={workspaceView === 'all' ? 'secondary' : 'ghost'}
+                  onClick={() => setWorkspaceView('all')}
+                  className="h-8 text-xs"
+                >
+                  All parameters
+                </Button>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Filter parameters..."
+                  className="pl-9 w-full md:w-[250px] bg-background border-primary/20 focus-visible:ring-primary/30"
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                />
+              </div>
             </div>
           </div>
+        </div>
+        <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${
+          unmappedParameters.length
+            ? 'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200'
+            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200'
+        }`}>
+          {unmappedParameters.length
+            ? <span className="flex items-center gap-2"><AlertTriangle className="h-3.5 w-3.5 flex-none" />{unmappedParameters.length} exact source identit{unmappedParameters.length === 1 ? 'y needs' : 'ies need'} mapping. Rows stay raw until an administrator saves an approved destination.</span>
+            : <span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 flex-none" />No unmapped source identities are waiting for review.</span>}
         </div>
       </CardHeader>
       <div className="max-h-[600px] overflow-auto">
@@ -519,7 +563,9 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
                 <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
                   {parameters.length === 0
                     ? "No source parameters have been received for this managed site yet. Confirm the broker is connected and the site is active, then refresh."
-                    : "No parameters found matching your criteria."}
+                    : workspaceView === 'queue' && unmappedParameters.length === 0
+                      ? "Every discovered source identity is mapped. Switch to All parameters to review saved configuration."
+                      : "No parameters found matching your criteria."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -537,7 +583,7 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
       </div>
       {filtered.length > 0 && (
         <div className="bg-muted/30 border-t px-6 py-2 text-[10px] text-muted-foreground font-mono uppercase tracking-wider flex justify-between">
-          <span>{filtered.length} parameter{filtered.length === 1 ? '' : 's'}</span>
+          <span>{filtered.length} {workspaceView === 'queue' ? 'unmapped queue item' : 'parameter'}{filtered.length === 1 ? '' : 's'}</span>
           <span>{filtered.filter(p => p.mapping?.status === 'active').length} mapped</span>
         </div>
       )}

@@ -279,6 +279,10 @@ export const ListPlatformTelemetryParametersResponse = zod.object({
   "dataQuality": zod.enum(['validated', 'raw', 'source-reported']),
   "scalingStatus": zod.enum(['validated', 'raw']),
   "mappingValidationStatus": zod.union([zod.literal('valid'),zod.literal('not-numeric'),zod.literal('non-finite'),zod.literal(null)]).nullable(),
+  "observationCount": zod.number().int().min(0),
+  "mappingLifecycleStatus": zod.enum(['unmapped', 'mapped']),
+  "firstSeenAt": zod.coerce.date().nullable(),
+  "lastSeenAt": zod.coerce.date().nullable(),
   "freshness": zod.enum(['live', 'stale', 'saved', 'retained', 'recovered', 'replay']),
   "mapping": zod.union([zod.object({
   "id": zod.string(),

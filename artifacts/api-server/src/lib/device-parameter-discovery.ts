@@ -48,7 +48,13 @@ export type DiscoveredDeviceParameter = {
   adminMappingVersion?: number;
   adminMappingScalingStatus?: "approved";
   adminMappingValidationStatus?: "valid" | "not-numeric" | "non-finite";
+  adminMappingId?: string;
+  adminMappingInjectedInverterIdentity?: boolean;
   inverterIdentity?: string | null;
+  observationCount?: number;
+  mappingLifecycleStatus?: "unmapped" | "mapped";
+  firstSeenAt?: string;
+  lastSeenAt?: string;
 };
 
 export type DeviceParameterDiscoveryContext = {

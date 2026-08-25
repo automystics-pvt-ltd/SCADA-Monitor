@@ -369,6 +369,14 @@ export const PlatformTelemetryParameterFreshness = {
   replay: 'replay',
 } as const;
 
+export type PlatformTelemetryParameterMappingLifecycleStatus = typeof PlatformTelemetryParameterMappingLifecycleStatus[keyof typeof PlatformTelemetryParameterMappingLifecycleStatus];
+
+
+export const PlatformTelemetryParameterMappingLifecycleStatus = {
+  unmapped: 'unmapped',
+  mapped: 'mapped',
+} as const;
+
 export interface PlatformTelemetryParameter {
   observationId: string;
   signalKey: string;
@@ -408,6 +416,12 @@ export interface PlatformTelemetryParameter {
   scalingStatus: PlatformTelemetryParameterScalingStatus;
   /** @nullable */
   mappingValidationStatus: PlatformTelemetryParameterMappingValidationStatus;
+  observationCount: number;
+  mappingLifecycleStatus: PlatformTelemetryParameterMappingLifecycleStatus;
+  /** @nullable */
+  firstSeenAt: string | null;
+  /** @nullable */
+  lastSeenAt: string | null;
   freshness: PlatformTelemetryParameterFreshness;
   mapping: PlatformTelemetryMapping | null;
 }

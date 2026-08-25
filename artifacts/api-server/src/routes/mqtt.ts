@@ -1701,14 +1701,27 @@ function discoveryCatalogParameter(discovery: typeof platformTelemetryDiscoverie
     provenance: discovery.provenance,
     dataQuality: discovery.dataQuality,
     scalingStatus: discovery.scalingStatus,
+    observationCount: discovery.observationCount,
+    mappingLifecycleStatus: discovery.mappingStatus,
+    firstSeenAt: discovery.firstSeenAt.toISOString(),
+    lastSeenAt: discovery.lastSeenAt.toISOString(),
   };
 }
 
 async function persistDiscoveredParameterCatalog(parameters: DiscoveredDeviceParameter[]) {
   if (!parameters.length) return;
   const now = new Date();
-  await Promise.all(parameters.map((parameter) => {
-    const values = {
+  const mappingIdentityKeys = [...new Set(parameters.map((parameter) => [
+    parameter.siteName,
+    parameter.deviceId,
+    parameter.sourceIdentity,
+    parameter.normalizedName,
+    parameter.address ?? "—",
+  ].join("\u001f")))].sort();
+  const values = parameters.map((parameter) => {
+    const receivedAt = new Date(parameter.receivedAt);
+    const safeReceivedAt = Number.isNaN(receivedAt.getTime()) ? now : receivedAt;
+    return {
       siteName: parameter.siteName,
       deviceId: parameter.deviceId,
       deviceName: parameter.deviceName,
@@ -1723,14 +1736,39 @@ async function persistDiscoveredParameterCatalog(parameters: DiscoveredDevicePar
       reportedNumericValue: parameter.reportedNumericValue,
       sourceUnit: parameter.sourceUnit,
       observedAt: parameter.observedAt ? new Date(parameter.observedAt) : null,
-      receivedAt: new Date(parameter.receivedAt),
+      receivedAt: safeReceivedAt,
       provenance: parameter.provenance,
       sourceMappingStatus: parameter.sourceMappingStatus,
       dataQuality: parameter.dataQuality,
       scalingStatus: parameter.scalingStatus,
-      lastSeenAt: now,
+      lastSeenAt: safeReceivedAt,
+      observationCount: 1,
+      // Consult the mapping table inside this write instead of trusting a
+      // possibly stale in-memory mapping overlay during map/clear races.
+      mappingStatus: sql`CASE WHEN EXISTS (
+        SELECT 1 FROM ${platformTelemetryMappingsTable} AS mapping
+        WHERE mapping.site_name = ${parameter.siteName}
+          AND mapping.device_id = ${parameter.deviceId}
+          AND mapping.source_identity = ${parameter.sourceIdentity}
+          AND mapping.normalized_name = ${parameter.normalizedName}
+          AND mapping.address = ${parameter.address ?? "—"}
+          AND mapping.status = 'active'
+      ) THEN 'mapped' ELSE 'unmapped' END`,
     };
-    return db.insert(platformTelemetryDiscoveriesTable).values(values).onConflictDoUpdate({
+  });
+  await db.transaction(async (tx) => {
+    // The first discovery row has no watermark yet. Locking the exact identity
+    // serializes its insert with a concurrent Admin map/clear transaction so
+    // either writer observes the other's committed mapping state.
+    await tx.execute(sql`
+      SELECT pg_advisory_xact_lock(hashtext(lock_key))
+      FROM (
+        SELECT lock_key
+        FROM (VALUES ${sql.join(mappingIdentityKeys.map((key) => sql`(${key})`), sql`, `)}) AS identities(lock_key)
+        ORDER BY lock_key
+      ) AS ordered_identities
+    `);
+    await tx.insert(platformTelemetryDiscoveriesTable).values(values).onConflictDoUpdate({
       target: [
         platformTelemetryDiscoveriesTable.siteName,
         platformTelemetryDiscoveriesTable.deviceId,
@@ -1738,9 +1776,41 @@ async function persistDiscoveredParameterCatalog(parameters: DiscoveredDevicePar
         platformTelemetryDiscoveriesTable.normalizedName,
         platformTelemetryDiscoveriesTable.address,
       ],
-      set: values,
+      set: {
+        deviceName: sql`excluded.device_name`,
+        topic: sql`excluded.topic`,
+        sourceName: sql`excluded.source_name`,
+        originalName: sql`excluded.original_name`,
+        rawValue: sql`excluded.raw_value`,
+        reportedValue: sql`excluded.reported_value`,
+        reportedNumericValue: sql`excluded.reported_numeric_value`,
+        sourceUnit: sql`excluded.source_unit`,
+        observedAt: sql`excluded.observed_at`,
+        receivedAt: sql`excluded.received_at`,
+        provenance: sql`excluded.provenance`,
+        sourceMappingStatus: sql`excluded.source_mapping_status`,
+        dataQuality: sql`excluded.data_quality`,
+        scalingStatus: sql`excluded.scaling_status`,
+        lastSeenAt: sql`greatest(${platformTelemetryDiscoveriesTable.lastSeenAt}, excluded.last_seen_at)`,
+        observationCount: sql`${platformTelemetryDiscoveriesTable.observationCount} + 1`,
+        mappingStatus: sql`CASE
+          WHEN ${platformTelemetryDiscoveriesTable.lastMappingChangedAt} IS NOT NULL
+            AND ${platformTelemetryDiscoveriesTable.lastMappingChangedAt} >= excluded.received_at
+          THEN ${platformTelemetryDiscoveriesTable.mappingStatus}
+          WHEN EXISTS (
+            SELECT 1 FROM ${platformTelemetryMappingsTable} AS mapping
+            WHERE mapping.site_name = ${platformTelemetryDiscoveriesTable.siteName}
+              AND mapping.device_id = ${platformTelemetryDiscoveriesTable.deviceId}
+              AND mapping.source_identity = ${platformTelemetryDiscoveriesTable.sourceIdentity}
+              AND mapping.normalized_name = ${platformTelemetryDiscoveriesTable.normalizedName}
+              AND mapping.address = ${platformTelemetryDiscoveriesTable.address}
+              AND mapping.status = 'active'
+          ) THEN 'mapped'
+          ELSE 'unmapped'
+        END`,
+      },
     });
-  }));
+  });
 }
 
 /**

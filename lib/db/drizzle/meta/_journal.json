@@ -92,6 +92,13 @@
       "when": 1787705100000,
       "tag": "0012_telemetry_discovery_unassigned_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1787708700000,
+      "tag": "0013_authoritative_telemetry_discovery_lifecycle",
+      "breakpoints": true
     }
   ]
 }

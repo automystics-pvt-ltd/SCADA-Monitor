@@ -58,26 +58,67 @@ function formatDisplayValue(value: number) {
   return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(15)));
 }
 
+function mappingIdentityKey(identity: Pick<ActiveMapping, "siteName" | "deviceId" | "sourceIdentity" | "normalizedName" | "address">) {
+  return [identity.siteName, identity.deviceId, identity.sourceIdentity, identity.normalizedName, identity.address].join("\u001f");
+}
+
+/**
+ * A saved snapshot or retained row may carry an older mapping projection.
+ * Remove that projection before resolving the active source of truth so a clear
+ * or revision cannot leave retired presentation fields behind.
+ */
+function stripMappingProjection<T extends DiscoveredDeviceParameter>(parameter: T): T {
+  const record = parameter as T & Record<string, unknown>;
+  const hadProjection = record.adminMappingId !== undefined
+    || record.adminMappingDestination !== undefined
+    || record.adminMappingVersion !== undefined;
+  if (!hadProjection) return parameter;
+  const base = { ...record };
+  delete base.adminMappingId;
+  delete base.adminMappingDestination;
+  delete base.adminMappingLabel;
+  delete base.adminMappingCategory;
+  delete base.adminMappingVersion;
+  delete base.adminMappingScalingStatus;
+  delete base.adminMappingValidationStatus;
+  const injectedInverterIdentity = Boolean(base.adminMappingInjectedInverterIdentity);
+  delete base.adminMappingInjectedInverterIdentity;
+  if (injectedInverterIdentity) delete base.inverterIdentity;
+  return {
+    ...base,
+    displayLabel: parameter.originalName || parameter.displayLabel,
+    category: "Discovered / Other Parameters",
+    value: parameter.reportedNumericValue,
+    unit: parameter.sourceUnit ?? null,
+    displayValue: null,
+    displayNumericValue: null,
+    displayUnit: null,
+    mappingLifecycleStatus: "unmapped",
+  } as T;
+}
+
 export function applyActiveTelemetryMappings<T extends DiscoveredDeviceParameter>(
   parameters: T[],
   mappings: ActiveMapping[],
 ): T[] {
+  const mappingsByIdentity = new Map(
+    mappings
+      .filter((mapping) => mapping.status === "active")
+      .map((mapping) => [mappingIdentityKey(mapping), mapping]),
+  );
   return parameters.map((parameter) => {
-    const candidates = mappings.filter((mapping) =>
-      mapping.status === "active"
-      && mapping.siteName === parameter.siteName
-      && mapping.deviceId === parameter.deviceId
-      && mapping.sourceIdentity === parameter.sourceIdentity
-      && mapping.sourceName === parameter.sourceName
-      && mapping.normalizedName === parameter.normalizedName
-      && mapping.address === (parameter.address ?? "—"),
-    );
-    if (candidates.length !== 1) return parameter;
-
-    const mapping = candidates[0]!;
+    const base = stripMappingProjection(parameter);
+    const mapping = mappingsByIdentity.get(mappingIdentityKey({
+      siteName: base.siteName,
+      deviceId: base.deviceId,
+      sourceIdentity: base.sourceIdentity,
+      normalizedName: base.normalizedName,
+      address: base.address ?? "—",
+    }));
+    if (!mapping || mapping.sourceName !== base.sourceName) return base;
     const multiplier = mapping.scalingMultiplier;
     const offset = mapping.scalingOffset;
-    const reported = parameter.reportedNumericValue;
+    const reported = base.reportedNumericValue;
     const canDisplayEngineeringValue = telemetryMappingRequiresDisplayUnit(mapping.destination);
     const transformed = !canDisplayEngineeringValue || reported === null || !Number.isFinite(reported)
       ? null
@@ -91,15 +132,16 @@ export function applyActiveTelemetryMappings<T extends DiscoveredDeviceParameter
         ? "non-finite" as const
         : "valid" as const;
     return {
-      ...parameter,
+      ...base,
       displayLabel: mapping.displayLabel,
-      category: categoryForMapping(mapping.destination, mapping.category, parameter.category),
-      value: displayNumericValue ?? parameter.value,
-      unit: mapping.displayUnit ?? parameter.unit ?? mapping.sourceUnit,
-      sourceUnit: parameter.sourceUnit ?? mapping.sourceUnit,
+      category: categoryForMapping(mapping.destination, mapping.category, base.category),
+      value: displayNumericValue ?? base.value,
+      unit: mapping.displayUnit ?? base.unit ?? mapping.sourceUnit,
+      sourceUnit: base.sourceUnit ?? mapping.sourceUnit,
       displayValue: displayNumericValue === null ? null : formatDisplayValue(displayNumericValue),
       displayNumericValue,
-      displayUnit: mapping.displayUnit ?? parameter.sourceUnit ?? mapping.sourceUnit,
+      displayUnit: mapping.displayUnit ?? base.sourceUnit ?? mapping.sourceUnit,
+      adminMappingId: mapping.id,
       adminMappingDestination: mapping.destination,
       adminMappingLabel: mapping.displayLabel,
       adminMappingCategory: mapping.category,
@@ -107,6 +149,8 @@ export function applyActiveTelemetryMappings<T extends DiscoveredDeviceParameter
       adminMappingScalingStatus: mapping.scalingStatus,
       adminMappingValidationStatus: validationStatus,
       inverterIdentity: mapping.inverterIdentity,
+      adminMappingInjectedInverterIdentity: Boolean(mapping.inverterIdentity),
+      mappingLifecycleStatus: "mapped",
     } as T;
   });
 }

@@ -70,7 +70,10 @@ function savedMappingParameter(mapping: PlatformTelemetryMapping): MappingWorksp
     adminMappingCategory: mapping.category,
     adminMappingVersion: mapping.version,
     adminMappingScalingStatus: mapping.scalingStatus,
+    adminMappingId: mapping.id,
     inverterIdentity: mapping.inverterIdentity,
+    observationCount: 0,
+    mappingLifecycleStatus: "mapped",
     freshness: "saved",
   };
 }

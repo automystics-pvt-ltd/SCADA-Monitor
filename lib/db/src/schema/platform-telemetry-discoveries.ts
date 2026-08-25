@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { doublePrecision, index, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { doublePrecision, index, integer, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
 /**
  * Durable latest evidence for every source signal the platform has observed.
@@ -34,6 +34,9 @@ export const platformTelemetryDiscoveriesTable = pgTable(
     scalingStatus: varchar("scaling_status", { enum: ["validated", "raw"] }).notNull(),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    observationCount: integer("observation_count").notNull().default(1),
+    mappingStatus: varchar("mapping_status", { enum: ["unmapped", "mapped"] }).notNull().default("unmapped"),
+    lastMappingChangedAt: timestamp("last_mapping_changed_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("platform_telemetry_discovery_identity_unique").on(
@@ -41,6 +44,7 @@ export const platformTelemetryDiscoveriesTable = pgTable(
     ),
     index("platform_telemetry_discovery_site_device_index").on(table.siteName, table.deviceId),
     index("platform_telemetry_discovery_last_seen_index").on(table.siteName, table.lastSeenAt),
+    index("platform_telemetry_discovery_unmapped_queue_index").on(table.siteName, table.mappingStatus, table.lastSeenAt),
   ],
 );
 
