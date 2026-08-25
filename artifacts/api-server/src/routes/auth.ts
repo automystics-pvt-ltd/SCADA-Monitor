@@ -2,11 +2,29 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import * as oidc from "openid-client";
 import { and, eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
-import { clearSession, createSession, getOidcConfig, getSessionId, SESSION_COOKIE, SESSION_TTL_MS, type AuthUser, type SessionData } from "../lib/auth";
+import {
+  clearScadaSession,
+  clearSession,
+  createScadaSession,
+  createSession,
+  getOidcConfig,
+  getScadaSessionId,
+  getSessionId,
+  normalizeScadaUsername,
+  setScadaSessionCookie,
+  verifyScadaPassword,
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  type AuthUser,
+  type SessionData,
+} from "../lib/auth";
 import { isPlantLocationAdministrator } from "../middlewares/plantLocationAuthorization";
 
 const router: IRouter = Router();
 const OIDC_COOKIE_TTL_MS = 10 * 60 * 1000;
+const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const MAX_LOGIN_ATTEMPTS = 5;
+const loginAttempts = new Map<string, { count: number; expiresAt: number }>();
 
 function requestOrigin(req: Request) {
   const proto = typeof req.headers["x-forwarded-proto"] === "string" ? req.headers["x-forwarded-proto"] : "https";
@@ -24,6 +42,29 @@ function setTemporaryCookie(res: Response, name: string, value: string) {
 
 function setSessionCookie(res: Response, sid: string) {
   res.cookie(SESSION_COOKIE, sid, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: SESSION_TTL_MS });
+}
+
+function loginAttemptKey(req: Request, username: string) {
+  return `${req.ip}:${username}`;
+}
+
+function loginIsRateLimited(key: string) {
+  const record = loginAttempts.get(key);
+  if (!record) return false;
+  if (record.expiresAt <= Date.now()) {
+    loginAttempts.delete(key);
+    return false;
+  }
+  return record.count >= MAX_LOGIN_ATTEMPTS;
+}
+
+function recordFailedLogin(key: string) {
+  const now = Date.now();
+  const current = loginAttempts.get(key);
+  loginAttempts.set(key, {
+    count: current && current.expiresAt > now ? current.count + 1 : 1,
+    expiresAt: now + LOGIN_ATTEMPT_WINDOW_MS,
+  });
 }
 
 async function upsertUser(claims: Record<string, unknown>): Promise<AuthUser> {
@@ -56,6 +97,42 @@ router.get("/auth/user", (req, res) => {
     user,
     canUpdatePlantLocations: isPlantLocationAdministrator(user ?? undefined),
   });
+});
+
+router.post("/scada-auth/login", async (req: Request, res: Response): Promise<void> => {
+  const rawUsername = typeof req.body?.username === "string" ? req.body.username : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  const username = normalizeScadaUsername(rawUsername);
+  if (!username || password.length < 8 || password.length > 256) {
+    res.status(401).json({ error: "The username or password is incorrect." });
+    return;
+  }
+  const attemptKey = loginAttemptKey(req, username);
+  if (loginIsRateLimited(attemptKey)) {
+    res.status(429).json({ error: "Too many unsuccessful sign-in attempts. Try again in 15 minutes." });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.username, username)).limit(1);
+  const passwordValid = Boolean(user?.passwordHash) && await verifyScadaPassword(password, user.passwordHash!);
+  if (!user || user.accountStatus !== "active" || !passwordValid) {
+    recordFailedLogin(attemptKey);
+    res.status(401).json({ error: "The username or password is incorrect." });
+    return;
+  }
+  loginAttempts.delete(attemptKey);
+  setScadaSessionCookie(res, await createScadaSession(user.id));
+  res.set("Cache-Control", "no-store").json({
+    user: {
+      id: user.id,
+      username: user.username,
+      name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username,
+    },
+  });
+});
+
+router.post("/scada-auth/logout", async (req: Request, res: Response): Promise<void> => {
+  await clearScadaSession(res, getScadaSessionId(req));
+  res.status(204).end();
 });
 
 router.get("/login", async (req: Request, res: Response): Promise<void> => {

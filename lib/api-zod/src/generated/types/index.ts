@@ -47,6 +47,7 @@ export * from './platformSiteActivationInputActivationStatus';
 export * from './platformSiteActivationStatus';
 export * from './platformSiteInput';
 export * from './platformSiteLastTelemetryTestResult';
+export * from './platformSiteUpdateInput';
 export * from './platformTelemetryDevice';
 export * from './platformTelemetryTest';
 export * from './platformTelemetryTestEvidence';

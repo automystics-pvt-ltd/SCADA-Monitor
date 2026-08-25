@@ -39,6 +39,7 @@ const namedEvidenceReads = [
   ["electrical history", `/mqtt/electrical-history?siteName=${encodeURIComponent(otherSite)}&${validHistoryQuery}`],
   ["inverter energy history", `/mqtt/inverter-energy-history?siteName=${encodeURIComponent(otherSite)}&${validInverterQuery}`],
   ["inverter measurements", `/mqtt/inverter-measurements?siteName=${encodeURIComponent(otherSite)}&${validInverterQuery}`],
+  ["device parameters", `/mqtt/device-parameters?siteName=${encodeURIComponent(otherSite)}&deviceId=INV-01`],
   ["report", `/mqtt/reports?siteName=${encodeURIComponent(otherSite)}&${validReportQuery}`],
   ["communication evidence", `/mqtt/communication-events?siteName=${encodeURIComponent(otherSite)}`],
   ["telemetry stream", `/mqtt/stream?siteName=${encodeURIComponent(otherSite)}`],
@@ -131,6 +132,21 @@ before(async () => {
         parameters: [{ site_name: otherSite }],
       },
     },
+    {
+      topic: process.env.MQTT_TOPIC ?? "trn246/modbus",
+      windowStartedAt: new Date("2099-01-02T00:00:00.000Z"),
+      windowEndedAt: new Date("2099-01-02T00:01:00.000Z"),
+      capturedAt: new Date("2099-01-02T00:02:00.000Z"),
+      messageCount: 1,
+      parameterCount: 1,
+      data: {
+        schemaVersion: 4,
+        latestParameters: [
+          { site_name: otherSite, inverter_id: "legacy-isolation", name: "dc_voltage", data: 701 },
+          { inverter_id: "legacy-isolation", name: "unscoped_value", data: 1 },
+        ],
+      },
+    },
   ]).returning({ id: mqttSnapshotsTable.id });
   snapshotIds = snapshots.map((snapshot) => snapshot.id);
 
@@ -171,6 +187,13 @@ test("the snapshots route returns only evidence from an assigned site and reject
 
   const unscoped = await requestEvidence("/mqtt/snapshots");
   assert.equal(unscoped.status, 403, "assigned users must select a granted site before reading snapshots");
+});
+
+test("an assigned user cannot relabel another site's or unscoped legacy snapshot data as their own device parameters", async () => {
+  const response = await requestEvidence(`/mqtt/device-parameters?siteName=${encodeURIComponent(assignedSite)}&deviceId=legacy-isolation`);
+  assert.equal(response.status, 200);
+  const body = await response.json() as { parameters: Array<{ deviceId: string }> };
+  assert.equal(body.parameters.some((parameter) => parameter.deviceId === "legacy-isolation"), false);
 });
 
 for (const globalEnabled of [false, true]) {

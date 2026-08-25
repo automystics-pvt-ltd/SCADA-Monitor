@@ -13,6 +13,9 @@ export interface PlatformUser {
   id: string;
   /** @nullable */
   email: string | null;
+  /** @nullable */
+  username: string | null;
+  passwordConfigured: boolean;
   name: string;
   /** @nullable */
   firstName: string | null;

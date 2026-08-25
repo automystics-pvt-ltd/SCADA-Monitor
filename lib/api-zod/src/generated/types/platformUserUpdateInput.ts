@@ -9,6 +9,17 @@ import type { PlatformUserSiteAssignment } from './platformUserSiteAssignment';
 
 export interface PlatformUserUpdateInput {
   userId: string;
+  /**
+     * @minLength 3
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$
+     */
+  username?: string;
+  /**
+     * @minLength 8
+     * @maxLength 256
+     */
+  password?: string;
   /** @maxLength 120 */
   firstName?: string;
   /** @maxLength 120 */

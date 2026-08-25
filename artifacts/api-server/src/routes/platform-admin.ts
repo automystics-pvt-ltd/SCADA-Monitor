@@ -29,6 +29,8 @@ import {
   RunPlatformDatabaseQueryResponse,
   UpdatePlatformSiteAccessBody,
   UpdatePlatformSiteAccessResponse,
+  UpdatePlatformSiteBody,
+  UpdatePlatformSiteResponse,
   UpdatePlatformSiteActivationBody,
   UpdatePlatformSiteActivationResponse,
   UpdatePlatformMqttConfigBody,
@@ -52,6 +54,7 @@ import {
   platformSiteAccessTable,
   platformSitesTable,
   platformTelemetryTestsTable,
+  scadaSessionsTable,
   usersTable,
 } from "@workspace/db";
 import {
@@ -76,6 +79,7 @@ import {
   type PlatformAdminPrincipal,
 } from "../middlewares/platformAdminAuthorization";
 import { rolePermissions, type RolePermissionsConfig, type ScadaPermission } from "../middlewares/platformSiteAccessPolicy";
+import { hashScadaPassword, normalizeScadaUsername } from "../lib/auth";
 
 const router: IRouter = Router();
 
@@ -200,6 +204,8 @@ async function platformUserPayload(userId: string) {
   return {
     id: user.id,
     email: user.email,
+    username: user.username,
+    passwordConfigured: Boolean(user.passwordHash),
     name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "Unnamed SCADA user",
     firstName: user.firstName,
     lastName: user.lastName,
@@ -451,6 +457,84 @@ router.get("/platform-admin/telemetry/devices", async (_req, res): Promise<void>
   res.set("Cache-Control", "no-store").json(ListPlatformTelemetryDevicesResponse.parse(await listLiveTelemetryDevices()));
 });
 
+router.patch("/platform-admin/sites", async (req: Request, res): Promise<void> => {
+  const data = UpdatePlatformSiteBody.parse(req.body);
+  const siteName = data.siteName.trim();
+  const hasLatitude = Object.prototype.hasOwnProperty.call(data, "latitude");
+  const hasLongitude = Object.prototype.hasOwnProperty.call(data, "longitude");
+  if (hasLatitude !== hasLongitude) {
+    res.status(400).json({ error: "Provide both latitude and longitude, or clear both coordinates together." });
+    return;
+  }
+  const [site] = await db.select().from(platformSitesTable).where(eq(platformSitesTable.siteName, siteName)).limit(1);
+  if (!site) {
+    res.status(404).json({ error: "Choose a managed site." });
+    return;
+  }
+  const organizationId = data.organizationId?.trim() || site.organizationId;
+  const timezone = data.timezone?.trim() || site.timezone;
+  if (!timezone) {
+    res.status(400).json({ error: "Timezone cannot be blank." });
+    return;
+  }
+  const [organization] = await db
+    .select()
+    .from(platformOrganizationsTable)
+    .where(and(eq(platformOrganizationsTable.id, organizationId), eq(platformOrganizationsTable.status, "active")))
+    .limit(1);
+  if (!organization) {
+    res.status(404).json({ error: "Choose an active organization." });
+    return;
+  }
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [updatedSite] = await tx.update(platformSitesTable).set({
+        organizationId,
+        timezone,
+      }).where(eq(platformSitesTable.siteName, siteName)).returning();
+      if (hasLatitude && hasLongitude) {
+        if (data.latitude === null && data.longitude === null) {
+          await tx.delete(plantLocationsTable).where(eq(plantLocationsTable.siteName, siteName));
+        } else if (typeof data.latitude === "number" && typeof data.longitude === "number") {
+          await tx.insert(plantLocationsTable).values({
+            siteName,
+            latitude: data.latitude,
+            longitude: data.longitude,
+          }).onConflictDoUpdate({
+            target: plantLocationsTable.siteName,
+            set: { latitude: data.latitude, longitude: data.longitude, updatedAt: new Date() },
+          });
+        } else {
+          throw new Error("Coordinates must be both numbers or both null.");
+        }
+      }
+      return updatedSite;
+    });
+    const [location] = await db.select({
+      latitude: plantLocationsTable.latitude,
+      longitude: plantLocationsTable.longitude,
+    }).from(plantLocationsTable).where(eq(plantLocationsTable.siteName, siteName)).limit(1);
+    const [latestTest] = await db
+      .select()
+      .from(platformTelemetryTestsTable)
+      .where(eq(platformTelemetryTestsTable.siteName, siteName))
+      .orderBy(desc(platformTelemetryTestsTable.finishedAt))
+      .limit(1);
+    await audit(req.platformAdmin!, "site.updated", "site", siteName, {
+      organizationId: updated.organizationId,
+      previousOrganizationId: site.organizationId,
+      timezone: updated.timezone,
+      previousTimezone: site.timezone,
+      locationChanged: hasLatitude && hasLongitude,
+      locationCleared: hasLatitude && hasLongitude && data.latitude === null && data.longitude === null,
+    });
+    res.json(UpdatePlatformSiteResponse.parse(platformSiteResponse(updated, organization.name, location, latestTest)));
+  } catch (error) {
+    req.log.warn({ err: error, siteName }, "Platform site update failed");
+    res.status(500).json({ error: "The site could not be updated. Try again." });
+  }
+});
+
 router.post("/platform-admin/telemetry-tests", async (req: Request, res): Promise<void> => {
   const data = CreatePlatformTelemetryTestBody.parse(req.body);
   const [site] = await db.select().from(platformSitesTable).where(eq(platformSitesTable.siteName, data.siteName)).limit(1);
@@ -583,6 +667,11 @@ router.get("/platform-admin/users", async (_req, res): Promise<void> => {
 router.post("/platform-admin/users", async (req: Request, res): Promise<void> => {
   const data = CreatePlatformUserBody.parse(req.body);
   const email = data.email.trim().toLowerCase();
+  const username = normalizeScadaUsername(data.username);
+  if (!username) {
+    res.status(400).json({ error: "Choose a username using 3-64 letters, numbers, dots, dashes, or underscores." });
+    return;
+  }
   const organizationIds = uniqueIds(data.organizationIds);
   const siteAccess = (data.siteAccess ?? []).map((grant) => ({ siteName: grant.siteName.trim(), role: requestedRole(grant.role) }));
   if (new Set(siteAccess.map((grant) => grant.siteName)).size !== siteAccess.length) {
@@ -594,14 +683,23 @@ router.post("/platform-admin/users", async (req: Request, res): Promise<void> =>
     res.status(409).json({ error: "A SCADA user with this email already exists. Use Manage to update their access." });
     return;
   }
+  const [existingUsername] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.username, username)).limit(1);
+  if (existingUsername) {
+    res.status(409).json({ error: "That SCADA username is already in use. Choose a different username." });
+    return;
+  }
   try {
     const assignments = await validateAssignments(organizationIds, siteAccess);
+    const passwordHash = await hashScadaPassword(data.password);
     const [created] = await db.transaction(async (tx) => {
       const [user] = await tx.insert(usersTable).values({
         email,
+        username,
+        passwordHash,
+        passwordSetAt: new Date(),
         firstName: data.firstName?.trim() || null,
         lastName: data.lastName?.trim() || null,
-        accountStatus: "inactive",
+        accountStatus: "active",
       }).returning();
       if (assignments.completeOrganizationIds.length) {
         await tx.insert(platformOrganizationAccessTable).values(assignments.completeOrganizationIds.map((organizationId) => ({
@@ -624,6 +722,8 @@ router.post("/platform-admin/users", async (req: Request, res): Promise<void> =>
     if (!payload) throw new Error("Provisioned user could not be loaded.");
     await audit(req.platformAdmin!, "user.provisioned", "user", created.id, {
       email,
+      username,
+      passwordConfigured: true,
       organizationCount: payload.organizations.length,
       siteGrantCount: payload.access.length,
     });
@@ -643,11 +743,28 @@ router.patch("/platform-admin/users", async (req: Request, res): Promise<void> =
   }
   const organizationIds = data.organizationIds === undefined ? undefined : uniqueIds(data.organizationIds);
   const siteAccess = data.siteAccess === undefined ? undefined : data.siteAccess.map((grant) => ({ siteName: grant.siteName.trim(), role: requestedRole(grant.role) }));
+  const username = data.username === undefined ? user.username : normalizeScadaUsername(data.username);
+  if (data.username !== undefined && !username) {
+    res.status(400).json({ error: "Choose a username using 3-64 letters, numbers, dots, dashes, or underscores." });
+    return;
+  }
+  if (data.password !== undefined && !username) {
+    res.status(400).json({ error: "Set a SCADA username before setting a password." });
+    return;
+  }
   if (siteAccess && new Set(siteAccess.map((grant) => grant.siteName)).size !== siteAccess.length) {
     res.status(400).json({ error: "Assign each site only once; update its role in the existing assignment." });
     return;
   }
   try {
+    if (data.username !== undefined && username !== user.username) {
+      const [existingUsername] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.username, username!)).limit(1);
+      if (existingUsername) {
+        res.status(409).json({ error: "That SCADA username is already in use. Choose a different username." });
+        return;
+      }
+    }
+    const passwordHash = data.password === undefined ? undefined : await hashScadaPassword(data.password);
     let completeOrganizationIds = organizationIds;
     if (organizationIds !== undefined || siteAccess !== undefined) {
       const existingGrants = siteAccess === undefined
@@ -659,10 +776,16 @@ router.patch("/platform-admin/users", async (req: Request, res): Promise<void> =
     }
     await db.transaction(async (tx) => {
       await tx.update(usersTable).set({
+        username,
+        passwordHash: passwordHash ?? user.passwordHash,
+        passwordSetAt: passwordHash ? new Date() : user.passwordSetAt,
         firstName: data.firstName === undefined ? user.firstName : data.firstName.trim() || null,
         lastName: data.lastName === undefined ? user.lastName : data.lastName.trim() || null,
         updatedAt: new Date(),
       }).where(eq(usersTable.id, user.id));
+      if (passwordHash) {
+        await tx.delete(scadaSessionsTable).where(eq(scadaSessionsTable.userId, user.id));
+      }
       if (completeOrganizationIds !== undefined) {
         await tx.update(platformOrganizationAccessTable).set({ status: "revoked", updatedAt: new Date() })
           .where(eq(platformOrganizationAccessTable.userId, user.id));
@@ -691,6 +814,8 @@ router.patch("/platform-admin/users", async (req: Request, res): Promise<void> =
     const payload = await platformUserPayload(user.id);
     if (!payload) throw new Error("Updated user could not be loaded.");
     await audit(req.platformAdmin!, "user.updated", "user", user.id, {
+      username: payload.username,
+      passwordReset: Boolean(passwordHash),
       organizationCount: payload.organizations.filter((organization) => organization.status === "active").length,
       siteGrantCount: payload.access.filter((grant) => grant.status === "active").length,
     });
@@ -725,6 +850,7 @@ router.post("/platform-admin/users/status", async (req: Request, res): Promise<v
         .where(eq(platformOrganizationAccessTable.userId, user.id));
     }
     if (data.accountStatus !== "active") {
+      await tx.delete(scadaSessionsTable).where(eq(scadaSessionsTable.userId, user.id));
       const identities = await tx.select({ id: platformAdminIdentitiesTable.id })
         .from(platformAdminIdentitiesTable)
         .where(eq(platformAdminIdentitiesTable.userId, user.id));

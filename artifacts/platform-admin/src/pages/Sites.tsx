@@ -2,9 +2,12 @@ import { useState } from "react"
 import { 
   useListPlatformSites, 
   useCreatePlatformSite,
+  useUpdatePlatformSite,
+  useUpdatePlatformSiteActivation,
   useListPlatformOrganizations,
   getListPlatformSitesQueryKey,
   getListPlatformOrganizationsQueryKey,
+  type PlatformSite,
 } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
@@ -26,6 +29,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Form,
   FormControl,
   FormField,
@@ -41,21 +54,32 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { MapPin, Plus } from "lucide-react"
+import { MapPin, MapPinOff, Pause, Pencil, Play, Plus } from "lucide-react"
 
+const coordinate = z.preprocess(
+  (value) => value === "" || value === undefined ? null : value,
+  z.coerce.number().min(-180).max(180).nullable(),
+)
 const siteSchema = z.object({
   siteName: z.string().min(2, "Name must be at least 2 characters").max(160),
   organizationId: z.string().min(1, "Organization is required"),
   timezone: z.string().min(1, "Timezone is required").max(80),
-  latitude: z.coerce.number().min(-90).max(90).optional(),
-  longitude: z.coerce.number().min(-180).max(180).optional(),
+  latitude: z.preprocess(
+    (value) => value === "" || value === undefined ? null : value,
+    z.coerce.number().min(-90).max(90).nullable(),
+  ),
+  longitude: coordinate,
 })
 
 export default function Sites() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [editingSite, setEditingSite] = useState<PlatformSite | null>(null)
+  const [pendingActivationSite, setPendingActivationSite] = useState<PlatformSite | null>(null)
   const { data: sites, isLoading: isLoadingSites } = useListPlatformSites()
   const { data: orgs } = useListPlatformOrganizations()
   const createSite = useCreatePlatformSite()
+  const updateSite = useUpdatePlatformSite()
+  const updateActivation = useUpdatePlatformSiteActivation()
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
@@ -65,35 +89,96 @@ export default function Sites() {
       siteName: "",
       organizationId: "",
       timezone: "UTC",
-      latitude: 0,
-      longitude: 0,
+      latitude: null,
+      longitude: null,
     },
   })
 
+  const closeSiteDialog = () => {
+    setIsCreateOpen(false)
+    setEditingSite(null)
+    form.reset()
+  }
+
+  const openCreateDialog = () => {
+    setEditingSite(null)
+    form.reset({
+      siteName: "",
+      organizationId: "",
+      timezone: "UTC",
+      latitude: null,
+      longitude: null,
+    })
+    setIsCreateOpen(true)
+  }
+
+  const openEditDialog = (site: PlatformSite) => {
+    setIsCreateOpen(false)
+    setEditingSite(site)
+    form.reset({
+      siteName: site.siteName,
+      organizationId: site.organizationId,
+      timezone: site.timezone,
+      latitude: site.latitude,
+      longitude: site.longitude,
+    })
+  }
+
   const onSubmit = (values: z.infer<typeof siteSchema>) => {
-    createSite.mutate(
-      { data: values },
+    if (values.latitude === null !== (values.longitude === null)) {
+      toast({ title: "Location is incomplete", description: "Enter both coordinates or clear both location fields.", variant: "destructive" })
+      return
+    }
+    const options = {
+      onSuccess: () => {
+        toast({
+          title: editingSite ? "Site updated" : "Site created and access assigned",
+          description: editingSite ? "The site metadata and location master are up to date." : "Verify live telemetry and activate the site before SCADA data becomes available.",
+        })
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: getListPlatformSitesQueryKey() }),
+          queryClient.invalidateQueries({ queryKey: getListPlatformOrganizationsQueryKey() }),
+        ])
+        closeSiteDialog()
+      },
+      onError: (error: unknown) => {
+        toast({
+          title: editingSite ? "Failed to update site" : "Failed to create site",
+          description: error instanceof Error ? error.message : "Check the site details and try again.",
+          variant: "destructive",
+        })
+      },
+    }
+    if (editingSite) {
+      updateSite.mutate({ data: values }, options)
+    } else {
+      createSite.mutate({ data: values }, options)
+    }
+  }
+
+  const confirmActivationChange = () => {
+    if (!pendingActivationSite) return
+    const site = pendingActivationSite
+    const nextStatus = site.activationStatus === "active" ? "inactive" : "active"
+    updateActivation.mutate(
+      { data: { siteName: site.siteName, activationStatus: nextStatus } },
       {
         onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: getListPlatformSitesQueryKey() })
           toast({
-            title: "Site created and access assigned",
-            description: "You have site-admin access. Verify live telemetry and activate the site before SCADA data becomes available.",
+            title: nextStatus === "active" ? "Site resumed" : "Site paused",
+            description: nextStatus === "active" ? "Authorized SCADA operators can access this site again." : "The site is no longer available as an active SCADA site.",
           })
-          void Promise.all([
-            queryClient.invalidateQueries({ queryKey: getListPlatformSitesQueryKey() }),
-            queryClient.invalidateQueries({ queryKey: getListPlatformOrganizationsQueryKey() }),
-          ])
-          setIsCreateOpen(false)
-          form.reset()
+          setPendingActivationSite(null)
         },
         onError: (error) => {
           toast({
-            title: "Failed to create site",
-            description: error instanceof Error ? error.message : "Check the site details and try again.",
+            title: "Site status update failed",
+            description: error instanceof Error ? error.message : "The site could not be updated.",
             variant: "destructive",
           })
         },
-      }
+      },
     )
   }
 
@@ -106,18 +191,18 @@ export default function Sites() {
             Manage SCADA sites and their locations.
           </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <Dialog open={isCreateOpen || Boolean(editingSite)} onOpenChange={(open) => !open && closeSiteDialog()}>
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={openCreateDialog}>
               <Plus className="mr-2 h-4 w-4" />
               New Site
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Site</DialogTitle>
+              <DialogTitle>{editingSite ? "Edit Site" : "Create Site"}</DialogTitle>
               <DialogDescription>
-                Provision a new physical site under an organization.
+                {editingSite ? "Update the managed site and its central SCADA location record. The site key cannot be changed after creation." : "Provision a new physical site under an organization."}
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -128,7 +213,7 @@ export default function Sites() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Organization</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select organization" />
@@ -152,8 +237,8 @@ export default function Sites() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Site Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Desert Solar Array 1" {...field} />
+                       <FormControl>
+                         <Input placeholder="Desert Solar Array 1" disabled={Boolean(editingSite)} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -179,8 +264,8 @@ export default function Sites() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Latitude</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="any" {...field} />
+                       <FormControl>
+                         <Input type="number" step="any" value={field.value ?? ""} onChange={field.onChange} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -192,8 +277,8 @@ export default function Sites() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Longitude</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="any" {...field} />
+                       <FormControl>
+                         <Input type="number" step="any" value={field.value ?? ""} onChange={field.onChange} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -201,11 +286,11 @@ export default function Sites() {
                   />
                 </div>
                 <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
+                  <Button type="button" variant="outline" onClick={closeSiteDialog}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={createSite.isPending}>
-                    {createSite.isPending ? "Creating..." : "Create Site"}
+                  <Button type="submit" disabled={createSite.isPending || updateSite.isPending}>
+                    {createSite.isPending || updateSite.isPending ? "Saving..." : editingSite ? "Save Changes" : "Create Site"}
                   </Button>
                 </DialogFooter>
               </form>
@@ -224,18 +309,19 @@ export default function Sites() {
                 <TableHead>Location</TableHead>
                 <TableHead>Timezone</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoadingSites ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center">
+                  <TableCell colSpan={6} className="h-24 text-center">
                     Loading sites...
                   </TableCell>
                 </TableRow>
               ) : !sites?.length ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground flex flex-col items-center justify-center">
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground flex flex-col items-center justify-center">
                     <MapPin className="h-8 w-8 mb-2 opacity-20" />
                     No sites found
                   </TableCell>
@@ -246,14 +332,28 @@ export default function Sites() {
                     <TableCell className="font-medium">{site.siteName}</TableCell>
                     <TableCell>{site.organizationName}</TableCell>
                     <TableCell className="text-muted-foreground text-xs font-mono">
-                      {site.latitude?.toFixed(4)}, {site.longitude?.toFixed(4)}
+                       {site.latitude !== null && site.longitude !== null
+                         ? `${site.latitude.toFixed(4)}, ${site.longitude.toFixed(4)}`
+                         : <span className="inline-flex items-center gap-1 font-sans"><MapPinOff className="h-3.5 w-3.5" /> Not set</span>}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{site.timezone}</TableCell>
                     <TableCell>
-                      <Badge variant={site.activationStatus === 'active' ? 'success' : 'secondary'}>
-                        {site.activationStatus === 'active' ? 'SCADA active' : 'Awaiting activation'}
+                       <Badge variant={site.activationStatus === 'active' ? 'success' : 'secondary'}>
+                         {site.activationStatus === 'active' ? 'SCADA active' : site.lastTelemetryTestResult ? 'Paused' : 'Awaiting verification'}
                       </Badge>
                     </TableCell>
+                     <TableCell className="text-right">
+                       <div className="flex justify-end gap-2">
+                         <Button variant="outline" size="sm" onClick={() => openEditDialog(site)}>
+                           <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                           Edit
+                         </Button>
+                         <Button variant="outline" size="sm" onClick={() => setPendingActivationSite(site)}>
+                           {site.activationStatus === "active" ? <Pause className="mr-1.5 h-3.5 w-3.5" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
+                           {site.activationStatus === "active" ? "Pause" : site.lastTelemetryTestResult ? "Resume" : "Activate"}
+                         </Button>
+                       </div>
+                     </TableCell>
                   </TableRow>
                 ))
               )}
@@ -261,6 +361,24 @@ export default function Sites() {
           </Table>
         </CardContent>
       </Card>
+      <AlertDialog open={Boolean(pendingActivationSite)} onOpenChange={(open) => !open && setPendingActivationSite(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{pendingActivationSite?.activationStatus === "active" ? "Pause this SCADA site?" : pendingActivationSite?.lastTelemetryTestResult ? "Resume this SCADA site?" : "Activate this SCADA site?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingActivationSite?.activationStatus === "active"
+                ? `${pendingActivationSite.siteName} will stop being available as an active site to authorized SCADA operators.`
+                : `${pendingActivationSite?.siteName} will become available again only if it has a successful live telemetry verification.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updateActivation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={(event) => { event.preventDefault(); confirmActivationChange() }} disabled={updateActivation.isPending}>
+              {updateActivation.isPending ? "Saving..." : pendingActivationSite?.activationStatus === "active" ? "Pause site" : pendingActivationSite?.lastTelemetryTestResult ? "Resume site" : "Activate site"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

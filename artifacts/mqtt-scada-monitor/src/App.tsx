@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -11,6 +11,7 @@ import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calc
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import { dashboardAccessState } from './scada-access';
+import { discoveryDeviceIdFromSourceRecord } from './device-discovery-identity';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
@@ -34,6 +35,7 @@ type Device = {
   lastSeen: number;
   telemetry: Record<string, JsonValue>;
   energyInverterId?: string;
+  discoveryDeviceId?: string;
   sourceEvidence?: {
     parameter: string;
     value: number;
@@ -278,6 +280,7 @@ function sourceBackedInverterDevice(record: ValidatedInverterPowerRecord, site: 
   return {
     id: `validated-inverter-${encodeURIComponent(record.inverterId)}`,
     energyInverterId: record.inverterId,
+    discoveryDeviceId: record.inverterId,
     name: record.inverterName,
     site,
     type: 'Power inverter',
@@ -2816,6 +2819,50 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error,
 const InverterDetailPanel = lazy(() => import('@/components/inverter-detail-panel'));
 const ReportCenter = lazy(() => import('@/components/report-center'));
 
+function ScadaCredentialLogin({ onSignedIn }: { onSignedIn: () => void }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await fetch('/api/scada-auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? 'Unable to sign in to SCADA.');
+      setPassword('');
+      onSignedIn();
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : 'Unable to sign in to SCADA.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-blue-500/30 bg-blue-500/[.04] p-5 text-center sm:p-8">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-xl border border-[#1E293B] bg-[#090B13] p-5 text-left shadow-2xl sm:p-6">
+        <MapPin size={28} className="mx-auto mb-4 text-blue-300" />
+        <h1 className="text-center text-lg font-bold text-slate-100">Sign in to SCADA</h1>
+        <p className="mt-2 text-center text-sm leading-6 text-slate-400">Use the username and password created for you in Platform Admin. Your SCADA session remains separate from Platform Admin.</p>
+        <label className="mt-5 block text-xs font-semibold uppercase tracking-wide text-slate-400" htmlFor="scada-username">Username</label>
+        <input id="scada-username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" required className="mt-2 w-full rounded-lg border border-[#334155] bg-[#0f172a] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" />
+        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-400" htmlFor="scada-password">Password</label>
+        <input id="scada-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required className="mt-2 w-full rounded-lg border border-[#334155] bg-[#0f172a] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30" />
+        {error && <p role="alert" className="mt-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs leading-5 text-rose-200">{error}</p>}
+        <button type="submit" disabled={submitting} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60">{submitting ? 'Signing in…' : 'Sign in to SCADA'}</button>
+      </form>
+    </section>
+  );
+}
+
 function AppShell() {
   // The monitor is intentionally live-only. The union keeps display components
   // compatible with their existing non-operational state handling.
@@ -2849,6 +2896,7 @@ function AppShell() {
   const [activeSite, setActiveSite] = useState('');
   const [siteAccessState, setSiteAccessState] = useState<{ sites: string[]; roles: Record<string, string>; activations: Record<string, 'active' | 'inactive'>; global: boolean; loading: boolean; error: string }>({ sites: [], roles: {}, activations: {}, global: false, loading: true, error: '' });
   const [scadaSession, setScadaSession] = useState<{ loading: boolean; authenticated: boolean }>({ loading: true, authenticated: false });
+  const [authRefreshToken, setAuthRefreshToken] = useState(0);
   const [weatherState, setWeatherState] = useState<WeatherState>({ status: 'unavailable', message: 'No configured coordinates are available for the selected plant/site.' });
   const [weatherRefreshToken, setWeatherRefreshToken] = useState(0);
   const [siteLocations, setSiteLocations] = useState<Record<string, PlantLocation>>({});
@@ -2879,7 +2927,7 @@ function AppShell() {
     };
     void loadScadaSession();
     return () => controller.abort();
-  }, []);
+  }, [authRefreshToken]);
   useEffect(() => {
     const controller = new AbortController();
     const loadSiteAccess = async () => {
@@ -3370,7 +3418,7 @@ function AppShell() {
     for (const row of dashboardEvidenceRows) {
       const signal = rawInverterSignals([row])[0];
       if (!signal) continue;
-      const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'Unspecified MQTT source');
+      const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'MQTT source');
       const sourceTime = row.date_iso_8601 ?? row.timestamp ?? row.date;
       const numericTime = typeof sourceTime === 'number' ? sourceTime : Number(sourceTime);
       const parsedTime = Number.isFinite(numericTime)
@@ -3378,9 +3426,11 @@ function AppShell() {
         : Date.parse(String(sourceTime ?? ''));
       const observedAt = telemetryDateTime(row).full;
       const sourceKey = `${sourceName}|${signal.parameter.toLowerCase()}|${signal.address.toLowerCase()}`;
+      const discoveryDeviceId = discoveryDeviceIdFromSourceRecord(row, sourceName);
       const candidate: Device = {
         id: `source-${encodeURIComponent(sourceKey)}`,
         energyInverterId: signal.parameter.toLowerCase(),
+        discoveryDeviceId,
         name: signal.parameter.toUpperCase(),
         site: persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site',
         type: 'Power inverter',
@@ -3690,7 +3740,7 @@ function AppShell() {
         <Header toggleMobileNav={() => setMobileNav(true)} mobileNav={mobileNav} connected={connected} connectionLabel={connectionBadgeLabel} mode={mode} theme={theme} onToggleTheme={() => setTheme(current => current === 'dark' ? 'light' : 'dark')} onRefresh={refreshTelemetry} onExport={exportTelemetry} onNotifications={() => navigateTo('alarms')} onSettings={() => setSettingsOpen(true)} now={now} weather={weatherState} siteName={plantSiteName} />
         
         <main className="scada-main-content min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-6">
-          {!scadaSession.loading && !scadaSession.authenticated && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-blue-500/30 bg-blue-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-blue-300" /><h1 className="text-lg font-bold text-slate-100">Sign in to open your SCADA site</h1><p className="mt-2 text-sm leading-6 text-slate-400">Your Platform Admin session is separate from SCADA operator access. Sign in with the same account that was granted this site to load its live telemetry.</p><a href="/api/login?returnTo=/" className="mt-5 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-500 focus-ring">Sign in to SCADA</a></div></section>}
+          {!scadaSession.loading && !scadaSession.authenticated && <ScadaCredentialLogin onSignedIn={() => setAuthRefreshToken((current) => current + 1)} />}
           {scadaSession.authenticated && scadaAccessState === 'unavailable' && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-rose-500/30 bg-rose-500/[.04] p-8 text-center"><div className="max-w-md"><AlertCircle size={28} className="mx-auto mb-4 text-rose-400" /><h1 className="text-lg font-bold text-slate-100">SCADA access unavailable</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error}</p></div></section>}
           {scadaSession.authenticated && (scadaAccessState === 'denied' || (scadaAccessState === 'ready' && !plantSiteName)) && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-amber-400" /><h1 className="text-lg font-bold text-slate-100">{inactiveAssignedSites.length ? 'Assigned site awaiting activation' : 'No SCADA site assigned'}</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error || (inactiveAssignedSites.length ? `${inactiveAssignedSites.join(', ')} is assigned to you, but live SCADA access remains blocked until a platform administrator completes a successful telemetry test and activates the site.` : 'Your account does not have an active site assignment. Ask a platform administrator to grant access before viewing live telemetry.')}</p></div></section>}
           {scadaSession.authenticated && scadaAccessState === 'ready' && plantSiteName && <><div className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-500/20 bg-blue-500/[.04] px-3 py-2 text-xs text-slate-400"><span>Viewing assigned site</span><strong className="text-blue-300">{plantSiteName}</strong><span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">Site active</span>{siteAccessState.roles[plantSiteName] && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>

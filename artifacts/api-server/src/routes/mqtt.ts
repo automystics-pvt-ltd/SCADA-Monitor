@@ -19,6 +19,7 @@ import { allowGrantedSite, allowSitePermission, allowUnscopedScadaEvidence, gran
 import { deviceCommunicationState, heartbeatWindows, latestBootstrapMessages, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
+import { deviceParameterFreshness, discoverDeviceParameters, discoverDeviceParametersFromRawPayload, latestDeviceParameterWins, type DiscoveredDeviceParameter } from "../lib/device-parameter-discovery";
 import {
   keepReportRecord,
   reportCategoryForParameter,
@@ -99,6 +100,7 @@ type StoredMessage = {
   topic: string;
   payload: string;
   parameter?: Record<string, unknown>;
+  discoveredParameters?: DiscoveredDeviceParameter[];
   receivedAt: string;
   sequence: number;
   sourceTimestamp?: string;
@@ -158,6 +160,7 @@ type SnapshotBuffer = {
   slotKey: string;
   messages: StoredMessage[];
   latestParameters: Record<string, Record<string, unknown>>;
+  latestDiscoveredParameters: Record<string, DiscoveredDeviceParameter>;
 };
 type SnapshotSaveStatus = "saved" | "missing" | "incomplete";
 type SavedKpiMetric = {
@@ -656,7 +659,7 @@ function slotKey(parts: ZonedParts) {
 }
 
 function emptySnapshotBuffer(startedAt: Date, key: string): SnapshotBuffer {
-  return { startedAt, slotKey: key, messages: [], latestParameters: {} };
+  return { startedAt, slotKey: key, messages: [], latestParameters: {}, latestDiscoveredParameters: {} };
 }
 
 function numericParameterValue(parameter: Record<string, unknown>) {
@@ -954,6 +957,9 @@ function queueSnapshotMessage(message: StoredMessage) {
   }
   snapshotBuffer.messages.push(message);
   if (parameter) snapshotBuffer.latestParameters[snapshotParameterKey(parameter)] = parameter;
+  for (const discovered of message.discoveredParameters ?? []) {
+    snapshotBuffer.latestDiscoveredParameters[discovered.signalKey] = discovered;
+  }
 }
 
 function snapshotOutcome(buffer: SnapshotBuffer) {
@@ -963,7 +969,7 @@ function snapshotOutcome(buffer: SnapshotBuffer) {
       missingReason: "No MQTT telemetry was available in this completed scheduled window.",
     };
   }
-  if (!Object.keys(buffer.latestParameters).length) {
+  if (!Object.keys(buffer.latestParameters).length && !Object.keys(buffer.latestDiscoveredParameters).length) {
     return {
       saveStatus: "incomplete" as const,
       missingReason: "MQTT messages arrived, but none contained a valid telemetry parameter.",
@@ -983,7 +989,7 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
       capturedAt: savedAt,
       topic: subscriptionTopic,
       messageCount: buffer.messages.length,
-      parameterCount: Object.keys(buffer.latestParameters).length,
+      parameterCount: Math.max(Object.keys(buffer.latestParameters).length, Object.keys(buffer.latestDiscoveredParameters).length),
       data: {
         schemaVersion: 4,
         recordType: "scheduled-telemetry-snapshot",
@@ -994,6 +1000,7 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
         timezone: plantTimezone,
         messages: buffer.messages,
         latestParameters: Object.values(buffer.latestParameters),
+        latestDiscoveredParameters: Object.values(buffer.latestDiscoveredParameters),
         calibrationProfile,
       },
     }).onConflictDoNothing({
@@ -1022,7 +1029,7 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
     snapshotError = undefined;
     broadcast("snapshot", evidence);
     broadcast("status", status());
-    logger.info({ scheduledFor: scheduledForIso, saveStatus: outcome.saveStatus, messageCount: buffer.messages.length, parameterCount: Object.keys(buffer.latestParameters).length }, "MQTT snapshot stored");
+    logger.info({ scheduledFor: scheduledForIso, saveStatus: outcome.saveStatus, messageCount: buffer.messages.length, parameterCount: Math.max(Object.keys(buffer.latestParameters).length, Object.keys(buffer.latestDiscoveredParameters).length) }, "MQTT snapshot stored");
     return true;
   } catch (error) {
     const alreadyQueued = failedSnapshotQueue.some((pending) => pending.scheduledFor.getTime() === scheduledFor.getTime());
@@ -1626,6 +1633,12 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
   const rawPayload = payload.toString("utf8");
   const parameter = parameterFromPayload(rawPayload);
   const receivedAt = new Date().toISOString();
+  const discoveredParameters = discoverDeviceParametersFromRawPayload(rawPayload, {
+    siteName: configuredMqttPlantSite,
+    topic,
+    receivedAt,
+    provenance: retained ? "retained" : "live",
+  });
   const inverterRecord = parameter
     ? inverterActivePowerObservationFromParameter(parameter, configuredMqttPlantSite)
     : undefined;
@@ -1633,6 +1646,7 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
     topic,
     payload: rawPayload,
     parameter,
+    discoveredParameters,
     receivedAt,
     sequence: await allocateDeliverySequence(),
     sourceTimestamp: parameter ? parameterObservationTime(parameter) : undefined,
@@ -2171,6 +2185,109 @@ router.get("/mqtt/electrical-history", async (req, res) => {
   } catch (error) {
     logger.error({ err: error }, "Electrical history query failed");
     res.status(500).json({ message: "Unable to load persisted electrical telemetry." });
+  }
+});
+
+function isStoredDiscoveredParameter(value: unknown): value is DiscoveredDeviceParameter {
+  if (!isRecord(value)) return false;
+  return typeof value.observationId === "string"
+    && typeof value.signalKey === "string"
+    && typeof value.siteName === "string"
+    && typeof value.deviceId === "string"
+    && typeof value.deviceName === "string"
+    && typeof value.originalName === "string"
+    && typeof value.normalizedName === "string"
+    && typeof value.displayLabel === "string"
+    && typeof value.rawValue === "string"
+    && typeof value.sourceName === "string"
+    && typeof value.receivedAt === "string"
+    && typeof value.topic === "string"
+    && ["Overview", "Electrical", "Energy", "MPPT / Strings", "Temperature", "Alarms / Faults", "Communication", "Discovered / Other Parameters"].includes(String(value.category))
+    && ["validated", "raw", "source-reported"].includes(String(value.dataQuality))
+    && ["validated", "raw"].includes(String(value.scalingStatus));
+}
+
+function explicitlyScopedLegacySnapshotParameters(data: Record<string, unknown>, siteName: string) {
+  const latest = Array.isArray(data.latestParameters) ? data.latestParameters : [];
+  const legacy = Array.isArray(data.parameters) ? data.parameters : [];
+  return [...latest, ...legacy]
+    .filter(isRecord)
+    .filter((parameter) => payloadSiteName(parameter) === siteName);
+}
+
+function snapshotDiscoveredParameters(snapshot: {
+  topic: string;
+  capturedAt: Date;
+  data: unknown;
+}, siteName: string) {
+  if (!isRecord(snapshot.data)) return [] as DiscoveredDeviceParameter[];
+  const receivedAt = snapshot.capturedAt.toISOString();
+  const stored: unknown[] = Array.isArray(snapshot.data.latestDiscoveredParameters)
+    ? snapshot.data.latestDiscoveredParameters.map((parameter) => isRecord(parameter) ? { ...parameter, provenance: "snapshot", receivedAt } : parameter)
+    : explicitlyScopedLegacySnapshotParameters(snapshot.data, siteName)
+      .flatMap((parameter) => discoverDeviceParameters(parameter, {
+        siteName,
+        topic: snapshot.topic,
+        receivedAt,
+        provenance: "snapshot",
+      }));
+  return stored.filter(isStoredDiscoveredParameter).filter((parameter) => parameter.siteName === siteName);
+}
+
+router.get("/mqtt/device-parameters", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.query.siteName);
+  const deviceId = typeof req.query.deviceId === "string" ? req.query.deviceId.trim() : "";
+  const requestedLimit = typeof req.query.limit === "string" ? Number(req.query.limit) : 160;
+  const limit = Number.isInteger(requestedLimit) ? Math.min(300, Math.max(1, requestedLimit)) : 160;
+  if (!siteName || siteName.length > 160 || deviceId.length > 160) {
+    res.status(400).json({ message: "Use a valid assigned plant/site and optional device identifier." });
+    return;
+  }
+  if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSitePermission(req, res, siteName, "historical-data")) return;
+
+  try {
+    const latest = new Map<string, DiscoveredDeviceParameter>();
+    const add = (parameter: DiscoveredDeviceParameter) => {
+      if (parameter.siteName !== siteName || (deviceId && parameter.deviceId !== deviceId)) return;
+      const existing = latest.get(parameter.signalKey);
+      if (latestDeviceParameterWins(existing, parameter)) latest.set(parameter.signalKey, parameter);
+    };
+
+    for (const message of messageHistory) {
+      for (const parameter of message.discoveredParameters ?? []) add(parameter);
+    }
+    const snapshots = await db.select()
+      .from(mqttSnapshotsTable)
+      .where(eq(mqttSnapshotsTable.topic, subscriptionTopic))
+      .orderBy(desc(mqttSnapshotsTable.windowEndedAt), desc(mqttSnapshotsTable.capturedAt))
+      .limit(24);
+    for (const snapshot of snapshots) {
+      if (snapshotSaveStatus(snapshot.data, snapshot.messageCount, snapshot.parameterCount) !== "saved") continue;
+      for (const parameter of snapshotDiscoveredParameters(snapshot, siteName)) add(parameter);
+    }
+
+    const now = Date.now();
+    const parameters = [...latest.values()]
+      .sort((left, right) => {
+        const rightTime = Date.parse(right.observedAt ?? right.receivedAt);
+        const leftTime = Date.parse(left.observedAt ?? left.receivedAt);
+        return rightTime - leftTime || left.displayLabel.localeCompare(right.displayLabel);
+      })
+      .slice(0, limit)
+      .map((parameter) => {
+        return { ...parameter, ...deviceParameterFreshness(parameter, now) };
+      });
+
+    res.set("Cache-Control", "no-store").json({
+      siteName,
+      deviceId: deviceId || undefined,
+      parameters,
+      bounded: { limit, liveWindow: messageHistory.length, snapshotWindow: snapshots.length },
+    });
+  } catch (error) {
+    logger.error({ err: error, siteName, deviceId }, "Latest device parameter query failed");
+    res.status(500).json({ message: "Unable to load source-backed device parameters." });
   }
 });
 

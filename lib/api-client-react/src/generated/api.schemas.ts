@@ -142,6 +142,32 @@ export interface PlatformSiteInput {
   timezone: string;
 }
 
+export interface PlatformSiteUpdateInput {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  siteName: string;
+  organizationId?: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  timezone?: string;
+  /**
+     * @minimum -90
+     * @maximum 90
+     * @nullable
+     */
+  latitude?: number | null;
+  /**
+     * @minimum -180
+     * @maximum 180
+     * @nullable
+     */
+  longitude?: number | null;
+}
+
 export type PlatformSiteActivationInputActivationStatus = typeof PlatformSiteActivationInputActivationStatus[keyof typeof PlatformSiteActivationInputActivationStatus];
 
 
@@ -265,6 +291,9 @@ export interface PlatformUser {
   id: string;
   /** @nullable */
   email: string | null;
+  /** @nullable */
+  username: string | null;
+  passwordConfigured: boolean;
   name: string;
   /** @nullable */
   firstName: string | null;
@@ -309,6 +338,17 @@ export interface PlatformUserInput {
      * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
      */
   email: string;
+  /**
+     * @minLength 3
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$
+     */
+  username: string;
+  /**
+     * @minLength 8
+     * @maxLength 256
+     */
+  password: string;
   /** @maxLength 120 */
   firstName?: string;
   /** @maxLength 120 */
@@ -321,6 +361,17 @@ export interface PlatformUserInput {
 
 export interface PlatformUserUpdateInput {
   userId: string;
+  /**
+     * @minLength 3
+     * @maxLength 64
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$
+     */
+  username?: string;
+  /**
+     * @minLength 8
+     * @maxLength 256
+     */
+  password?: string;
   /** @maxLength 120 */
   firstName?: string;
   /** @maxLength 120 */

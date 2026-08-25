@@ -43,6 +43,7 @@ import type {
   PlatformSiteAccessUpdateInput,
   PlatformSiteActivationInput,
   PlatformSiteInput,
+  PlatformSiteUpdateInput,
   PlatformTelemetryDevice,
   PlatformTelemetryTest,
   PlatformTelemetryTestInput,
@@ -605,6 +606,77 @@ export const useCreatePlatformSite = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreatePlatformSiteMutationOptions(options));
+    }
+
+export const getUpdatePlatformSiteUrl = () => {
+
+
+
+
+  return `/api/platform-admin/sites`
+}
+
+/**
+ * @summary Update a managed site and its location
+ */
+export const updatePlatformSite = async (platformSiteUpdateInput: PlatformSiteUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformSite> => {
+
+  return customFetch<PlatformSite>(getUpdatePlatformSiteUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformSiteUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdatePlatformSiteMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSite>>, TError,{data: BodyType<PlatformSiteUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSite>>, TError,{data: BodyType<PlatformSiteUpdateInput>}, TContext> => {
+
+const mutationKey = ['updatePlatformSite'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlatformSite>>, {data: BodyType<PlatformSiteUpdateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updatePlatformSite(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePlatformSiteMutationResult = NonNullable<Awaited<ReturnType<typeof updatePlatformSite>>>
+    export type UpdatePlatformSiteMutationBody = BodyType<PlatformSiteUpdateInput>
+    export type UpdatePlatformSiteMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a managed site and its location
+ */
+export const useUpdatePlatformSite = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSite>>, TError,{data: BodyType<PlatformSiteUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePlatformSite>>,
+        TError,
+        {data: BodyType<PlatformSiteUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdatePlatformSiteMutationOptions(options));
     }
 
 export const getUpdatePlatformSiteActivationUrl = () => {

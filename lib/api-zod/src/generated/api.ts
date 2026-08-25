@@ -153,6 +153,44 @@ export const CreatePlatformSiteResponse = zod.object({
 
 
 /**
+ * @summary Update a managed site and its location
+ */
+export const updatePlatformSiteBodySiteNameMin = 2;
+export const updatePlatformSiteBodySiteNameMax = 160;
+
+export const updatePlatformSiteBodyTimezoneMax = 80;
+
+export const updatePlatformSiteBodyLatitudeMin = -90;
+export const updatePlatformSiteBodyLatitudeMax = 90;
+
+export const updatePlatformSiteBodyLongitudeMin = -180;
+export const updatePlatformSiteBodyLongitudeMax = 180;
+
+
+
+export const UpdatePlatformSiteBody = zod.object({
+  "siteName": zod.string().min(updatePlatformSiteBodySiteNameMin).max(updatePlatformSiteBodySiteNameMax),
+  "organizationId": zod.string().optional(),
+  "timezone": zod.string().min(1).max(updatePlatformSiteBodyTimezoneMax).optional(),
+  "latitude": zod.number().min(updatePlatformSiteBodyLatitudeMin).max(updatePlatformSiteBodyLatitudeMax).nullish(),
+  "longitude": zod.number().min(updatePlatformSiteBodyLongitudeMin).max(updatePlatformSiteBodyLongitudeMax).nullish()
+})
+
+export const UpdatePlatformSiteResponse = zod.object({
+  "siteName": zod.string(),
+  "organizationId": zod.string(),
+  "organizationName": zod.string(),
+  "latitude": zod.number().nullable(),
+  "longitude": zod.number().nullable(),
+  "timezone": zod.string(),
+  "status": zod.string(),
+  "activationStatus": zod.enum(['active', 'inactive']),
+  "lastTelemetryTestedAt": zod.coerce.date().nullable(),
+  "lastTelemetryTestResult": zod.enum(['success', 'no-telemetry', 'error']).nullable()
+})
+
+
+/**
  * @summary Explicitly activate or deactivate a managed site
  */
 export const updatePlatformSiteActivationBodySiteNameMin = 2;
@@ -246,6 +284,8 @@ export const CreatePlatformTelemetryTestResponse = zod.object({
 export const ListPlatformUsersResponseItem = zod.object({
   "id": zod.string(),
   "email": zod.string().nullable(),
+  "username": zod.string().nullable(),
+  "passwordConfigured": zod.boolean(),
   "name": zod.string(),
   "firstName": zod.string().nullable(),
   "lastName": zod.string().nullable(),
@@ -273,6 +313,14 @@ export const createPlatformUserBodyEmailMax = 320;
 
 
 export const createPlatformUserBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+export const createPlatformUserBodyUsernameMin = 3;
+export const createPlatformUserBodyUsernameMax = 64;
+
+
+export const createPlatformUserBodyUsernameRegExp = new RegExp('^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$');
+export const createPlatformUserBodyPasswordMin = 8;
+export const createPlatformUserBodyPasswordMax = 256;
+
 export const createPlatformUserBodyFirstNameMax = 120;
 
 export const createPlatformUserBodyLastNameMax = 120;
@@ -288,6 +336,8 @@ export const createPlatformUserBodySiteAccessMax = 100;
 
 export const CreatePlatformUserBody = zod.object({
   "email": zod.string().max(createPlatformUserBodyEmailMax).regex(createPlatformUserBodyEmailRegExp),
+  "username": zod.string().min(createPlatformUserBodyUsernameMin).max(createPlatformUserBodyUsernameMax).regex(createPlatformUserBodyUsernameRegExp),
+  "password": zod.string().min(createPlatformUserBodyPasswordMin).max(createPlatformUserBodyPasswordMax),
   "firstName": zod.string().max(createPlatformUserBodyFirstNameMax).optional(),
   "lastName": zod.string().max(createPlatformUserBodyLastNameMax).optional(),
   "organizationIds": zod.array(zod.string()).max(createPlatformUserBodyOrganizationIdsMax).optional(),
@@ -300,6 +350,8 @@ export const CreatePlatformUserBody = zod.object({
 export const CreatePlatformUserResponse = zod.object({
   "id": zod.string(),
   "email": zod.string().nullable(),
+  "username": zod.string().nullable(),
+  "passwordConfigured": zod.boolean(),
   "name": zod.string(),
   "firstName": zod.string().nullable(),
   "lastName": zod.string().nullable(),
@@ -322,6 +374,14 @@ export const CreatePlatformUserResponse = zod.object({
 /**
  * @summary Update a SCADA user profile and assignments
  */
+export const updatePlatformUserBodyUsernameMin = 3;
+export const updatePlatformUserBodyUsernameMax = 64;
+
+
+export const updatePlatformUserBodyUsernameRegExp = new RegExp('^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$');
+export const updatePlatformUserBodyPasswordMin = 8;
+export const updatePlatformUserBodyPasswordMax = 256;
+
 export const updatePlatformUserBodyFirstNameMax = 120;
 
 export const updatePlatformUserBodyLastNameMax = 120;
@@ -337,6 +397,8 @@ export const updatePlatformUserBodySiteAccessMax = 100;
 
 export const UpdatePlatformUserBody = zod.object({
   "userId": zod.string(),
+  "username": zod.string().min(updatePlatformUserBodyUsernameMin).max(updatePlatformUserBodyUsernameMax).regex(updatePlatformUserBodyUsernameRegExp).optional(),
+  "password": zod.string().min(updatePlatformUserBodyPasswordMin).max(updatePlatformUserBodyPasswordMax).optional(),
   "firstName": zod.string().max(updatePlatformUserBodyFirstNameMax).optional(),
   "lastName": zod.string().max(updatePlatformUserBodyLastNameMax).optional(),
   "organizationIds": zod.array(zod.string()).max(updatePlatformUserBodyOrganizationIdsMax).optional(),
@@ -349,6 +411,8 @@ export const UpdatePlatformUserBody = zod.object({
 export const UpdatePlatformUserResponse = zod.object({
   "id": zod.string(),
   "email": zod.string().nullable(),
+  "username": zod.string().nullable(),
+  "passwordConfigured": zod.boolean(),
   "name": zod.string(),
   "firstName": zod.string().nullable(),
   "lastName": zod.string().nullable(),
@@ -379,6 +443,8 @@ export const UpdatePlatformUserStatusBody = zod.object({
 export const UpdatePlatformUserStatusResponse = zod.object({
   "id": zod.string(),
   "email": zod.string().nullable(),
+  "username": zod.string().nullable(),
+  "passwordConfigured": zod.boolean(),
   "name": zod.string(),
   "firstName": zod.string().nullable(),
   "lastName": zod.string().nullable(),

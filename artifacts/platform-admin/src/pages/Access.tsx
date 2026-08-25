@@ -13,6 +13,7 @@ import {
   type PlatformRole,
   type PlatformUser,
   type PlatformUserInput,
+  type PlatformUserUpdateInput,
   type PlatformUserStatusInputAccountStatus,
   type ScadaPermission,
 } from "@workspace/api-client-react"
@@ -54,10 +55,12 @@ const permissionLabels: Record<ScadaPermission, string> = {
 
 const allPermissions = Object.keys(permissionLabels) as ScadaPermission[]
 
-type UserDraft = PlatformUserInput
+type UserDraft = Omit<PlatformUserInput, "password"> & { password: string }
 
 const blankDraft = (): UserDraft => ({
   email: "",
+  username: "",
+  password: "",
   firstName: "",
   lastName: "",
   organizationIds: [],
@@ -117,6 +120,8 @@ export default function Access() {
     setEditingUser(user)
     setDraft({
       email: user.email ?? "",
+      username: user.username ?? "",
+      password: "",
       firstName: user.firstName ?? "",
       lastName: user.lastName ?? "",
       organizationIds: user.organizations.filter((organization) => organization.status === "active").map((organization) => organization.organizationId),
@@ -155,12 +160,20 @@ export default function Access() {
 
   const saveUser = () => {
     if (!draft.email.trim()) {
-      toast({ title: "Email is required", description: "Enter the user's sign-in email before saving.", variant: "destructive" })
+      toast({ title: "Email is required", description: "Enter the user's contact email before saving.", variant: "destructive" })
       return
     }
-    const data = {
-      ...draft,
+    if (!draft.username.trim()) {
+      toast({ title: "Username is required", description: "Set the SCADA username the operator will use to sign in.", variant: "destructive" })
+      return
+    }
+    if (!editingUser && draft.password.length < 8) {
+      toast({ title: "Password is required", description: "Set a password with at least 8 characters before provisioning this SCADA user.", variant: "destructive" })
+      return
+    }
+    const common = {
       email: draft.email.trim().toLowerCase(),
+      username: draft.username.trim().toLowerCase(),
       firstName: draft.firstName?.trim() || undefined,
       lastName: draft.lastName?.trim() || undefined,
       organizationIds: draft.organizationIds ?? [],
@@ -175,8 +188,18 @@ export default function Access() {
       onError: (error: Error) => toast({ title: "Unable to save user", description: error.message, variant: "destructive" }),
     }
     if (editingUser) {
-      updateUser.mutate({ data: { ...data, userId: editingUser.id } }, options)
+      const data: PlatformUserUpdateInput = {
+        userId: editingUser.id,
+        username: common.username,
+        firstName: common.firstName,
+        lastName: common.lastName,
+        organizationIds: common.organizationIds,
+        siteAccess: common.siteAccess,
+        ...(draft.password ? { password: draft.password } : {}),
+      }
+      updateUser.mutate({ data }, options)
     } else {
+      const data: PlatformUserInput = { ...common, password: draft.password }
       createUser.mutate({ data }, options)
     }
   }
@@ -230,12 +253,16 @@ export default function Access() {
         <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingUser ? "Manage SCADA user" : "Provision SCADA user"}</DialogTitle>
-            <DialogDescription>Site assignments automatically retain the required organization membership. The user can sign in only when their account is active.</DialogDescription>
+            <DialogDescription>Set the SCADA username and password here. Passwords are saved only as protected hashes and never shown again. Site assignments automatically retain required organization membership.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="user-email">Sign-in email</Label>
+              <Label htmlFor="user-email">Contact email</Label>
               <Input id="user-email" value={draft.email} disabled={Boolean(editingUser)} onChange={(event) => setDraft({ ...draft, email: event.target.value })} placeholder="engineer@company.com" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-username">SCADA username</Label>
+              <Input id="user-username" value={draft.username} onChange={(event) => setDraft({ ...draft, username: event.target.value })} placeholder="plant.operator" autoCapitalize="none" autoComplete="username" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -246,6 +273,11 @@ export default function Access() {
                 <Label htmlFor="user-last-name">Last name</Label>
                 <Input id="user-last-name" value={draft.lastName ?? ""} onChange={(event) => setDraft({ ...draft, lastName: event.target.value })} />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-password">{editingUser ? "Reset SCADA password" : "SCADA password"}</Label>
+              <Input id="user-password" type="password" value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} placeholder={editingUser ? "Leave blank to keep the existing password" : "At least 8 characters"} autoComplete="new-password" />
+              <p className="text-xs text-muted-foreground">{editingUser ? "Saving a new password signs this user out of other SCADA sessions." : "The account is activated when provisioned. You can deactivate it at any time."}</p>
             </div>
           </div>
           <section className="space-y-3">
@@ -301,7 +333,7 @@ export default function Access() {
       <Card>
         <CardHeader className="border-b">
           <CardTitle className="text-lg">Accounts and assignments</CardTitle>
-          <CardDescription>Inactive and deleted accounts are denied by the backend even if an older browser session is still open.</CardDescription>
+          <CardDescription>Inactive and deleted accounts are denied by the backend even if an older browser session is still open. Password resets also sign out existing SCADA sessions.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -322,7 +354,9 @@ export default function Access() {
                   <TableRow key={user.id}>
                     <TableCell className="min-w-[190px]">
                       <div className="font-medium">{user.name}</div>
+                      <div className="text-xs text-muted-foreground">{user.username ? `SCADA username: ${user.username}` : "SCADA username not set"}</div>
                       <div className="text-xs text-muted-foreground">{user.email}</div>
+                      <div className={`mt-1 text-xs ${user.passwordConfigured ? "text-emerald-600" : "text-amber-600"}`}>{user.passwordConfigured ? "Password configured" : "Password not configured"}</div>
                     </TableCell>
                     <TableCell><Badge variant={statusTone(user.accountStatus)}>{user.accountStatus}</Badge></TableCell>
                     <TableCell className="min-w-[160px]"><div className="flex flex-wrap gap-1">{user.organizations.filter((organization) => organization.status === "active").map((organization) => <Badge key={organization.organizationId} variant="outline">{organization.organizationName}</Badge>) || <span className="text-sm text-muted-foreground">—</span>}</div></TableCell>

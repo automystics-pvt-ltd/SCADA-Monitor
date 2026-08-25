@@ -1,12 +1,14 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, CircleAlert,
-  CloudSun, Cpu, Factory, Gauge, Info, MapPin, Power, Thermometer, X, Zap,
+  CloudSun, Cpu, Factory, Gauge, Info, MapPin, Power, Thermometer, X, Zap, RefreshCw,
 } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { getFaultGuidance, normalizeFaults, telemetryText, type FaultEvidence } from '../fault-guidance';
 import { buildPowerTrendSeries, countRawPowerSamples, getPowerTrendState, selectValidatedPowerSamples } from '../inverter-power-trend';
 import { inverterFlowState } from '../inverter-flow-state';
+import { deviceParameterPresentation, groupDeviceParameters, parseDeviceParameters, type DeviceParameter } from '../device-parameter-groups';
+import { deviceParameterQueryId } from '../device-discovery-identity';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type DeviceStatus = 'online' | 'stale' | 'offline';
@@ -30,6 +32,7 @@ type Device = {
   lastSeen: number;
   telemetry: Record<string, JsonValue>;
   energyInverterId?: string;
+  discoveryDeviceId?: string;
   sourceEvidence?: SourceEvidence;
 };
 type WeatherContext = {
@@ -162,6 +165,57 @@ function flattenJson(value: JsonValue, path = ''): Array<{ path: string; value: 
   const entries = Object.entries(value);
   if (!entries.length) return [{ path: path || 'payload', value: '{}', type: 'object' }];
   return entries.flatMap(([key, child]) => flattenJson(child, path ? `${path}.${key}` : key));
+}
+
+function DynamicParameterCard({ param }: { param: DeviceParameter }) {
+  const presentation = deviceParameterPresentation(param);
+  const isValidatedLive = presentation.isValidatedLive;
+
+  return (
+    <div className="group relative flex flex-col justify-between overflow-hidden rounded-xl border border-[#1e293b] bg-[#090b13] p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-500/30 hover:bg-[#0f1423] hover:shadow-[0_8px_24px_-12px_rgba(37,99,235,0.15)]">
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+
+      <div>
+        <div className="flex items-start justify-between gap-3 relative z-10">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 leading-snug line-clamp-2" title={param.displayLabel || param.normalizedName || param.originalName}>
+            {param.displayLabel || param.normalizedName || param.originalName}
+          </p>
+          <div className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${isValidatedLive ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : 'border-amber-500/20 bg-amber-500/10 text-amber-400'}`} title={presentation.title}>
+            {presentation.badge}
+          </div>
+        </div>
+
+        <div className="mt-4 relative z-10 min-h-[2rem]">
+          {isValidatedLive ? (
+            <div className="flex items-baseline gap-1.5">
+              <p className="font-mono text-2xl font-bold tracking-tighter text-slate-100">
+                {param.value!.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </p>
+              {param.unit && <span className="font-mono text-[11px] font-bold text-blue-400">{param.unit}</span>}
+            </div>
+          ) : (
+            <div>
+              <p className="font-mono text-base font-medium tracking-tight text-amber-300 break-all leading-tight line-clamp-2" title={param.rawValue}>
+                {param.rawValue || 'null'}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 border-t border-[#1e293b]/70 pt-3 relative z-10">
+        <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-widest text-slate-500">
+          <span className="truncate pr-2" title={`${param.sourceName}${param.address ? ` · ${param.address}` : ''}`}>
+            {param.sourceName}
+          </span>
+          <span className={`shrink-0 flex items-center gap-1 ${param.freshness === 'live' ? 'text-emerald-500' : param.freshness === 'stale' ? 'text-amber-500' : 'text-slate-500'}`}>
+            {param.freshness === 'live' && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 pulse-soft" />}
+            {param.freshness}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CustomBadge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'destructive' }) {
@@ -505,7 +559,54 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
   const [energyHistoryState, setEnergyHistoryState] = useState<{ loading: boolean; error: string }>({ loading: false, error: '' });
   const [measurements, setMeasurements] = useState<MeasurementSample[]>([]);
   const [measurementsState, setMeasurementsState] = useState<{ loading: boolean; error: string }>({ loading: false, error: '' });
+
+  const [deviceParams, setDeviceParams] = useState<DeviceParameter[]>([]);
+  const [deviceParamsState, setDeviceParamsState] = useState<{ loading: boolean; error: string; lastFetched?: number }>({ loading: false, error: '' });
+
   const dialogRef = useModalAccessibility(onClose);
+
+  useEffect(() => {
+    if (tab !== 'Device' || mode !== 'live') {
+      if (mode !== 'live') {
+        setDeviceParams([]);
+        setDeviceParamsState({ loading: false, error: '' });
+      }
+      return;
+    }
+
+    let timeoutId: number;
+    const controller = new AbortController();
+
+    const fetchParams = async () => {
+      setDeviceParamsState(prev => ({ ...prev, loading: prev.lastFetched === undefined }));
+      try {
+        const queryParams = new URLSearchParams({
+          siteName,
+          deviceId: deviceParameterQueryId(device),
+          limit: '160'
+        });
+        const res = await fetch(`/api/mqtt/device-parameters?${queryParams.toString()}`, { signal: controller.signal });
+        if (!res.ok) {
+          throw new Error('Failed to fetch device parameters');
+        }
+        const data = await res.json() as { parameters?: unknown; message?: string };
+        setDeviceParams(parseDeviceParameters(data.parameters));
+        setDeviceParamsState({ loading: false, error: '', lastFetched: Date.now() });
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setDeviceParamsState(prev => ({ ...prev, loading: false, error: err instanceof Error ? err.message : 'Unable to load parameters.' }));
+      }
+
+      timeoutId = window.setTimeout(fetchParams, 5000);
+    };
+
+    fetchParams();
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [tab, mode, siteName, device.discoveryDeviceId, device.energyInverterId, device.id]);
 
   useEffect(() => {
     setTab('Overview');
@@ -681,6 +782,8 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
     return Array.from(params.values()).sort((a, b) => a.parameter.localeCompare(b.parameter));
   }, [measurements]);
 
+  const groupedDeviceParams = useMemo(() => groupDeviceParameters(deviceParams), [deviceParams]);
+
   return (
     <>
       <button type="button" aria-label="Close inverter details" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-[#0b0f19]/75 backdrop-blur-sm" />
@@ -800,16 +903,49 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
               </div>
             </section>
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard icon={Zap} label="DC bus voltage" metric={metrics.voltage} detail="Device telemetry" />
-              <MetricCard icon={Activity} label="DC bus current" metric={metrics.current} detail="Device telemetry" />
-              <MetricCard icon={Thermometer} label="Cabinet temperature" metric={metrics.cabinetTemp} detail="Device telemetry" />
-              <MetricCard icon={Thermometer} label="Heatsink temperature" metric={metrics.heatsinkTemp} detail="Device telemetry" />
-              <MetricCard icon={Gauge} label="Efficiency" metric={metrics.efficiency} detail="Device telemetry" />
-              <MetricCard icon={Power} label="Reactive power" metric={metrics.reactive} detail="Device telemetry" />
-              <MetricCard icon={CloudSun} label="Ambient temperature" metric={{ value: weather?.temperatureC ?? null, unit: '°C', source: weather?.locationLabel ?? 'Weather not reported', quality: weather?.temperatureC === null || weather?.temperatureC === undefined ? 'unavailable' : 'reported' }} detail="Configured site weather" />
-              <MetricCard icon={CircleAlert} label="Alarm count" metric={{ value: alarms?.length ?? null, unit: '', source: alarms ? 'alarms' : 'Not reported', quality: alarms ? 'reported' : 'unavailable' }} detail="Device telemetry" />
-            </div>
+            {groupedDeviceParams.length > 0 ? (
+              <div className="space-y-6">
+                {groupedDeviceParams.map(([category, params]) => (
+                  <div key={category} className="space-y-3">
+                    <h4 className="flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.2em] text-blue-500/50">
+                      <div className="h-px flex-1 bg-gradient-to-r from-transparent to-[#1e293b]"></div>
+                      {category}
+                      <div className="h-px flex-1 bg-gradient-to-l from-transparent to-[#1e293b]"></div>
+                    </h4>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {params.map(param => (
+                         <DynamicParameterCard key={param.observationId || param.signalKey} param={param} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <>
+                {deviceParamsState.loading && (
+                   <div className="mb-5 flex items-center justify-center gap-3 rounded-2xl border border-[#1e293b] bg-[#0f1423] p-4 text-slate-400">
+                     <RefreshCw className="animate-spin text-blue-500" size={16} />
+                     <span className="text-xs font-semibold">Loading live parameters...</span>
+                   </div>
+                )}
+                {deviceParamsState.error && (
+                   <div className="mb-5 flex items-center justify-center gap-3 rounded-2xl border border-rose-500/20 bg-rose-500/10 p-4 text-rose-300">
+                     <CircleAlert size={16} />
+                     <span className="text-xs font-semibold">Failed to load parameters: {deviceParamsState.error}</span>
+                   </div>
+                )}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <MetricCard icon={Zap} label="DC bus voltage" metric={metrics.voltage} detail="Device telemetry" />
+                  <MetricCard icon={Activity} label="DC bus current" metric={metrics.current} detail="Device telemetry" />
+                  <MetricCard icon={Thermometer} label="Cabinet temperature" metric={metrics.cabinetTemp} detail="Device telemetry" />
+                  <MetricCard icon={Thermometer} label="Heatsink temperature" metric={metrics.heatsinkTemp} detail="Device telemetry" />
+                  <MetricCard icon={Gauge} label="Efficiency" metric={metrics.efficiency} detail="Device telemetry" />
+                  <MetricCard icon={Power} label="Reactive power" metric={metrics.reactive} detail="Device telemetry" />
+                  <MetricCard icon={CloudSun} label="Ambient temperature" metric={{ value: weather?.temperatureC ?? null, unit: '°C', source: weather?.locationLabel ?? 'Weather not reported', quality: weather?.temperatureC === null || weather?.temperatureC === undefined ? 'unavailable' : 'reported' }} detail="Configured site weather" />
+                  <MetricCard icon={CircleAlert} label="Alarm count" metric={{ value: alarms?.length ?? null, unit: '', source: alarms ? 'alarms' : 'Not reported', quality: alarms ? 'reported' : 'unavailable' }} detail="Device telemetry" />
+                </div>
+              </>
+            )}
 
             <div className="grid gap-5 lg:grid-cols-2">
               <FaultEvidenceList title="Alarms" items={alarmEvidence} deviceModel={deviceModel} emptyMessage={alarms === null ? 'This inverter has not sent an alarm field.' : 'The device explicitly reported an empty alarm list.'} />

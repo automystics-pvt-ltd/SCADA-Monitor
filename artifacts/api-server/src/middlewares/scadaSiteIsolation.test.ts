@@ -8,6 +8,7 @@ const evidenceReads = [
   "/api/mqtt/electrical-history",
   "/api/mqtt/inverter-energy-history",
   "/api/mqtt/inverter-measurements",
+  "/api/mqtt/device-parameters",
   "/api/mqtt/reports",
   "/api/mqtt/communication-events",
   "/api/mqtt/stream",

@@ -116,6 +116,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlatformSite"
+    patch:
+      operationId: updatePlatformSite
+      tags: [platform-admin]
+      summary: Update a managed site and its location
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSiteUpdateInput"
+      responses:
+        "200":
+          description: Updated site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSite"
+        "400":
+          description: Invalid site update
+        "404":
+          description: Site or organization not found
+        "409":
+          description: Site update conflicts with an existing record
   /platform-admin/sites/activation:
     post:
       operationId: updatePlatformSiteActivation
@@ -545,6 +568,15 @@ components:
         longitude: { type: [number, "null"] }
         timezone: { type: string, maxLength: 80 }
       required: [siteName, organizationId, timezone]
+    PlatformSiteUpdateInput:
+      type: object
+      properties:
+        siteName: { type: string, minLength: 2, maxLength: 160 }
+        organizationId: { type: string }
+        timezone: { type: string, minLength: 1, maxLength: 80 }
+        latitude: { type: [number, "null"], minimum: -90, maximum: 90 }
+        longitude: { type: [number, "null"], minimum: -180, maximum: 180 }
+      required: [siteName]
     PlatformSiteActivationInput:
       type: object
       properties:
@@ -598,6 +630,8 @@ components:
       properties:
         id: { type: string }
         email: { type: [string, "null"] }
+        username: { type: [string, "null"] }
+        passwordConfigured: { type: boolean }
         name: { type: string }
         firstName: { type: [string, "null"] }
         lastName: { type: [string, "null"] }
@@ -610,7 +644,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PlatformSiteAccess"
-      required: [id, email, name, firstName, lastName, accountStatus, organizations, access]
+      required: [id, email, username, passwordConfigured, name, firstName, lastName, accountStatus, organizations, access]
     PlatformOrganizationMembership:
       type: object
       properties:
@@ -635,6 +669,8 @@ components:
       type: object
       properties:
         email: { type: string, maxLength: 320, pattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$' }
+        username: { type: string, minLength: 3, maxLength: 64, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$' }
+        password: { type: string, minLength: 8, maxLength: 256, writeOnly: true }
         firstName: { type: string, maxLength: 120 }
         lastName: { type: string, maxLength: 120 }
         organizationIds:
@@ -646,11 +682,13 @@ components:
           maxItems: 100
           items:
             $ref: "#/components/schemas/PlatformUserSiteAssignment"
-      required: [email]
+      required: [email, username, password]
     PlatformUserUpdateInput:
       type: object
       properties:
         userId: { type: string }
+        username: { type: string, minLength: 3, maxLength: 64, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$' }
+        password: { type: string, minLength: 8, maxLength: 256, writeOnly: true }
         firstName: { type: string, maxLength: 120 }
         lastName: { type: string, maxLength: 120 }
         organizationIds:

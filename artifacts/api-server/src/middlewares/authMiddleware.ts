@@ -2,7 +2,18 @@ import type { NextFunction, Request, Response } from "express";
 import * as oidc from "openid-client";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
-import { clearSession, getOidcConfig, getSession, getSessionId, updateSession, type AuthUser, type SessionData } from "../lib/auth";
+import {
+  clearScadaSession,
+  clearSession,
+  getOidcConfig,
+  getScadaSessionId,
+  getScadaSessionUserId,
+  getSession,
+  getSessionId,
+  updateSession,
+  type AuthUser,
+  type SessionData,
+} from "../lib/auth";
 
 declare global {
   namespace Express {
@@ -36,29 +47,33 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   req.isAuthenticated = function (this: Request) {
     return this.user !== undefined;
   } as Request["isAuthenticated"];
-  const sid = getSessionId(req);
-  if (!sid) {
-    next();
-    return;
+  const oidcSid = getSessionId(req);
+  if (oidcSid) {
+    const session = await getSession(oidcSid);
+    const refreshed = session?.user?.id ? await refreshSession(oidcSid, session) : null;
+    if (refreshed) {
+      const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, refreshed.user.id)).limit(1);
+      if (currentUser?.accountStatus === "active") {
+        req.user = currentUser;
+        next();
+        return;
+      }
+    }
+    await clearSession(res, oidcSid);
   }
-  const session = await getSession(sid);
-  if (!session?.user?.id) {
-    await clearSession(res, sid);
-    next();
-    return;
+
+  const scadaSid = getScadaSessionId(req);
+  if (scadaSid) {
+    const userId = await getScadaSessionUserId(scadaSid);
+    const [currentUser] = userId
+      ? await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1)
+      : [];
+    if (currentUser?.accountStatus === "active") {
+      req.user = currentUser;
+      next();
+      return;
+    }
+    await clearScadaSession(res, scadaSid);
   }
-  const refreshed = await refreshSession(sid, session);
-  if (!refreshed) {
-    await clearSession(res, sid);
-    next();
-    return;
-  }
-  const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, refreshed.user.id)).limit(1);
-  if (!currentUser || currentUser.accountStatus !== "active") {
-    await clearSession(res, sid);
-    next();
-    return;
-  }
-  req.user = currentUser;
   next();
 }
