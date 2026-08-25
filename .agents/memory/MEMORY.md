@@ -17,3 +17,4 @@
 - [Live MQTT configuration applies](live-mqtt-configuration-applies.md) — Swap candidates only after subscription confirmation; retain staged settings and restore the last working runtime on failure.
 - [Zod parameter codegen limitation](zod-parameter-codegen-limitation.md) — Route parameter schemas can collide with generated API validators; prefer typed request bodies where this generator cannot export both.
 - [Platform admin identity lifecycle](platform-admin-identity-lifecycle.md) — Match OIDC admins to pre-provisioned email records and never silently restore disabled access.
+- [SCADA lifecycle enforcement](scada-lifecycle-enforcement.md) — Archived sites disappear from SCADA; all operational evidence requires an explicit active site scope.

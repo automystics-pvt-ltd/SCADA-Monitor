@@ -268,11 +268,6 @@ let reconciledScheduleDate: string | undefined;
 let scheduleRun: Promise<void> | undefined;
 const failedSnapshotQueue: Array<{ buffer: SnapshotBuffer; scheduledFor: Date }> = [];
 
-function parseCoordinate(value: unknown, min: number, max: number) {
-  const numeric = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
-  return Number.isFinite(numeric) && numeric >= min && numeric <= max ? numeric : undefined;
-}
-
 function parseSiteName(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -1804,9 +1799,12 @@ router.get("/mqtt/site-locations", async (req, res) => {
     const locations = await db
       .select()
       .from(plantLocationsTable)
+      .innerJoin(platformSitesTable, eq(plantLocationsTable.siteName, platformSitesTable.siteName))
+      .where(eq(platformSitesTable.status, "active"))
       .orderBy(asc(plantLocationsTable.siteName));
     res.set("Cache-Control", "no-store").json({
-      locations: granted ? locations.filter((location) => granted.has(location.siteName)) : locations,
+      locations: (granted ? locations.filter(({ plant_locations }) => granted.has(plant_locations.siteName)) : locations)
+        .map(({ plant_locations }) => plant_locations),
     });
   } catch (error) {
     logger.error({ err: error }, "Plant locations query failed");
@@ -1818,48 +1816,21 @@ router.get("/mqtt/site-access", async (req, res) => {
   const access = await siteAccess(req);
   const managedSites = await db
     .select({ siteName: platformSitesTable.siteName, activationStatus: platformSitesTable.activationStatus })
-    .from(platformSitesTable);
+    .from(platformSitesTable)
+    .where(eq(platformSitesTable.status, "active"));
   const visibleManagedSites = access.global
     ? managedSites
     : managedSites.filter((site) => access.roles.has(site.siteName));
+  const visibleSiteNames = access.global
+    ? visibleManagedSites.map((site) => site.siteName)
+    : [...access.sites];
   res.set("Cache-Control", "no-store").json({
-    sites: [...access.sites].sort(),
+    sites: visibleSiteNames.sort(),
     roles: Object.fromEntries(access.roles),
     global: access.global,
     policy: access.global ? "global" : "assigned-sites",
     activations: Object.fromEntries(visibleManagedSites.map((site) => [site.siteName, site.activationStatus])),
   });
-});
-
-router.put("/mqtt/site-locations/:siteName", async (req, res): Promise<void> => {
-  const siteName = parseSiteName(req.params.siteName);
-  const latitude = parseCoordinate(req.body?.latitude, -90, 90);
-  const longitude = parseCoordinate(req.body?.longitude, -180, 180);
-  if (!siteName || siteName.length > 160 || latitude === undefined || longitude === undefined) {
-    res.status(400).json({ message: "Site name, latitude (-90 to 90), and longitude (-180 to 180) are required." });
-    return;
-  }
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ message: "Operator sign-in is required to update plant locations." });
-    return;
-  }
-  if (!await allowGrantedSite(req, res, siteName)) return;
-  if (!await allowSitePermission(req, res, siteName, "site-configuration")) return;
-
-  try {
-    const [location] = await db
-      .insert(plantLocationsTable)
-      .values({ siteName, latitude, longitude })
-      .onConflictDoUpdate({
-        target: plantLocationsTable.siteName,
-        set: { latitude, longitude, updatedAt: new Date() },
-      })
-      .returning();
-    res.json({ location });
-  } catch (error) {
-    logger.error({ err: error, siteName }, "Plant location save failed");
-    res.status(500).json({ message: "Unable to save the plant location" });
-  }
 });
 
 router.get("/mqtt/calibration-profile", async (req, res): Promise<void> => {

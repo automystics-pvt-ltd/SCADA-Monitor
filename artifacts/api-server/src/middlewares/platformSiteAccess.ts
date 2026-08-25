@@ -13,13 +13,13 @@ export async function siteAccess(req: Request): Promise<ScadaSiteAccess> {
       siteName: platformSiteAccessTable.siteName,
       role: platformSiteAccessTable.role,
       status: platformSiteAccessTable.status,
-      activationStatus: platformSitesTable.activationStatus,
     })
     .from(platformSiteAccessTable)
     .innerJoin(platformSitesTable, eq(platformSiteAccessTable.siteName, platformSitesTable.siteName))
     .where(and(
       eq(platformSiteAccessTable.userId, req.user.id),
       eq(platformSiteAccessTable.status, "active"),
+      eq(platformSitesTable.status, "active"),
     )),
     db.select({ value: platformConfigurationTable.value }).from(platformConfigurationTable).where(eq(platformConfigurationTable.key, "role-permissions")).limit(1),
   ]);
@@ -47,11 +47,15 @@ export async function allowGrantedSite(req: Request, res: Response, siteName: st
     return false;
   }
   const [managedSite] = await db
-    .select({ activationStatus: platformSitesTable.activationStatus })
+    .select({ activationStatus: platformSitesTable.activationStatus, status: platformSitesTable.status })
     .from(platformSitesTable)
     .where(eq(platformSitesTable.siteName, siteName))
     .limit(1);
-  if (!managedSite || managedSite.activationStatus === "active") return true;
+  if (!managedSite || managedSite.status !== "active") {
+    res.status(403).json({ message: "This managed site is archived and is not available for SCADA operations." });
+    return false;
+  }
+  if (managedSite.activationStatus === "active") return true;
   res.status(403).json({ message: "This managed site is inactive. A platform administrator must activate it before telemetry can be opened." });
   return false;
 }
@@ -76,10 +80,8 @@ export async function allowSitePermission(req: Request, res: Response, siteName:
 }
 
 export async function allowUnscopedScadaEvidence(req: Request, res: Response) {
-  const access = await siteAccess(req);
-  if (access.global) return true;
   res.status(403).json({
-    message: "Select one of your assigned sites before opening this evidence feed.",
+    message: "Select an active managed site before opening this evidence feed.",
   });
   return false;
 }

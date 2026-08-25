@@ -196,14 +196,56 @@ test("an assigned user cannot relabel another site's or unscoped legacy snapshot
   assert.equal(body.parameters.some((parameter) => parameter.deviceId === "legacy-isolation"), false);
 });
 
+test("an archived site is removed from SCADA access and denied across every evidence route", async () => {
+  await db.update(platformSitesTable).set({ status: "archived" }).where(eq(platformSitesTable.siteName, assignedSite));
+  try {
+    const access = await requestEvidence("/mqtt/site-access");
+    assert.equal(access.status, 200);
+    const body = await access.json() as { sites: string[]; activations: Record<string, string> };
+    assert.equal(body.sites.includes(assignedSite), false);
+    assert.equal(Object.hasOwn(body.activations, assignedSite), false);
+
+    for (const [label, path] of namedEvidenceReads.map(([label, path]) => [label, path.replace(encodeURIComponent(otherSite), encodeURIComponent(assignedSite))] as const)) {
+      const response = await requestEvidence(path);
+      assert.equal(response.status, 403, `${label} must deny an archived site`);
+      await closeStream(response);
+    }
+  } finally {
+    await db.update(platformSitesTable).set({ status: "active" }).where(eq(platformSitesTable.siteName, assignedSite));
+  }
+});
+
+test("the retired SCADA location write route cannot mutate central coordinates", async () => {
+  const response = await fetch(`${baseUrl}/api/mqtt/site-locations/${encodeURIComponent(assignedSite)}`, {
+    method: "PUT",
+    headers: { "x-scada-test-principal": "assigned", "content-type": "application/json" },
+    body: JSON.stringify({ latitude: 12.9716, longitude: 77.5946 }),
+  });
+  assert.equal(response.status, 404);
+});
+
 for (const globalEnabled of [false, true]) {
-  test(`anonymous unscoped evidence reads ${globalEnabled ? "succeed only under" : "are denied without"} the explicit global-access policy`, async () => {
+  test(`anonymous unscoped evidence reads are denied ${globalEnabled ? "even with" : "without"} global access`, async () => {
     if (globalEnabled) process.env.SCADA_ALLOW_GLOBAL_ACCESS = "true";
     else delete process.env.SCADA_ALLOW_GLOBAL_ACCESS;
     for (const [label, path] of unscopedEvidenceReads) {
       const response = await requestEvidence(path, false);
-      assert.equal(response.status, globalEnabled ? 200 : 403, `${label} must follow the anonymous global-access policy`);
+      assert.equal(response.status, 403, `${label} must require an explicit active site scope`);
       await closeStream(response);
     }
   });
 }
+
+test("global access can select any active managed site but cannot select an archived site", async () => {
+  process.env.SCADA_ALLOW_GLOBAL_ACCESS = "true";
+  const activeSite = await requestEvidence(`/mqtt/snapshots?siteName=${encodeURIComponent(otherSite)}`, false);
+  assert.equal(activeSite.status, 200);
+
+  await db.update(platformSitesTable).set({ status: "archived" }).where(eq(platformSitesTable.siteName, otherSite));
+  try {
+    const archivedSite = await requestEvidence(`/mqtt/snapshots?siteName=${encodeURIComponent(otherSite)}`, false);
+    assert.equal(archivedSite.status, 403);
+  } finally {
+    await db.update(platformSitesTable).set({ status: "active" }).where(eq(platformSitesTable.siteName, otherSite));
+  }
+});

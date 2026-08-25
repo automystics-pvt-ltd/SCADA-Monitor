@@ -2664,7 +2664,7 @@ function CalibrationProfileEditor({ siteName, profile, canManage, onSave, onPrev
   );
 }
 
-function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, locationAdmin, onSaveSiteLocation, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile, onPreviewCalibrationProfile }: {
+function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error, sites, initialSite, siteLocations, siteLocationError, canManageCalibration, calibrationProfile, calibrationProfileError, onSaveCalibrationProfile, onPreviewCalibrationProfile }: {
   open: boolean;
   onClose: () => void;
   connected: boolean;
@@ -2675,8 +2675,7 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error,
   initialSite: string;
   siteLocations: Record<string, PlantLocation>;
   siteLocationError: string;
-  locationAdmin: boolean;
-  onSaveSiteLocation: (siteName: string, latitude: number, longitude: number) => Promise<void>;
+  canManageCalibration: boolean;
   calibrationProfile: PlantCalibrationProfile | null;
   calibrationProfileError: string;
   onSaveCalibrationProfile: (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => Promise<void>;
@@ -2685,9 +2684,6 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error,
   const [locationSite, setLocationSite] = useState(initialSite);
   const [locationLatitude, setLocationLatitude] = useState('');
   const [locationLongitude, setLocationLongitude] = useState('');
-  const [locationError, setLocationError] = useState('');
-  const [locationSaved, setLocationSaved] = useState('');
-  const [locationSaving, setLocationSaving] = useState(false);
   const dialogRef = useModalAccessibility(onClose, open);
   const locationSiteOptions = useMemo(
     () => sites.length ? sites : initialSite ? [initialSite] : [],
@@ -2705,48 +2701,7 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error,
     const saved = locationSite ? siteLocations[locationSite] : undefined;
     setLocationLatitude(saved ? String(saved.latitude) : '');
     setLocationLongitude(saved ? String(saved.longitude) : '');
-    setLocationError('');
   }, [locationSite, siteLocations[locationSite]?.latitude, siteLocations[locationSite]?.longitude]);
-  useEffect(() => {
-    setLocationSaved('');
-  }, [locationSite]);
-  const handleSaveSiteLocation = async () => {
-    const latitudeInput = locationLatitude.trim();
-    const longitudeInput = locationLongitude.trim();
-    if (!locationSite) {
-      setLocationError('Select a plant/site before saving.');
-      return;
-    }
-    if (!latitudeInput) {
-      setLocationError('Latitude is required.');
-      return;
-    }
-    if (!longitudeInput) {
-      setLocationError('Longitude is required.');
-      return;
-    }
-    const latitude = Number(latitudeInput);
-    const longitude = Number(longitudeInput);
-    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
-      setLocationError('Latitude must be a number between -90 and 90.');
-      return;
-    }
-    if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-      setLocationError('Longitude must be a number between -180 and 180.');
-      return;
-    }
-    setLocationError('');
-    setLocationSaved('');
-    setLocationSaving(true);
-    try {
-      await onSaveSiteLocation(locationSite, latitude, longitude);
-      setLocationSaved(`Saved verified coordinates for ${locationSite}.`);
-    } catch (saveError) {
-      setLocationError(saveError instanceof Error ? saveError.message : 'Unable to save the plant location.');
-    } finally {
-      setLocationSaving(false);
-    }
-  };
   if (!open) return null;
   
   return (
@@ -2781,36 +2736,32 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, error,
              </div>
                {locationSiteOptions.length ? (
                <>
-                  <div data-testid="plant-location-access" className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-[11px] leading-5 ${locationAdmin ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300' : 'border-slate-500/20 bg-slate-500/5 text-slate-400'}`}>
+                  <div data-testid="plant-location-access" className="flex items-start gap-2 rounded-lg border border-slate-500/20 bg-slate-500/5 px-3 py-2.5 text-[11px] leading-5 text-slate-400">
                     <MapPin size={14} className="mt-0.5 shrink-0" />
-                    <span>{locationAdmin ? 'You can validate and update plant coordinates for the selected site.' : 'View-only access. Only an authorized Platform/Site Administrator can modify these coordinates.'}</span>
+                    <span>View-only site context. Coordinates are centrally managed and audited in Platform Admin.</span>
                   </div>
                  <label className="block">
                    <span className="mb-2 block text-xs font-bold text-slate-300">Plant/site</span>
-                     <select value={locationSite} onChange={(event) => setLocationSite(event.target.value)} disabled={!locationAdmin} data-testid="select-plant-location-site" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60">
+                     <select value={locationSite} onChange={(event) => setLocationSite(event.target.value)} data-testid="select-plant-location-site" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 text-xs font-semibold text-slate-200 focus:border-blue-500 focus:outline-none">
                       {locationSiteOptions.map((site) => <option key={site} value={site}>{site}</option>)}
                    </select>
                  </label>
                   <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                    <label className="block">
                      <span className="mb-2 block text-xs font-bold text-slate-300">Latitude</span>
-                      <input inputMode="decimal" aria-label="Plant latitude" data-testid="input-plant-latitude" value={locationLatitude} onChange={(event) => setLocationLatitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 19.0760" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+                      <input aria-label="Plant latitude" data-testid="input-plant-latitude" value={locationLatitude} readOnly placeholder="Unavailable" className="w-full cursor-default rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:outline-none" />
                    </label>
                    <label className="block">
                      <span className="mb-2 block text-xs font-bold text-slate-300">Longitude</span>
-                      <input inputMode="decimal" aria-label="Plant longitude" data-testid="input-plant-longitude" value={locationLongitude} onChange={(event) => setLocationLongitude(event.target.value)} disabled={!locationAdmin} placeholder="e.g. 72.8777" className="w-full rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+                      <input aria-label="Plant longitude" data-testid="input-plant-longitude" value={locationLongitude} readOnly placeholder="Unavailable" className="w-full cursor-default rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-3 font-mono text-xs text-slate-200 focus:outline-none" />
                    </label>
                  </div>
-                   <p className="text-[10px] leading-5 text-slate-500">Coordinates are range-validated before saving, then used to refresh the resolved place name, timezone, and weather data.</p>
-                    {!locationAdmin && <a href="/api/login?returnTo=/" className="inline-flex text-xs font-semibold text-blue-300 underline underline-offset-2 hover:text-blue-200 focus-ring">Sign in as an authorized location administrator to edit and save</a>}
-                 {locationError && <p role="alert" data-testid="alert-plant-location" className="text-xs text-rose-400">{locationError}</p>}
-                 {!locationError && siteLocationError && <p role="alert" data-testid="alert-plant-location-load" className="text-xs text-rose-400">{siteLocationError}</p>}
-                 {locationSaved && <p role="status" data-testid="status-plant-location-saved" className="text-xs text-emerald-400">{locationSaved}</p>}
-                  {locationAdmin && <button type="button" onClick={() => void handleSaveSiteLocation()} disabled={locationSaving} data-testid="button-save-plant-location" className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/10 transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"><Check size={15} /> {locationSaving ? 'Saving…' : siteLocations[locationSite] ? 'Update plant location' : 'Save plant location'}</button>}
+                    <p className="text-[10px] leading-5 text-slate-500">Saved coordinates are used to refresh the resolved place name, timezone, and weather data. Update them in Platform Admin.</p>
+                  {siteLocationError && <p role="alert" data-testid="alert-plant-location-load" className="text-xs text-rose-400">{siteLocationError}</p>}
                </>
-              ) : <p className="rounded-lg border border-dashed border-[#1E293B] px-3 py-4 text-xs text-slate-500">A plant/site name is required before coordinates can be configured.</p>}
+               ) : <p className="rounded-lg border border-dashed border-[#1E293B] px-3 py-4 text-xs text-slate-500">A plant/site name is required before coordinates can be displayed.</p>}
            </div>
-              <CalibrationProfileEditor siteName={initialSite} profile={calibrationProfile} canManage={locationAdmin} onSave={onSaveCalibrationProfile} onPreview={onPreviewCalibrationProfile} />
+              <CalibrationProfileEditor siteName={initialSite} profile={calibrationProfile} canManage={canManageCalibration} onSave={onSaveCalibrationProfile} onPreview={onPreviewCalibrationProfile} />
              {calibrationProfileError && <p role="alert" data-testid="alert-plant-calibration-load" className="text-xs text-rose-400">{calibrationProfileError}</p>}
           
           {error && (
@@ -3306,17 +3257,6 @@ function AppShell() {
   const changeActiveSite = (site: string) => {
     setActiveSite(site);
     setWeatherState({ status: 'unavailable', message: 'Weather data unavailable for this site: configure a verified plant location.' });
-  };
-  const saveSiteLocation = async (siteName: string, latitude: number, longitude: number) => {
-    const response = await fetch(`/api/mqtt/site-locations/${encodeURIComponent(siteName)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ latitude, longitude }),
-    });
-    const payload = await response.json() as { location?: PlantLocation; message?: string };
-    if (!response.ok || !payload.location) throw new Error(payload.message ?? 'Unable to save the plant location.');
-    setSiteLocations((current) => ({ ...current, [payload.location!.siteName]: payload.location! }));
-    setWeatherRefreshToken((token) => token + 1);
   };
   const saveCalibrationProfile = async (siteName: string, installedDcCapacityKwp: number, sources: PlantCalibrationSource[]) => {
     const response = await fetch(`/api/mqtt/calibration-profile/${encodeURIComponent(siteName)}`, {
@@ -3901,7 +3841,7 @@ function AppShell() {
           </>}
         </main>
       </div>
-       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} locationAdmin={locationAdmin} onSaveSiteLocation={saveSiteLocation} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} onPreviewCalibrationProfile={previewCalibrationProfile} />
+       <BrokerPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} connected={connected} onConnect={connect} onDisconnect={disconnect} error={error} sites={availableSites} initialSite={plantSiteName} siteLocations={siteLocations} siteLocationError={siteLocationError} canManageCalibration={locationAdmin} calibrationProfile={calibrationProfile} calibrationProfileError={calibrationProfileError} onSaveCalibrationProfile={saveCalibrationProfile} onPreviewCalibrationProfile={previewCalibrationProfile} />
         {selectedInverter && (
           <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-[#0b0f19]/75 backdrop-blur-sm"><span className="rounded-lg border border-[#1E293B] bg-[#090B13] px-4 py-3 text-xs font-semibold text-slate-300">Loading inverter details…</span></div>}>
             <InverterDetailPanel device={selectedInverter} onClose={() => setSelectedInverterId(null)} siteName={selectedInverter.site} plantTimezone={persistence.timezone} mode={mode} now={now} weather={{ temperatureC: weatherState.data?.current.temperatureC, condition: weatherState.data?.current.weatherCondition, locationLabel: weatherState.data?.location.locationName ?? weatherState.location?.label }} />
