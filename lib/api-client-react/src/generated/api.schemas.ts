@@ -90,6 +90,26 @@ export interface PlatformOrganizationInput {
   slug: string;
 }
 
+export type PlatformSiteActivationStatus = typeof PlatformSiteActivationStatus[keyof typeof PlatformSiteActivationStatus];
+
+
+export const PlatformSiteActivationStatus = {
+  active: 'active',
+  inactive: 'inactive',
+} as const;
+
+/**
+ * @nullable
+ */
+export type PlatformSiteLastTelemetryTestResult = typeof PlatformSiteLastTelemetryTestResult[keyof typeof PlatformSiteLastTelemetryTestResult] | null;
+
+
+export const PlatformSiteLastTelemetryTestResult = {
+  success: 'success',
+  'no-telemetry': 'no-telemetry',
+  error: 'error',
+} as const;
+
 export interface PlatformSite {
   siteName: string;
   organizationId: string;
@@ -100,6 +120,11 @@ export interface PlatformSite {
   longitude: number | null;
   timezone: string;
   status: string;
+  activationStatus: PlatformSiteActivationStatus;
+  /** @nullable */
+  lastTelemetryTestedAt: string | null;
+  /** @nullable */
+  lastTelemetryTestResult: PlatformSiteLastTelemetryTestResult;
 }
 
 export interface PlatformSiteInput {
@@ -115,6 +140,84 @@ export interface PlatformSiteInput {
   longitude?: number | null;
   /** @maxLength 80 */
   timezone: string;
+}
+
+export type PlatformSiteActivationInputActivationStatus = typeof PlatformSiteActivationInputActivationStatus[keyof typeof PlatformSiteActivationInputActivationStatus];
+
+
+export const PlatformSiteActivationInputActivationStatus = {
+  active: 'active',
+  inactive: 'inactive',
+} as const;
+
+export interface PlatformSiteActivationInput {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  siteName: string;
+  activationStatus: PlatformSiteActivationInputActivationStatus;
+}
+
+export interface PlatformTelemetryDevice {
+  siteName: string;
+  deviceId: string;
+  deviceName: string;
+  lastReceivedAt: string;
+}
+
+export interface PlatformTelemetryTestInput {
+  /**
+     * @minLength 2
+     * @maxLength 160
+     */
+  siteName: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  deviceId: string;
+  /**
+     * @minimum 3
+     * @maximum 15
+     */
+  timeoutSeconds: number;
+}
+
+export type PlatformTelemetryTestResult = typeof PlatformTelemetryTestResult[keyof typeof PlatformTelemetryTestResult];
+
+
+export const PlatformTelemetryTestResult = {
+  success: 'success',
+  'no-telemetry': 'no-telemetry',
+  error: 'error',
+} as const;
+
+export type PlatformTelemetryTestEvidence = { [key: string]: unknown };
+
+export interface PlatformTelemetryTest {
+  id: string;
+  siteName: string;
+  deviceId: string;
+  deviceName: string;
+  result: PlatformTelemetryTestResult;
+  startedAt: string;
+  finishedAt: string;
+  timeoutSeconds: number;
+  brokerStatus: string;
+  subscriptionStatus: string;
+  deviceStatus: string;
+  topic: string;
+  /** @nullable */
+  lastReceivedAt: string | null;
+  /** @nullable */
+  dataFrequencySeconds: number | null;
+  /** @nullable */
+  actualValue: string | null;
+  dataQuality: string;
+  messageCount: number;
+  communicationErrors: string[];
+  evidence: PlatformTelemetryTestEvidence;
 }
 
 export interface PlatformSiteAccess {

@@ -6,6 +6,8 @@ import {
   CreatePlatformOrganizationResponse,
   CreatePlatformSiteBody,
   CreatePlatformSiteResponse,
+  CreatePlatformTelemetryTestBody,
+  CreatePlatformTelemetryTestResponse,
   BrowsePlatformDatabaseTableBody,
   BrowsePlatformDatabaseTableResponse,
   GetPlatformDatabaseHealthResponse,
@@ -19,11 +21,14 @@ import {
   ListPlatformAuditEventsResponse,
   ListPlatformOrganizationsResponse,
   ListPlatformSitesResponse,
+  ListPlatformTelemetryDevicesResponse,
   ListPlatformUsersResponse,
   RunPlatformDatabaseQueryBody,
   RunPlatformDatabaseQueryResponse,
   UpdatePlatformSiteAccessBody,
   UpdatePlatformSiteAccessResponse,
+  UpdatePlatformSiteActivationBody,
+  UpdatePlatformSiteActivationResponse,
   UpdatePlatformMqttConfigBody,
   UpdatePlatformMqttConfigResponse,
 } from "@workspace/api-zod";
@@ -35,9 +40,17 @@ import {
   platformOrganizationsTable,
   platformSiteAccessTable,
   platformSitesTable,
+  platformTelemetryTestsTable,
   usersTable,
 } from "@workspace/db";
-import { applyMqttConfiguration, getMqttRuntimeStatus, type MqttRuntimeConfiguration } from "./mqtt";
+import {
+  applyMqttConfiguration,
+  broadcastSiteActivation,
+  getMqttRuntimeStatus,
+  listLiveTelemetryDevices,
+  runLiveTelemetryTest,
+  type MqttRuntimeConfiguration,
+} from "./mqtt";
 import {
   browseApprovedDatabaseTable,
   createApplicationBackup,
@@ -89,6 +102,26 @@ async function audit(principal: PlatformAdminPrincipal, action: string, targetTy
     targetId,
     metadata,
   });
+}
+
+function platformSiteResponse(
+  site: typeof platformSitesTable.$inferSelect,
+  organizationName: string,
+  location: { latitude: number | null; longitude: number | null } | undefined,
+  latestTest?: typeof platformTelemetryTestsTable.$inferSelect,
+) {
+  return {
+    siteName: site.siteName,
+    organizationId: site.organizationId,
+    organizationName,
+    timezone: site.timezone,
+    status: site.status,
+    activationStatus: site.activationStatus,
+    latitude: location?.latitude ?? null,
+    longitude: location?.longitude ?? null,
+    lastTelemetryTestedAt: latestTest?.finishedAt ?? null,
+    lastTelemetryTestResult: latestTest?.result ?? null,
+  };
 }
 
 async function brokerConfiguration(): Promise<MqttConfig> {
@@ -205,25 +238,26 @@ router.post("/platform-admin/organizations", async (req: Request, res): Promise<
 });
 
 router.get("/platform-admin/sites", async (_req, res): Promise<void> => {
-  const rows = await db
-    .select({
-      siteName: platformSitesTable.siteName,
-      organizationId: platformSitesTable.organizationId,
-      organizationName: platformOrganizationsTable.name,
-      timezone: platformSitesTable.timezone,
-      status: platformSitesTable.status,
-      latitude: plantLocationsTable.latitude,
-      longitude: plantLocationsTable.longitude,
-    })
-    .from(platformSitesTable)
-    .innerJoin(platformOrganizationsTable, eq(platformSitesTable.organizationId, platformOrganizationsTable.id))
-    .leftJoin(plantLocationsTable, eq(platformSitesTable.siteName, plantLocationsTable.siteName))
-    .orderBy(asc(platformSitesTable.siteName));
-  res.json(ListPlatformSitesResponse.parse(rows.map((site) => ({
-    ...site,
-    latitude: site.latitude ?? null,
-    longitude: site.longitude ?? null,
-  }))));
+  const [rows, tests] = await Promise.all([
+    db
+      .select({
+        site: platformSitesTable,
+        organizationName: platformOrganizationsTable.name,
+        latitude: plantLocationsTable.latitude,
+        longitude: plantLocationsTable.longitude,
+      })
+      .from(platformSitesTable)
+      .innerJoin(platformOrganizationsTable, eq(platformSitesTable.organizationId, platformOrganizationsTable.id))
+      .leftJoin(plantLocationsTable, eq(platformSitesTable.siteName, plantLocationsTable.siteName))
+      .orderBy(asc(platformSitesTable.siteName)),
+    db.select().from(platformTelemetryTestsTable).orderBy(desc(platformTelemetryTestsTable.finishedAt)),
+  ]);
+  const latestTestBySite = new Map<string, typeof platformTelemetryTestsTable.$inferSelect>();
+  for (const test of tests) {
+    if (!latestTestBySite.has(test.siteName)) latestTestBySite.set(test.siteName, test);
+  }
+  res.json(ListPlatformSitesResponse.parse(rows.map((row) =>
+    platformSiteResponse(row.site, row.organizationName, row, latestTestBySite.get(row.site.siteName)))));
 });
 
 router.post("/platform-admin/sites", async (req: Request, res): Promise<void> => {
@@ -245,6 +279,10 @@ router.post("/platform-admin/sites", async (req: Request, res): Promise<void> =>
       siteName,
       organizationId: data.organizationId,
       timezone,
+      // Legacy sites remain active from the database default. Newly provisioned
+      // sites require a successful live test followed by explicit activation.
+      activationStatus: "inactive",
+      activationUpdatedBy: req.platformAdmin!.userId,
     }).returning();
     if (typeof data.latitude === "number" && typeof data.longitude === "number") {
       await db.insert(plantLocationsTable).values({
@@ -257,15 +295,11 @@ router.post("/platform-admin/sites", async (req: Request, res): Promise<void> =>
       });
     }
     await audit(req.platformAdmin!, "site.created", "site", site.siteName, { organizationId: site.organizationId, timezone: site.timezone });
-    res.status(201).json(CreatePlatformSiteResponse.parse({
-      siteName: site.siteName,
-      organizationId: site.organizationId,
-      organizationName: organization.name,
-      latitude: data.latitude,
-      longitude: data.longitude,
-      timezone: site.timezone,
-      status: site.status,
-    }));
+    res.status(201).json(CreatePlatformSiteResponse.parse(platformSiteResponse(
+      site,
+      organization.name,
+      { latitude: data.latitude ?? null, longitude: data.longitude ?? null },
+    )));
   } catch (error) {
     const code = hasRecord(error) && typeof error.code === "string" ? error.code : "";
     req.log.warn({ err: error, siteName }, "Platform site creation failed");
@@ -275,6 +309,122 @@ router.post("/platform-admin/sites", async (req: Request, res): Promise<void> =>
     }
     res.status(500).json({ error: "The site could not be created. Try again." });
   }
+});
+
+router.get("/platform-admin/telemetry/devices", (_req, res): void => {
+  res.set("Cache-Control", "no-store").json(ListPlatformTelemetryDevicesResponse.parse(listLiveTelemetryDevices()));
+});
+
+router.post("/platform-admin/telemetry-tests", async (req: Request, res): Promise<void> => {
+  const data = CreatePlatformTelemetryTestBody.parse(req.body);
+  const [site] = await db.select().from(platformSitesTable).where(eq(platformSitesTable.siteName, data.siteName)).limit(1);
+  if (!site) {
+    res.status(404).json({ error: "Choose a managed site." });
+    return;
+  }
+  if (site.status !== "active") {
+    res.status(400).json({ error: "Archived sites cannot run telemetry tests." });
+    return;
+  }
+  const device = listLiveTelemetryDevices().find((candidate) =>
+    candidate.siteName === site.siteName && candidate.deviceId === data.deviceId);
+  if (!device) {
+    res.status(400).json({ error: "Choose a device that has been observed in live telemetry for this site." });
+    return;
+  }
+
+  const startedAt = new Date();
+  const result = await runLiveTelemetryTest(site.siteName, device.deviceId, data.timeoutSeconds);
+  const finishedAt = new Date();
+  const [test] = await db.insert(platformTelemetryTestsTable).values({
+    siteName: site.siteName,
+    deviceId: device.deviceId,
+    deviceName: device.deviceName,
+    result: result.result,
+    startedAt,
+    finishedAt,
+    timeoutSeconds: data.timeoutSeconds,
+    brokerStatus: result.brokerStatus,
+    subscriptionStatus: result.subscriptionStatus,
+    deviceStatus: result.deviceStatus,
+    lastReceivedAt: result.lastReceivedAt ? new Date(result.lastReceivedAt) : undefined,
+    dataFrequencySeconds: result.dataFrequencySeconds,
+    actualValue: result.actualValue,
+    dataQuality: result.dataQuality,
+    messageCount: result.messageCount,
+    communicationErrors: result.communicationErrors,
+    evidence: result.evidence,
+    createdBy: req.platformAdmin!.userId,
+  }).returning();
+  await audit(req.platformAdmin!, "telemetry.tested", "site-device", `${site.siteName}:${device.deviceId}`, {
+    result: test.result,
+    messageCount: test.messageCount,
+    dataQuality: test.dataQuality,
+    brokerStatus: test.brokerStatus,
+    subscriptionStatus: test.subscriptionStatus,
+  });
+  res.json(CreatePlatformTelemetryTestResponse.parse({
+    id: test.id,
+    siteName: test.siteName,
+    deviceId: test.deviceId,
+    deviceName: test.deviceName,
+    result: test.result,
+    startedAt: test.startedAt,
+    finishedAt: test.finishedAt,
+    timeoutSeconds: test.timeoutSeconds,
+    brokerStatus: test.brokerStatus,
+    subscriptionStatus: test.subscriptionStatus,
+    deviceStatus: test.deviceStatus,
+    topic: getMqttRuntimeStatus().topic,
+    lastReceivedAt: test.lastReceivedAt ?? null,
+    dataFrequencySeconds: test.dataFrequencySeconds ?? null,
+    actualValue: test.actualValue ?? null,
+    dataQuality: test.dataQuality,
+    messageCount: test.messageCount,
+    communicationErrors: Array.isArray(test.communicationErrors) ? test.communicationErrors : [],
+    evidence: hasRecord(test.evidence) ? test.evidence : {},
+  }));
+});
+
+router.post("/platform-admin/sites/activation", async (req: Request, res): Promise<void> => {
+  const data = UpdatePlatformSiteActivationBody.parse(req.body);
+  const [site] = await db.select().from(platformSitesTable).where(eq(platformSitesTable.siteName, data.siteName)).limit(1);
+  if (!site) {
+    res.status(404).json({ error: "Choose a managed site." });
+    return;
+  }
+  if (site.status !== "active") {
+    res.status(400).json({ error: "Archived sites cannot be activated or deactivated." });
+    return;
+  }
+  const [latestTest] = await db
+    .select()
+    .from(platformTelemetryTestsTable)
+    .where(eq(platformTelemetryTestsTable.siteName, site.siteName))
+    .orderBy(desc(platformTelemetryTestsTable.finishedAt))
+    .limit(1);
+  if (data.activationStatus === "active" && latestTest?.result !== "success") {
+    res.status(400).json({ error: "Run a successful live telemetry test before activating this site." });
+    return;
+  }
+  const now = new Date();
+  const [updated] = await db.update(platformSitesTable).set({
+    activationStatus: data.activationStatus,
+    activationUpdatedAt: now,
+    activationUpdatedBy: req.platformAdmin!.userId,
+  }).where(eq(platformSitesTable.siteName, site.siteName)).returning();
+  await audit(req.platformAdmin!, data.activationStatus === "active" ? "site.activated" : "site.deactivated", "site", updated.siteName, {
+    previousActivationStatus: site.activationStatus,
+    activationStatus: updated.activationStatus,
+    telemetryTestId: latestTest?.id ?? null,
+  });
+  broadcastSiteActivation(updated.siteName, updated.activationStatus, now.toISOString());
+  const [organization] = await db.select().from(platformOrganizationsTable).where(eq(platformOrganizationsTable.id, updated.organizationId)).limit(1);
+  const [location] = await db.select({
+    latitude: plantLocationsTable.latitude,
+    longitude: plantLocationsTable.longitude,
+  }).from(plantLocationsTable).where(eq(plantLocationsTable.siteName, updated.siteName)).limit(1);
+  res.json(UpdatePlatformSiteActivationResponse.parse(platformSiteResponse(updated, organization?.name ?? "Unknown organization", location, latestTest)));
 });
 
 router.get("/platform-admin/users", async (_req, res): Promise<void> => {

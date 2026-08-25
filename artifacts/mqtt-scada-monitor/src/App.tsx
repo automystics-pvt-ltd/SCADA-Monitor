@@ -2821,7 +2821,7 @@ function AppShell() {
   const [savedKpiSnapshot, setSavedKpiSnapshot] = useState<SavedKpiSnapshot | null>(null);
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
   const [activeSite, setActiveSite] = useState('');
-  const [siteAccessState, setSiteAccessState] = useState<{ sites: string[]; roles: Record<string, string>; global: boolean; loading: boolean; error: string }>({ sites: [], roles: {}, global: false, loading: true, error: '' });
+  const [siteAccessState, setSiteAccessState] = useState<{ sites: string[]; roles: Record<string, string>; activations: Record<string, 'active' | 'inactive'>; global: boolean; loading: boolean; error: string }>({ sites: [], roles: {}, activations: {}, global: false, loading: true, error: '' });
   const [weatherState, setWeatherState] = useState<WeatherState>({ status: 'unavailable', message: 'No configured coordinates are available for the selected plant/site.' });
   const [weatherRefreshToken, setWeatherRefreshToken] = useState(0);
   const [siteLocations, setSiteLocations] = useState<Record<string, PlantLocation>>({});
@@ -2843,9 +2843,9 @@ function AppShell() {
     const loadSiteAccess = async () => {
       try {
         const response = await fetch('/api/mqtt/site-access', { signal: controller.signal, cache: 'no-store' });
-        const payload = await response.json() as { sites?: string[]; roles?: Record<string, string>; global?: boolean; message?: string };
+        const payload = await response.json() as { sites?: string[]; roles?: Record<string, string>; activations?: Record<string, 'active' | 'inactive'>; global?: boolean; message?: string };
         if (!response.ok || !Array.isArray(payload.sites)) throw new Error(payload.message ?? 'Site access could not be loaded.');
-        setSiteAccessState({ sites: payload.sites, roles: payload.roles ?? {}, global: payload.global === true, loading: false, error: '' });
+        setSiteAccessState({ sites: payload.sites, roles: payload.roles ?? {}, activations: payload.activations ?? {}, global: payload.global === true, loading: false, error: '' });
         if (payload.sites.length && !activeSite) setActiveSite(payload.sites[0]);
       } catch (loadError) {
         if (!controller.signal.aborted) setSiteAccessState((current) => ({ ...current, loading: false, error: loadError instanceof Error ? loadError.message : 'Site access could not be loaded.' }));
@@ -2912,15 +2912,18 @@ function AppShell() {
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
   const availableSites = useMemo(
     () => siteAccessState.global
-      ? Array.from(new Set([...devices.map((device) => device.site).filter(Boolean), ...Object.keys(siteLocations)])).sort()
-      : siteAccessState.sites,
-    [devices, siteLocations, siteAccessState.global, siteAccessState.sites],
+      ? Array.from(new Set([...devices.map((device) => device.site).filter(Boolean), ...Object.keys(siteLocations)]))
+        .filter((site) => siteAccessState.activations[site] !== 'inactive')
+        .sort()
+      : siteAccessState.sites.filter((site) => siteAccessState.activations[site] !== 'inactive'),
+    [devices, siteLocations, siteAccessState.activations, siteAccessState.global, siteAccessState.sites],
   );
   useEffect(() => {
     if (availableSites.length && !availableSites.includes(activeSite)) setActiveSite(availableSites[0]);
   }, [activeSite, availableSites]);
   const plantSiteName = activeSite;
-  const scadaAccessState = dashboardAccessState(siteAccessState, plantSiteName);
+  const selectedSiteIsInactive = Boolean(plantSiteName && siteAccessState.activations[plantSiteName] === 'inactive');
+  const scadaAccessState = selectedSiteIsInactive ? 'denied' : dashboardAccessState(siteAccessState, plantSiteName);
   const weatherLocation = useMemo(() => findWeatherLocation(plantSiteName, siteLocations), [plantSiteName, siteLocations]);
   useEffect(() => {
     const controller = new AbortController();
@@ -3111,6 +3114,22 @@ function AppShell() {
         setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
       } catch {
         setError('The saved snapshot stream sent an unreadable update. Existing KPI evidence is retained.');
+      }
+    });
+    stream.addEventListener('site-activation', (event) => {
+      if (generation !== streamGenerationRef.current) return;
+      try {
+        const update = JSON.parse((event as MessageEvent).data) as { siteName?: string; activationStatus?: 'active' | 'inactive' };
+        if (!update.siteName || (update.activationStatus !== 'active' && update.activationStatus !== 'inactive')) return;
+        setSiteAccessState((current) => ({
+          ...current,
+          activations: { ...current.activations, [update.siteName!]: update.activationStatus! },
+        }));
+        if (update.activationStatus === 'inactive' && update.siteName === plantSiteName) {
+          setError('This site was deactivated by a platform administrator. Select another active site when available.');
+        }
+      } catch {
+        setError('The site activation update could not be read. The connection will refresh its access state automatically.');
       }
     });
     stream.addEventListener('resync', (event) => {
@@ -3562,7 +3581,7 @@ function AppShell() {
         <main className="scada-main-content min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain p-3 sm:p-6">
           {scadaAccessState === 'unavailable' && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-rose-500/30 bg-rose-500/[.04] p-8 text-center"><div className="max-w-md"><AlertCircle size={28} className="mx-auto mb-4 text-rose-400" /><h1 className="text-lg font-bold text-slate-100">SCADA access unavailable</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error}</p></div></section>}
           {(scadaAccessState === 'denied' || (scadaAccessState === 'ready' && !plantSiteName)) && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-amber-400" /><h1 className="text-lg font-bold text-slate-100">No SCADA site assigned</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error || 'Your account does not have an active site assignment. Ask a platform administrator to grant access before viewing live telemetry.'}</p></div></section>}
-          {scadaAccessState === 'ready' && plantSiteName && <><div className="mb-1 flex items-center justify-between rounded-xl border border-blue-500/20 bg-blue-500/[.04] px-3 py-2 text-xs text-slate-400"><span>Viewing assigned site</span><strong className="text-blue-300">{plantSiteName}</strong>{siteAccessState.roles[plantSiteName] && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>
+          {scadaAccessState === 'ready' && plantSiteName && <><div className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-500/20 bg-blue-500/[.04] px-3 py-2 text-xs text-slate-400"><span>Viewing assigned site</span><strong className="text-blue-300">{plantSiteName}</strong><span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">Site active</span>{siteAccessState.roles[plantSiteName] && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>
           {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">

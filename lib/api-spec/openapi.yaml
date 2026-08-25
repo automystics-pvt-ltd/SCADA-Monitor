@@ -116,6 +116,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlatformSite"
+  /platform-admin/sites/activation:
+    post:
+      operationId: updatePlatformSiteActivation
+      tags: [platform-admin]
+      summary: Explicitly activate or deactivate a managed site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSiteActivationInput"
+      responses:
+        "200":
+          description: Updated site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSite"
+        "400":
+          description: Invalid activation request or telemetry verification required
+        "404":
+          description: Site not found
+  /platform-admin/telemetry/devices:
+    get:
+      operationId: listPlatformTelemetryDevices
+      tags: [platform-admin]
+      summary: List source-backed devices observed in live telemetry
+      responses:
+        "200":
+          description: Observed telemetry devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformTelemetryDevice"
+  /platform-admin/telemetry-tests:
+    post:
+      operationId: createPlatformTelemetryTest
+      tags: [platform-admin]
+      summary: Run a bounded live telemetry test against a selected device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformTelemetryTestInput"
+      responses:
+        "200":
+          description: Completed telemetry test
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTelemetryTest"
+        "400":
+          description: Site or device is not currently available for testing
   /platform-admin/users:
     get:
       operationId: listPlatformUsers
@@ -395,7 +451,10 @@ components:
         longitude: { type: [number, "null"] }
         timezone: { type: string }
         status: { type: string }
-      required: [siteName, organizationId, organizationName, latitude, longitude, timezone, status]
+        activationStatus: { type: string, enum: [active, inactive] }
+        lastTelemetryTestedAt: { type: [string, "null"], format: date-time }
+        lastTelemetryTestResult: { type: [string, "null"], enum: [success, no-telemetry, error] }
+      required: [siteName, organizationId, organizationName, latitude, longitude, timezone, status, activationStatus, lastTelemetryTestedAt, lastTelemetryTestResult]
     PlatformSiteInput:
       type: object
       properties:
@@ -405,6 +464,54 @@ components:
         longitude: { type: [number, "null"] }
         timezone: { type: string, maxLength: 80 }
       required: [siteName, organizationId, timezone]
+    PlatformSiteActivationInput:
+      type: object
+      properties:
+        siteName: { type: string, minLength: 2, maxLength: 160 }
+        activationStatus: { type: string, enum: [active, inactive] }
+      required: [siteName, activationStatus]
+    PlatformTelemetryDevice:
+      type: object
+      properties:
+        siteName: { type: string }
+        deviceId: { type: string }
+        deviceName: { type: string }
+        lastReceivedAt: { type: string, format: date-time }
+      required: [siteName, deviceId, deviceName, lastReceivedAt]
+    PlatformTelemetryTestInput:
+      type: object
+      properties:
+        siteName: { type: string, minLength: 2, maxLength: 160 }
+        deviceId: { type: string, minLength: 1, maxLength: 160 }
+        timeoutSeconds: { type: number, minimum: 3, maximum: 15, multipleOf: 1 }
+      required: [siteName, deviceId, timeoutSeconds]
+    PlatformTelemetryTest:
+      type: object
+      properties:
+        id: { type: string }
+        siteName: { type: string }
+        deviceId: { type: string }
+        deviceName: { type: string }
+        result: { type: string, enum: [success, no-telemetry, error] }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        timeoutSeconds: { type: number, multipleOf: 1 }
+        brokerStatus: { type: string }
+        subscriptionStatus: { type: string }
+        deviceStatus: { type: string }
+        topic: { type: string }
+        lastReceivedAt: { type: [string, "null"], format: date-time }
+        dataFrequencySeconds: { type: [number, "null"] }
+        actualValue: { type: [string, "null"] }
+        dataQuality: { type: string }
+        messageCount: { type: number, multipleOf: 1 }
+        communicationErrors:
+          type: array
+          items: { type: string }
+        evidence:
+          type: object
+          additionalProperties: true
+      required: [id, siteName, deviceId, deviceName, result, startedAt, finishedAt, timeoutSeconds, brokerStatus, subscriptionStatus, deviceStatus, topic, lastReceivedAt, dataFrequencySeconds, actualValue, dataQuality, messageCount, communicationErrors, evidence]
     PlatformUser:
       type: object
       properties:

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { boolean, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./auth";
@@ -49,10 +49,45 @@ export const platformSitesTable = pgTable(
     organizationId: varchar("organization_id").notNull().references(() => platformOrganizationsTable.id, { onDelete: "restrict" }),
     timezone: varchar("timezone", { length: 80 }).notNull().default("UTC"),
     status: varchar("status", { enum: ["active", "archived"] }).notNull().default("active"),
+    // This is a deliberate governance state, not a reflection of MQTT/device
+    // freshness. Existing managed sites remain active through the migration.
+    activationStatus: varchar("activation_status", { enum: ["active", "inactive"] }).notNull().default("active"),
+    activationUpdatedAt: timestamp("activation_updated_at", { withTimezone: true }).notNull().defaultNow(),
+    activationUpdatedBy: varchar("activation_updated_by").references(() => usersTable.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   },
   (table) => [index("platform_sites_organization_index").on(table.organizationId)],
+);
+
+export const platformTelemetryTestsTable = pgTable(
+  "platform_telemetry_tests",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    siteName: varchar("site_name", { length: 160 }).notNull().references(() => platformSitesTable.siteName, { onDelete: "cascade" }),
+    deviceId: varchar("device_id", { length: 160 }).notNull(),
+    deviceName: varchar("device_name", { length: 160 }).notNull(),
+    result: varchar("result", { enum: ["success", "no-telemetry", "error"] }).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+    timeoutSeconds: integer("timeout_seconds").notNull(),
+    brokerStatus: varchar("broker_status", { length: 40 }).notNull(),
+    subscriptionStatus: varchar("subscription_status", { length: 40 }).notNull(),
+    deviceStatus: varchar("device_status", { length: 40 }).notNull(),
+    lastReceivedAt: timestamp("last_received_at", { withTimezone: true }),
+    dataFrequencySeconds: doublePrecision("data_frequency_seconds"),
+    actualValue: text("actual_value"),
+    dataQuality: varchar("data_quality", { length: 40 }).notNull(),
+    messageCount: integer("message_count").notNull().default(0),
+    communicationErrors: jsonb("communication_errors").notNull().default([]),
+    evidence: jsonb("evidence").notNull().default({}),
+    createdBy: varchar("created_by").notNull().references(() => usersTable.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("platform_telemetry_tests_site_created_index").on(table.siteName, table.createdAt),
+    index("platform_telemetry_tests_site_result_index").on(table.siteName, table.result),
+  ],
 );
 
 export const platformSiteAccessTable = pgTable(
@@ -100,5 +135,6 @@ export type PlatformOrganization = typeof platformOrganizationsTable.$inferSelec
 export type PlatformSite = typeof platformSitesTable.$inferSelect;
 export type PlatformSiteAccess = typeof platformSiteAccessTable.$inferSelect;
 export type PlatformAuditEvent = typeof platformAuditEventsTable.$inferSelect;
+export type PlatformTelemetryTest = typeof platformTelemetryTestsTable.$inferSelect;
 export type InsertPlatformOrganization = z.infer<typeof insertPlatformOrganizationSchema>;
 export type InsertPlatformSite = z.infer<typeof insertPlatformSiteSchema>;

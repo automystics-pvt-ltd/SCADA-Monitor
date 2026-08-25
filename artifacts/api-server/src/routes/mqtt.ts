@@ -10,6 +10,7 @@ import {
   mqttInverterMeasurementHistoryTable,
   mqttSnapshotsTable,
   platformConfigurationTable,
+  platformSitesTable,
   plantCalibrationProfilesTable,
   plantLocationsTable,
 } from "@workspace/db";
@@ -101,6 +102,32 @@ type StoredMessage = {
   inverterRecords?: InverterActivePowerObservation[];
   delivery: "immediate" | "retained";
 };
+export type LiveTelemetryDevice = {
+  siteName: string;
+  deviceId: string;
+  deviceName: string;
+  lastReceivedAt: string;
+};
+export type LiveTelemetryTestResult = {
+  result: "success" | "no-telemetry" | "error";
+  brokerStatus: string;
+  subscriptionStatus: string;
+  deviceStatus: string;
+  topic: string;
+  lastReceivedAt?: string;
+  dataFrequencySeconds?: number;
+  actualValue?: string;
+  dataQuality: string;
+  messageCount: number;
+  communicationErrors: string[];
+  evidence: Record<string, unknown>;
+};
+type TelemetryTestWaiter = {
+  siteName: string;
+  deviceId: string;
+  resolve: (message: StoredMessage | undefined) => void;
+  timer: NodeJS.Timeout;
+};
 type CommunicationState = "live" | "stale" | "interrupted" | "awaiting-first-data";
 type DeliveryGap = {
   detectedAt: string;
@@ -187,6 +214,7 @@ let reconnectTimer: NodeJS.Timeout | undefined;
 let lastError: string | undefined;
 let latestMessage: StoredMessage | undefined;
 const messageHistory: StoredMessage[] = [];
+const telemetryTestWaiters = new Set<TelemetryTestWaiter>();
 const MESSAGE_HISTORY_LIMIT = 5000;
 const COMMUNICATION_PERSISTENCE_QUEUE_LIMIT = 1000;
 const SSE_PENDING_FRAME_LIMIT = 250;
@@ -400,6 +428,17 @@ function broadcast(event: string, data: unknown, eventId?: number) {
     if (event === "message" && state.siteName && !messageBelongsToSite(data as StoredMessage, state.siteName)) continue;
     if (event === "snapshot" && state.siteName && !snapshotBelongsToSite({ data: data }, state.siteName)) continue;
     send(listener, event, data, eventId);
+  }
+}
+
+export function broadcastSiteActivation(siteName: string, activationStatus: "active" | "inactive", changedAt: string) {
+  for (const [listener, state] of listeners) {
+    if (state.siteName !== siteName) continue;
+    send(listener, "site-activation", { siteName, activationStatus, changedAt });
+    if (activationStatus === "inactive") {
+      listener.end();
+      listeners.delete(listener);
+    }
   }
 }
 
@@ -1278,6 +1317,126 @@ export function getMqttRuntimeStatus() {
   return status();
 }
 
+function deviceFromMessage(message: StoredMessage): LiveTelemetryDevice | undefined {
+  const parameter = message.parameter ?? parameterFromPayload(message.payload);
+  if (!parameter) return undefined;
+  const inverter = message.inverterRecords?.[0];
+  const deviceId = inverter?.inverterId
+    ?? sourceText(parameter, ["inverter_id", "inverterId", "device_id", "deviceId", "device", "id"]);
+  if (!deviceId) return undefined;
+  const deviceName = inverter?.inverterName
+    ?? sourceText(parameter, ["inverter_name", "inverterName", "device_name", "deviceName", "name"])
+    ?? deviceId;
+  const siteName = payloadSiteName(parameter) || configuredMqttPlantSite;
+  return { siteName, deviceId, deviceName, lastReceivedAt: message.receivedAt };
+}
+
+function testMessageMatches(message: StoredMessage, siteName: string, deviceId: string) {
+  const device = deviceFromMessage(message);
+  return message.delivery === "immediate"
+    && device?.siteName === siteName
+    && device.deviceId === deviceId;
+}
+
+function notifyTelemetryTestWaiters(message: StoredMessage) {
+  for (const waiter of telemetryTestWaiters) {
+    if (!testMessageMatches(message, waiter.siteName, waiter.deviceId)) continue;
+    clearTimeout(waiter.timer);
+    telemetryTestWaiters.delete(waiter);
+    waiter.resolve(message);
+  }
+}
+
+function waitForLiveTelemetry(siteName: string, deviceId: string, timeoutMs: number) {
+  return new Promise<StoredMessage | undefined>((resolve) => {
+    const waiter: TelemetryTestWaiter = {
+      siteName,
+      deviceId,
+      resolve,
+      timer: setTimeout(() => {
+        telemetryTestWaiters.delete(waiter);
+        resolve(undefined);
+      }, timeoutMs),
+    };
+    telemetryTestWaiters.add(waiter);
+  });
+}
+
+function actualTelemetryValue(message: StoredMessage) {
+  const parameter = message.parameter ?? parameterFromPayload(message.payload);
+  if (!parameter) return undefined;
+  const value = numericParameterValue(parameter);
+  if (value === null) return undefined;
+  const label = sourceText(parameter, ["display_name", "displayName", "label", "name", "parameter"]) ?? "Telemetry value";
+  const unit = sourceText(parameter, ["engineering_unit", "unit"]);
+  return `${label}: ${value}${unit ? ` ${unit}` : ""}`;
+}
+
+export function listLiveTelemetryDevices() {
+  const latest = new Map<string, LiveTelemetryDevice>();
+  for (const message of messageHistory) {
+    if (message.delivery !== "immediate") continue;
+    const device = deviceFromMessage(message);
+    if (!device) continue;
+    const key = `${device.siteName}:${device.deviceId}`;
+    const existing = latest.get(key);
+    if (!existing || Date.parse(device.lastReceivedAt) >= Date.parse(existing.lastReceivedAt)) latest.set(key, device);
+  }
+  return [...latest.values()].sort((left, right) =>
+    left.siteName.localeCompare(right.siteName) || left.deviceName.localeCompare(right.deviceName));
+}
+
+export async function runLiveTelemetryTest(siteName: string, deviceId: string, timeoutSeconds: number): Promise<LiveTelemetryTestResult> {
+  requestMqttConsumer();
+  const startedAt = new Date();
+  const initialHighWater = messageHistory.at(-1)?.sequence ?? 0;
+  const message = await waitForLiveTelemetry(siteName, deviceId, timeoutSeconds * 1_000);
+  const runtime = status();
+  const communication = runtime.communication;
+  const latestForDevice = [...messageHistory].reverse().find((candidate) => testMessageMatches(candidate, siteName, deviceId));
+  const received = message ?? latestForDevice;
+  const processedValue = message ? actualTelemetryValue(message) : undefined;
+  const messagesReceived = messageHistory.filter((candidate) => candidate.sequence > initialHighWater && testMessageMatches(candidate, siteName, deviceId)).length;
+  const communicationErrors = [
+    runtime.error,
+    communication.activeInterruption?.reason,
+    communication.persistenceError,
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  const result: LiveTelemetryTestResult["result"] = message && processedValue
+    ? "success"
+    : message
+      ? "error"
+      : "no-telemetry";
+  const dataQuality = !message
+    ? "unavailable"
+    : processedValue
+      ? "source-backed"
+      : "received-unprocessed";
+  if (message && !processedValue) communicationErrors.push("A live MQTT message arrived but did not contain a processable numeric telemetry value.");
+  return {
+    result,
+    brokerStatus: runtime.connected ? "connected" : "disconnected",
+    subscriptionStatus: communication.subscriptionState,
+    deviceStatus: message ? "live" : communication.deviceCommunication,
+    topic: runtime.topic,
+    lastReceivedAt: received?.receivedAt,
+    dataFrequencySeconds: communication.dataFrequencySeconds,
+    actualValue: processedValue,
+    dataQuality,
+    messageCount: messagesReceived,
+    communicationErrors,
+    evidence: {
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      matchingSequence: message?.sequence,
+      matchingSourceTimestamp: message?.sourceTimestamp,
+      matchingDelivery: message?.delivery,
+      observedSiteName: received ? deviceFromMessage(received)?.siteName : undefined,
+      observedDeviceId: received ? deviceFromMessage(received)?.deviceId : undefined,
+    },
+  };
+}
+
 function startClient() {
   if (!consumerLeaseHeld || client) return;
 
@@ -1456,6 +1615,7 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
   }
   messageHistory.push(message);
   if (messageHistory.length > MESSAGE_HISTORY_LIMIT) messageHistory.splice(0, messageHistory.length - MESSAGE_HISTORY_LIMIT);
+  notifyTelemetryTestWaiters(message);
   broadcast("message", message, message.sequence);
   broadcast("status", status());
 
@@ -1536,13 +1696,24 @@ router.get("/mqtt/status", (_req, res) => {
 router.get("/mqtt/snapshots", async (req, res) => {
   const siteName = parseSiteName(req.query.siteName);
   if (siteName && !await allowGrantedSite(req, res, siteName)) return;
+  if (!siteName && !await allowUnscopedScadaEvidence(req, res)) return;
   try {
+    const inactiveManagedSites = new Set((await db
+      .select({ siteName: platformSitesTable.siteName })
+      .from(platformSitesTable)
+      .where(eq(platformSitesTable.activationStatus, "inactive")))
+      .map((site) => site.siteName));
     const snapshots = await db
       .select()
       .from(mqttSnapshotsTable)
       .orderBy(desc(mqttSnapshotsTable.capturedAt))
       .limit(100);
-    res.json({ snapshots: snapshots.filter((snapshot) => snapshotBelongsToSite(snapshot, siteName || undefined)).slice(0, 20) });
+    res.json({
+      snapshots: snapshots
+        .filter((snapshot) => snapshotBelongsToSite(snapshot, siteName || undefined))
+        .filter((snapshot) => ![...inactiveManagedSites].some((inactiveSite) => snapshotBelongsToSite(snapshot, inactiveSite)))
+        .slice(0, 20),
+    });
   } catch (error) {
     logger.error({ err: error }, "MQTT snapshots query failed");
     res.status(500).json({ message: "Unable to load stored MQTT snapshots" });
@@ -1551,8 +1722,11 @@ router.get("/mqtt/snapshots", async (req, res) => {
 
 router.get("/mqtt/snapshots/latest", async (req, res): Promise<void> => {
   const siteName = parseSiteName(req.query.siteName);
-  if (siteName && !await allowGrantedSite(req, res, siteName)) return;
-  if (!siteName && !await allowUnscopedScadaEvidence(req, res)) return;
+  if (!siteName) {
+    res.status(400).json({ message: "Select one active plant/site before opening saved telemetry evidence." });
+    return;
+  }
+  if (!await allowGrantedSite(req, res, siteName)) return;
   try {
     const snapshot = await latestSavedSnapshotEvidence(siteName || undefined);
     res.set("Cache-Control", "no-store").json({ snapshot });
@@ -1580,11 +1754,18 @@ router.get("/mqtt/site-locations", async (req, res) => {
 
 router.get("/mqtt/site-access", async (req, res) => {
   const access = await siteAccess(req);
+  const managedSites = await db
+    .select({ siteName: platformSitesTable.siteName, activationStatus: platformSitesTable.activationStatus })
+    .from(platformSitesTable);
+  const visibleManagedSites = access.global
+    ? managedSites
+    : managedSites.filter((site) => access.roles.has(site.siteName));
   res.set("Cache-Control", "no-store").json({
     sites: [...access.sites].sort(),
     roles: Object.fromEntries(access.roles),
     global: access.global,
     policy: access.global ? "global" : "assigned-sites",
+    activations: Object.fromEntries(visibleManagedSites.map((site) => [site.siteName, site.activationStatus])),
   });
 });
 
@@ -2228,6 +2409,11 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
     }
     siteName = [...granted][0];
   }
+  if (!siteName && granted === null) {
+    res.status(400).json({ message: "Select one active plant/site before requesting a report." });
+    return;
+  }
+  if (siteName && !await allowGrantedSite(req, res, siteName)) return;
   if (granted && !granted.has(siteName)) {
     res.status(403).json({ message: "Your assigned site access does not include this report scope." });
     return;
@@ -2642,9 +2828,11 @@ function bootstrapMessages(highWater: number) {
 
 router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
   const siteName = parseSiteName(req.query.siteName);
-  if (siteName) {
-    if (!await allowGrantedSite(req, res, siteName)) return;
-  } else if (!await allowUnscopedScadaEvidence(req, res)) return;
+  if (!siteName) {
+    res.status(400).json({ message: "Select one active plant/site before opening communication evidence." });
+    return;
+  }
+  if (!await allowGrantedSite(req, res, siteName)) return;
   const requestedLimit = Number(req.query.limit);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 200) : 50;
   try {
@@ -2664,9 +2852,11 @@ router.get("/mqtt/communication-events", async (req, res): Promise<void> => {
 
 router.get("/mqtt/stream", async (req, res) => {
   const siteName = parseSiteName(req.query.siteName);
-  if (siteName) {
-    if (!await allowGrantedSite(req, res, siteName)) return;
-  } else if (!await allowUnscopedScadaEvidence(req, res)) return;
+  if (!siteName) {
+    res.status(400).json({ message: "Select one active plant/site before opening the live telemetry stream." });
+    return;
+  }
+  if (!await allowGrantedSite(req, res, siteName)) return;
   requestMqttConsumer();
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");

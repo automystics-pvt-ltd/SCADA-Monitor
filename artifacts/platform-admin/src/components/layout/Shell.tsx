@@ -10,6 +10,7 @@ import {
   LogOut,
   MapPin,
   Moon,
+  Radio,
   Server,
   Sun,
   ShieldAlert,
@@ -27,6 +28,7 @@ const navigation = [
   { name: "Sites", href: "/sites", icon: MapPin },
   { name: "Access Grants", href: "/access", icon: Key },
   { name: "Platform Health", href: "/platform", icon: Server },
+  { name: "Telemetry", href: "/telemetry", icon: Radio },
   { name: "Database", href: "/database", icon: Database },
   { name: "Audit Log", href: "/audit", icon: ShieldAlert },
 ]

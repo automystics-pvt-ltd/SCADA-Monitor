@@ -1,0 +1,460 @@
+import { useState, useMemo } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { 
+  useListPlatformSites, 
+  useListPlatformTelemetryDevices, 
+  useCreatePlatformTelemetryTest, 
+  useUpdatePlatformSiteActivation,
+  getListPlatformSitesQueryKey,
+  getListPlatformTelemetryDevicesQueryKey,
+  type PlatformTelemetryTest
+} from "@workspace/api-client-react"
+import { format } from "date-fns"
+
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/hooks/use-toast"
+import { Activity, Radio, ShieldCheck, ShieldAlert, AlertTriangle, TerminalSquare, Search, RefreshCw, CheckCircle2, ChevronRight, Play } from "lucide-react"
+
+export default function Telemetry() {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+
+  const [selectedSiteName, setSelectedSiteName] = useState<string>("")
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("")
+  const [timeoutSeconds, setTimeoutSeconds] = useState<number>(5)
+  const [testResult, setTestResult] = useState<PlatformTelemetryTest | null>(null)
+  
+  const [isActivationDialogOpen, setIsActivationDialogOpen] = useState(false)
+
+  const { data: sites, isLoading: isLoadingSites } = useListPlatformSites()
+  const { data: devices, isLoading: isLoadingDevices } = useListPlatformTelemetryDevices()
+
+  const createTest = useCreatePlatformTelemetryTest()
+  const updateActivation = useUpdatePlatformSiteActivation()
+
+  const selectedSite = useMemo(() => sites?.find(s => s.siteName === selectedSiteName), [sites, selectedSiteName])
+  const filteredDevices = useMemo(() => devices?.filter(d => d.siteName === selectedSiteName) || [], [devices, selectedSiteName])
+
+  const handleSiteChange = (val: string) => {
+    setSelectedSiteName(val)
+    setSelectedDeviceId("")
+    setTestResult(null)
+  }
+
+  const handleRunTest = () => {
+    if (!selectedSiteName || !selectedDeviceId) return;
+
+    createTest.mutate(
+      {
+        data: {
+          siteName: selectedSiteName,
+          deviceId: selectedDeviceId,
+          timeoutSeconds
+        }
+      },
+      {
+        onSuccess: (data) => {
+          setTestResult(data)
+          void Promise.all([
+            queryClient.invalidateQueries({ queryKey: getListPlatformSitesQueryKey() }),
+            queryClient.invalidateQueries({ queryKey: getListPlatformTelemetryDevicesQueryKey() }),
+          ])
+          toast({ 
+            title: "Test completed", 
+            description: `Telemetry test returned: ${data.result}` 
+          })
+        },
+        onError: (err) => {
+          toast({ 
+            title: "Test execution failed", 
+            description: err instanceof Error ? err.message : "An error occurred",
+            variant: "destructive" 
+          })
+        }
+      }
+    )
+  }
+
+  const handleToggleActivation = () => {
+    if (!selectedSite) return
+
+    const isCurrentlyActive = selectedSite.activationStatus === 'active'
+    const nextStatus = isCurrentlyActive ? 'inactive' : 'active'
+
+    updateActivation.mutate(
+      {
+        data: {
+          siteName: selectedSite.siteName,
+          activationStatus: nextStatus
+        }
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListPlatformSitesQueryKey() })
+          toast({ title: `Site ${nextStatus === 'active' ? 'activated' : 'deactivated'} successfully` })
+          setIsActivationDialogOpen(false)
+        },
+        onError: (err) => {
+          toast({ 
+            title: "Activation update failed", 
+            description: err instanceof Error ? err.message : "An error occurred",
+            variant: "destructive" 
+          })
+        }
+      }
+    )
+  }
+
+  const renderPayload = (val: string | null) => {
+    if (!val) return <span className="text-slate-500">No payload received during observation window.</span>
+    try {
+      const obj = JSON.parse(val)
+      return <pre>{JSON.stringify(obj, null, 2)}</pre>
+    } catch {
+      return <pre>{val}</pre>
+    }
+  }
+
+  const isTestSuccess = selectedSite?.lastTelemetryTestResult === 'success'
+  const isSiteActive = selectedSite?.activationStatus === 'active'
+  const canActivate = isTestSuccess || testResult?.result === 'success'
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-primary flex items-center gap-3">
+          <Activity className="h-8 w-8" />
+          Telemetry Verification
+        </h1>
+        <p className="text-muted-foreground mt-2">
+          Verify live device communication before explicitly activating managed sites.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Control Panel */}
+        <div className="lg:col-span-4 space-y-6 flex flex-col">
+          <Card className="flex-none border-primary/20 bg-card/50 backdrop-blur-sm">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Search className="w-5 h-5 text-primary" /> 
+                Target Selection
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Managed Site</label>
+                <Select value={selectedSiteName} onValueChange={handleSiteChange} disabled={isLoadingSites}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder="Select a site..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sites?.map((site) => (
+                      <SelectItem key={site.siteName} value={site.siteName}>
+                        {site.siteName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Device Source</label>
+                <Select value={selectedDeviceId} onValueChange={setSelectedDeviceId} disabled={!selectedSiteName || isLoadingDevices || filteredDevices.length === 0}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder={!selectedSiteName ? "Select site first" : filteredDevices.length === 0 ? "No devices found" : "Select a device..."} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredDevices.map((dev) => (
+                      <SelectItem key={dev.deviceId} value={dev.deviceId}>
+                        {dev.deviceName} <span className="text-muted-foreground text-xs ml-1">({dev.deviceId})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Observation Timeout</label>
+                <Select value={timeoutSeconds.toString()} onValueChange={(val) => setTimeoutSeconds(Number(val))}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3 seconds</SelectItem>
+                    <SelectItem value="5">5 seconds</SelectItem>
+                    <SelectItem value="10">10 seconds</SelectItem>
+                    <SelectItem value="15">15 seconds</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+            <div className="p-6 pt-0">
+              <Button 
+                className="w-full font-semibold transition-all" 
+                onClick={handleRunTest} 
+                disabled={!selectedSiteName || !selectedDeviceId || createTest.isPending}
+                size="lg"
+              >
+                {createTest.isPending ? (
+                  <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-5 h-5 mr-2" />
+                )}
+                {createTest.isPending ? "Observing Telemetry..." : "Run Telemetry Test"}
+              </Button>
+            </div>
+          </Card>
+
+          {selectedSite && (
+            <Card className={`flex-none transition-colors duration-300 ${isSiteActive ? "border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "border-border"}`}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {isSiteActive ? <ShieldCheck className="w-5 h-5 text-emerald-500" /> : <ShieldAlert className="w-5 h-5 text-muted-foreground" />}
+                    Site Activation
+                  </div>
+                  <Badge variant={isSiteActive ? "default" : "secondary"} className={isSiteActive ? "bg-emerald-500 hover:bg-emerald-600 text-white" : ""}>
+                    {isSiteActive ? "ACTIVE" : "INACTIVE"}
+                  </Badge>
+                </CardTitle>
+                <CardDescription>
+                  {isSiteActive 
+                    ? "Site is available to authorized SCADA operators. Device health remains separate." 
+                    : "Activate only after a successful live telemetry verification."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md bg-card border p-3 mb-4 space-y-2 text-sm shadow-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Last Test</span>
+                    <span className="font-mono text-foreground">
+                      {selectedSite.lastTelemetryTestedAt 
+                        ? format(new Date(selectedSite.lastTelemetryTestedAt), "HH:mm:ss yyyy-MM-dd")
+                        : "Never"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Status</span>
+                    {selectedSite.lastTelemetryTestResult === 'success' ? (
+                      <span className="text-emerald-500 font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> PASS
+                      </span>
+                    ) : selectedSite.lastTelemetryTestResult === 'error' ? (
+                      <span className="text-destructive font-semibold flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5" /> FAIL
+                      </span>
+                    ) : selectedSite.lastTelemetryTestResult === 'no-telemetry' ? (
+                      <span className="text-amber-500 font-semibold flex items-center gap-1">
+                        <Radio className="w-3.5 h-3.5" /> NO DATA
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground font-mono">UNKNOWN</span>
+                    )}
+                  </div>
+                </div>
+
+                <Dialog open={isActivationDialogOpen} onOpenChange={setIsActivationDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button 
+                      variant={isSiteActive ? "destructive" : "default"} 
+                      className={`w-full ${!isSiteActive && canActivate ? "bg-primary hover:bg-primary/90 text-primary-foreground" : ""}`}
+                      disabled={!isSiteActive && !canActivate}
+                    >
+                      {isSiteActive ? "Deactivate Site" : "Activate Site"}
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>
+                        Confirm {isSiteActive ? "Deactivation" : "Activation"}
+                      </DialogTitle>
+                      <DialogDescription>
+                        {isSiteActive 
+                          ? `Are you sure you want to deactivate ${selectedSite.siteName}? Authorized SCADA users will lose access to this managed site until it is explicitly activated again.` 
+                          : `Are you sure you want to activate ${selectedSite.siteName}? Its successful live test will be recorded and the updated site state will reach connected SCADA clients immediately.`}
+                      </DialogDescription>
+                    </DialogHeader>
+                    
+                    {!isSiteActive && testResult?.result !== 'success' && selectedSite.lastTelemetryTestResult === 'success' && (
+                      <div className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-lg p-4 flex gap-3 text-sm mt-2">
+                        <AlertTriangle className="h-5 w-5 shrink-0" />
+                        <div>
+                          <h4 className="font-semibold mb-1">Notice</h4>
+                          <p>A previous test passed, but you haven't run a successful test in this session. Proceed with caution.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <DialogFooter className="mt-4">
+                      <Button variant="outline" onClick={() => setIsActivationDialogOpen(false)}>Cancel</Button>
+                      <Button 
+                        variant={isSiteActive ? "destructive" : "default"}
+                        onClick={handleToggleActivation}
+                        disabled={updateActivation.isPending}
+                      >
+                        {updateActivation.isPending && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
+                        Confirm {isSiteActive ? "Deactivate" : "Activate"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+                
+                {!isSiteActive && !canActivate && (
+                  <p className="text-xs text-center text-muted-foreground mt-3 bg-muted/50 p-2 rounded">
+                    A successful telemetry test is required before activation.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Right Diagnostics Panel */}
+        <div className="lg:col-span-8 space-y-6 flex flex-col">
+          <Card className="flex-1 flex flex-col border-primary/10 shadow-md overflow-hidden bg-card/50 backdrop-blur-sm">
+            <CardHeader className="border-b bg-muted/30 pb-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <TerminalSquare className="w-5 h-5 text-primary" />
+                  Diagnostic Output
+                </CardTitle>
+                {testResult && (
+                  <Badge variant="outline" className={
+                    testResult.result === 'success' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' :
+                    testResult.result === 'error' ? 'bg-destructive/15 text-destructive border-destructive/30' : 
+                    'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                  }>
+                    {testResult.result.toUpperCase()}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="flex-1 p-0">
+              {testResult ? (
+                <div className="p-6 space-y-8 animate-in slide-in-from-bottom-2 duration-300">
+                  {/* Status Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                    <div className="space-y-1.5 p-3 rounded-lg bg-card border shadow-sm">
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Broker Status</div>
+                      <div className="font-mono text-sm font-semibold flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${testResult.brokerStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-destructive shadow-[0_0_5px_rgba(239,68,68,0.5)]'}`} />
+                        {testResult.brokerStatus}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 p-3 rounded-lg bg-card border shadow-sm">
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Subscription</div>
+                      <div className="font-mono text-sm font-semibold flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${testResult.subscriptionStatus === 'active' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-amber-500 shadow-[0_0_5px_rgba(245,158,11,0.5)]'}`} />
+                        {testResult.subscriptionStatus}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 p-3 rounded-lg bg-card border shadow-sm">
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Device Health</div>
+                      <div className="font-mono text-sm font-semibold flex items-center gap-2">
+                        {testResult.deviceStatus === 'live' ? (
+                          <><div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" /> LIVE</>
+                        ) : (
+                          <><div className="w-2 h-2 rounded-full bg-muted-foreground" /> {testResult.deviceStatus.toUpperCase()}</>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 p-3 rounded-lg bg-card border shadow-sm">
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Data Quality</div>
+                      <div className="font-mono text-sm font-semibold flex items-center gap-2">
+                         {testResult.dataQuality === 'source-backed' ? (
+                          <span className="text-emerald-500 flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" /> SOURCE-BACKED</span>
+                        ) : testResult.dataQuality === 'received-unprocessed' ? (
+                          <span className="text-amber-500 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> UNPROCESSED</span>
+                        ) : (
+                          <span className="text-muted-foreground flex items-center gap-1.5"><Radio className="w-3.5 h-3.5" /> {testResult.dataQuality.toUpperCase()}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Metrics */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-6 border-t border-border/50">
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Messages Rx</div>
+                      <div className="font-mono text-3xl tracking-tighter text-foreground">{testResult.messageCount}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Frequency</div>
+                      <div className="font-mono text-3xl tracking-tighter text-foreground">
+                        {testResult.dataFrequencySeconds ? `${testResult.dataFrequencySeconds}s` : '--'}
+                      </div>
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Topic Path</div>
+                      <div className="font-mono text-sm bg-muted/50 border px-3 py-2 rounded-md inline-block text-foreground truncate max-w-full shadow-inner mt-1">
+                        {testResult.topic}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Payload */}
+                  <div className="space-y-3 pt-6 border-t border-border/50">
+                    <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center justify-between">
+                      Actual Value Received
+                      {testResult.lastReceivedAt && (
+                        <span className="normal-case font-mono font-normal tracking-normal text-xs text-muted-foreground">
+                          {format(new Date(testResult.lastReceivedAt), "HH:mm:ss.SSS")}
+                        </span>
+                      )}
+                    </div>
+                    <div className="bg-[#0f172a] dark:bg-black rounded-lg p-5 font-mono text-xs text-emerald-400 overflow-x-auto shadow-inner border border-slate-800">
+                      {renderPayload(testResult.actualValue)}
+                    </div>
+                  </div>
+
+                  {/* Errors */}
+                  {testResult.communicationErrors.length > 0 && (
+                    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 mt-6 shadow-sm">
+                      <div className="flex items-center gap-2 text-destructive font-semibold mb-3 text-sm">
+                        <AlertTriangle className="w-4 h-4" />
+                        Communication Errors ({testResult.communicationErrors.length})
+                      </div>
+                      <ul className="space-y-2">
+                        {testResult.communicationErrors.map((err, i) => (
+                          <li key={i} className="text-xs font-mono text-destructive/90 flex items-start gap-2 bg-destructive/10 p-2 rounded">
+                            <ChevronRight className="w-3.5 h-3.5 shrink-0 mt-0.5 opacity-60" />
+                            <span className="leading-relaxed">{err}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center p-8 text-muted-foreground">
+                  <div className="w-20 h-20 rounded-full bg-muted/50 border flex items-center justify-center mb-6 shadow-inner relative">
+                    <div className="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-20" style={{ animationDuration: '3s' }}></div>
+                    <Radio className="w-10 h-10 text-primary/40" />
+                  </div>
+                  <h3 className="text-xl font-medium text-foreground mb-2">Awaiting Telemetry</h3>
+                  <p className="max-w-md text-sm text-muted-foreground leading-relaxed">
+                    Select a managed site and device, then run a test to observe live MQTT ingress data and confirm connectivity before explicitly activating the site.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+            
+            {testResult && (
+              <div className="bg-muted/30 border-t px-6 py-3 text-[10px] text-muted-foreground font-mono flex justify-between uppercase tracking-wider">
+                <span>TEST_ID: {testResult.id.substring(0, 8)}...</span>
+                <span>
+                  WINDOW: {format(new Date(testResult.startedAt), "HH:mm:ss")} - {format(new Date(testResult.finishedAt), "HH:mm:ss")}
+                </span>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
+}

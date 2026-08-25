@@ -5,6 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PlatformSiteActivationStatus } from './platformSiteActivationStatus';
+import type { PlatformSiteLastTelemetryTestResult } from './platformSiteLastTelemetryTestResult';
 
 export interface PlatformSite {
   siteName: string;
@@ -16,4 +18,9 @@ export interface PlatformSite {
   longitude: number | null;
   timezone: string;
   status: string;
+  activationStatus: PlatformSiteActivationStatus;
+  /** @nullable */
+  lastTelemetryTestedAt: Date | null;
+  /** @nullable */
+  lastTelemetryTestResult: PlatformSiteLastTelemetryTestResult;
 }

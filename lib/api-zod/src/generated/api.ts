@@ -112,7 +112,10 @@ export const ListPlatformSitesResponseItem = zod.object({
   "latitude": zod.number().nullable(),
   "longitude": zod.number().nullable(),
   "timezone": zod.string(),
-  "status": zod.string()
+  "status": zod.string(),
+  "activationStatus": zod.enum(['active', 'inactive']),
+  "lastTelemetryTestedAt": zod.coerce.date().nullable(),
+  "lastTelemetryTestResult": zod.enum(['success', 'no-telemetry', 'error']).nullable()
 })
 export const ListPlatformSitesResponse = zod.array(ListPlatformSitesResponseItem)
 
@@ -142,7 +145,98 @@ export const CreatePlatformSiteResponse = zod.object({
   "latitude": zod.number().nullable(),
   "longitude": zod.number().nullable(),
   "timezone": zod.string(),
-  "status": zod.string()
+  "status": zod.string(),
+  "activationStatus": zod.enum(['active', 'inactive']),
+  "lastTelemetryTestedAt": zod.coerce.date().nullable(),
+  "lastTelemetryTestResult": zod.enum(['success', 'no-telemetry', 'error']).nullable()
+})
+
+
+/**
+ * @summary Explicitly activate or deactivate a managed site
+ */
+export const updatePlatformSiteActivationBodySiteNameMin = 2;
+export const updatePlatformSiteActivationBodySiteNameMax = 160;
+
+
+
+export const UpdatePlatformSiteActivationBody = zod.object({
+  "siteName": zod.string().min(updatePlatformSiteActivationBodySiteNameMin).max(updatePlatformSiteActivationBodySiteNameMax),
+  "activationStatus": zod.enum(['active', 'inactive'])
+})
+
+export const UpdatePlatformSiteActivationResponse = zod.object({
+  "siteName": zod.string(),
+  "organizationId": zod.string(),
+  "organizationName": zod.string(),
+  "latitude": zod.number().nullable(),
+  "longitude": zod.number().nullable(),
+  "timezone": zod.string(),
+  "status": zod.string(),
+  "activationStatus": zod.enum(['active', 'inactive']),
+  "lastTelemetryTestedAt": zod.coerce.date().nullable(),
+  "lastTelemetryTestResult": zod.enum(['success', 'no-telemetry', 'error']).nullable()
+})
+
+
+/**
+ * @summary List source-backed devices observed in live telemetry
+ */
+export const ListPlatformTelemetryDevicesResponseItem = zod.object({
+  "siteName": zod.string(),
+  "deviceId": zod.string(),
+  "deviceName": zod.string(),
+  "lastReceivedAt": zod.coerce.date()
+})
+export const ListPlatformTelemetryDevicesResponse = zod.array(ListPlatformTelemetryDevicesResponseItem)
+
+
+/**
+ * @summary Run a bounded live telemetry test against a selected device
+ */
+export const createPlatformTelemetryTestBodySiteNameMin = 2;
+export const createPlatformTelemetryTestBodySiteNameMax = 160;
+
+export const createPlatformTelemetryTestBodyDeviceIdMax = 160;
+
+export const createPlatformTelemetryTestBodyTimeoutSecondsMin = 3;
+export const createPlatformTelemetryTestBodyTimeoutSecondsMax = 15;
+export const createPlatformTelemetryTestBodyTimeoutSecondsMultipleOf = 1;
+
+
+
+export const CreatePlatformTelemetryTestBody = zod.object({
+  "siteName": zod.string().min(createPlatformTelemetryTestBodySiteNameMin).max(createPlatformTelemetryTestBodySiteNameMax),
+  "deviceId": zod.string().min(1).max(createPlatformTelemetryTestBodyDeviceIdMax),
+  "timeoutSeconds": zod.number().min(createPlatformTelemetryTestBodyTimeoutSecondsMin).max(createPlatformTelemetryTestBodyTimeoutSecondsMax).multipleOf(createPlatformTelemetryTestBodyTimeoutSecondsMultipleOf)
+})
+
+export const createPlatformTelemetryTestResponseTimeoutSecondsMultipleOf = 1;
+
+export const createPlatformTelemetryTestResponseMessageCountMultipleOf = 1;
+
+
+
+export const CreatePlatformTelemetryTestResponse = zod.object({
+  "id": zod.string(),
+  "siteName": zod.string(),
+  "deviceId": zod.string(),
+  "deviceName": zod.string(),
+  "result": zod.enum(['success', 'no-telemetry', 'error']),
+  "startedAt": zod.coerce.date(),
+  "finishedAt": zod.coerce.date(),
+  "timeoutSeconds": zod.number().multipleOf(createPlatformTelemetryTestResponseTimeoutSecondsMultipleOf),
+  "brokerStatus": zod.string(),
+  "subscriptionStatus": zod.string(),
+  "deviceStatus": zod.string(),
+  "topic": zod.string(),
+  "lastReceivedAt": zod.coerce.date().nullable(),
+  "dataFrequencySeconds": zod.number().nullable(),
+  "actualValue": zod.string().nullable(),
+  "dataQuality": zod.string(),
+  "messageCount": zod.number().multipleOf(createPlatformTelemetryTestResponseMessageCountMultipleOf),
+  "communicationErrors": zod.array(zod.string()),
+  "evidence": zod.record(zod.string(), zod.unknown())
 })
 
 

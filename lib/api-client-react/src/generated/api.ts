@@ -40,7 +40,11 @@ import type {
   PlatformSiteAccess,
   PlatformSiteAccessInput,
   PlatformSiteAccessUpdateInput,
+  PlatformSiteActivationInput,
   PlatformSiteInput,
+  PlatformTelemetryDevice,
+  PlatformTelemetryTest,
+  PlatformTelemetryTestInput,
   PlatformUser
 } from './api.schemas';
 
@@ -597,6 +601,225 @@ export const useCreatePlatformSite = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreatePlatformSiteMutationOptions(options));
+    }
+
+export const getUpdatePlatformSiteActivationUrl = () => {
+
+
+
+
+  return `/api/platform-admin/sites/activation`
+}
+
+/**
+ * @summary Explicitly activate or deactivate a managed site
+ */
+export const updatePlatformSiteActivation = async (platformSiteActivationInput: PlatformSiteActivationInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformSite> => {
+
+  return customFetch<PlatformSite>(getUpdatePlatformSiteActivationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformSiteActivationInput)
+  }
+);}
+
+
+
+
+
+export const getUpdatePlatformSiteActivationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSiteActivation>>, TError,{data: BodyType<PlatformSiteActivationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSiteActivation>>, TError,{data: BodyType<PlatformSiteActivationInput>}, TContext> => {
+
+const mutationKey = ['updatePlatformSiteActivation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlatformSiteActivation>>, {data: BodyType<PlatformSiteActivationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updatePlatformSiteActivation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePlatformSiteActivationMutationResult = NonNullable<Awaited<ReturnType<typeof updatePlatformSiteActivation>>>
+    export type UpdatePlatformSiteActivationMutationBody = BodyType<PlatformSiteActivationInput>
+    export type UpdatePlatformSiteActivationMutationError = ErrorType<void>
+
+    /**
+ * @summary Explicitly activate or deactivate a managed site
+ */
+export const useUpdatePlatformSiteActivation = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlatformSiteActivation>>, TError,{data: BodyType<PlatformSiteActivationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePlatformSiteActivation>>,
+        TError,
+        {data: BodyType<PlatformSiteActivationInput>},
+        TContext
+      > => {
+      return useMutation(getUpdatePlatformSiteActivationMutationOptions(options));
+    }
+
+export const getListPlatformTelemetryDevicesUrl = () => {
+
+
+
+
+  return `/api/platform-admin/telemetry/devices`
+}
+
+/**
+ * @summary List source-backed devices observed in live telemetry
+ */
+export const listPlatformTelemetryDevices = async ( options?: Parameters<typeof customFetch>[1]): Promise<PlatformTelemetryDevice[]> => {
+
+  return customFetch<PlatformTelemetryDevice[]>(getListPlatformTelemetryDevicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPlatformTelemetryDevicesQueryKey = () => {
+    return [
+    `/api/platform-admin/telemetry/devices`
+    ] as const;
+    }
+
+
+export const getListPlatformTelemetryDevicesQueryOptions = <TData = Awaited<ReturnType<typeof listPlatformTelemetryDevices>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryDevices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPlatformTelemetryDevicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlatformTelemetryDevices>>> = ({ signal }) => listPlatformTelemetryDevices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryDevices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPlatformTelemetryDevicesQueryResult = NonNullable<Awaited<ReturnType<typeof listPlatformTelemetryDevices>>>
+export type ListPlatformTelemetryDevicesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List source-backed devices observed in live telemetry
+ */
+
+export function useListPlatformTelemetryDevices<TData = Awaited<ReturnType<typeof listPlatformTelemetryDevices>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetryDevices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPlatformTelemetryDevicesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePlatformTelemetryTestUrl = () => {
+
+
+
+
+  return `/api/platform-admin/telemetry-tests`
+}
+
+/**
+ * @summary Run a bounded live telemetry test against a selected device
+ */
+export const createPlatformTelemetryTest = async (platformTelemetryTestInput: PlatformTelemetryTestInput, options?: Parameters<typeof customFetch>[1]): Promise<PlatformTelemetryTest> => {
+
+  return customFetch<PlatformTelemetryTest>(getCreatePlatformTelemetryTestUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(platformTelemetryTestInput)
+  }
+);}
+
+
+
+
+
+export const getCreatePlatformTelemetryTestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlatformTelemetryTest>>, TError,{data: BodyType<PlatformTelemetryTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPlatformTelemetryTest>>, TError,{data: BodyType<PlatformTelemetryTestInput>}, TContext> => {
+
+const mutationKey = ['createPlatformTelemetryTest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPlatformTelemetryTest>>, {data: BodyType<PlatformTelemetryTestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPlatformTelemetryTest(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePlatformTelemetryTestMutationResult = NonNullable<Awaited<ReturnType<typeof createPlatformTelemetryTest>>>
+    export type CreatePlatformTelemetryTestMutationBody = BodyType<PlatformTelemetryTestInput>
+    export type CreatePlatformTelemetryTestMutationError = ErrorType<void>
+
+    /**
+ * @summary Run a bounded live telemetry test against a selected device
+ */
+export const useCreatePlatformTelemetryTest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlatformTelemetryTest>>, TError,{data: BodyType<PlatformTelemetryTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPlatformTelemetryTest>>,
+        TError,
+        {data: BodyType<PlatformTelemetryTestInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePlatformTelemetryTestMutationOptions(options));
     }
 
 export const getListPlatformUsersUrl = () => {
