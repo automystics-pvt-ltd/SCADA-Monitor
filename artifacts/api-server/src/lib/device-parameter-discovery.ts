@@ -39,6 +39,11 @@ export type DiscoveredDeviceParameter = {
   provenance: DeviceParameterProvenance;
   dataQuality: "validated" | "raw" | "source-reported";
   scalingStatus: "validated" | "raw";
+  adminMappingDestination?: string;
+  adminMappingLabel?: string;
+  adminMappingCategory?: string;
+  adminMappingVersion?: number;
+  inverterIdentity?: string | null;
 };
 
 export type DeviceParameterDiscoveryContext = {
@@ -251,6 +256,8 @@ function buildParameter(
 export function discoverDeviceParameters(payload: unknown, context: DeviceParameterDiscoveryContext) {
   const observations: DiscoveredDeviceParameter[] = [];
   const seen = new Set<string>();
+  const visited = new Set<object>();
+  const maxNodes = 10_000;
   const append = (source: Record<string, unknown>, name: string, value: unknown) => {
     if (!sourceSiteMatchesConfiguredSite(source, context)) return;
     const observation = buildParameter(source, name, value, context);
@@ -258,36 +265,46 @@ export function discoverDeviceParameters(payload: unknown, context: DeviceParame
     seen.add(observation.observationId);
     observations.push(observation);
   };
-  const walk = (value: unknown, inherited: Record<string, unknown>, path: string[], depth: number): void => {
-    if (depth > 8 || value === undefined) return;
+  const pending: Array<{ value: unknown; inherited: Record<string, unknown>; path: string[] }> = [{
+    value: isRecord(payload) && isRecord(payload.Automystics) ? payload.Automystics : payload,
+    inherited: isRecord(payload) && isRecord(payload.Automystics) ? payload.Automystics : isRecord(payload) ? payload : {},
+    path: [],
+  }];
+  let visitedNodes = 0;
+  while (pending.length && visitedNodes < maxNodes) {
+    const { value, inherited, path } = pending.pop()!;
+    visitedNodes += 1;
+    if (value === undefined) continue;
     if (Array.isArray(value)) {
-      value.forEach((item, index) => walk(item, inherited, [...path, `[${index}]`], depth + 1));
-      return;
+      if (visited.has(value)) continue;
+      visited.add(value);
+      for (let index = value.length - 1; index >= 0; index -= 1) pending.push({ value: value[index], inherited, path: [...path, `[${index}]`] });
+      continue;
     }
     if (!isRecord(value)) {
       if (path.length) append(inherited, path.join("."), value);
-      return;
+      continue;
     }
+    if (visited.has(value)) continue;
+    visited.add(value);
     const merged = { ...inherited, ...value };
     const named = parameterName(value);
     const namedValue = parameterValue(value);
     if (named && namedValue !== undefined) {
       append(merged, named, namedValue);
       if (isRecord(namedValue) || Array.isArray(namedValue)) {
-        walk(namedValue, merged, [...path, named], depth + 1);
+        pending.push({ value: namedValue, inherited: merged, path: [...path, named] });
       }
-      return;
+      continue;
     }
-    for (const [key, child] of Object.entries(value)) {
+    for (const [key, child] of Object.entries(value).reverse()) {
       if (metadataKeys.has(normalized(key))) {
-        if (isRecord(child) || Array.isArray(child)) walk(child, merged, [...path, key], depth + 1);
+        if (isRecord(child) || Array.isArray(child)) pending.push({ value: child, inherited: merged, path: [...path, key] });
         continue;
       }
-      walk(child, merged, [...path, key], depth + 1);
+      pending.push({ value: child, inherited: merged, path: [...path, key] });
     }
-  };
-  const root = isRecord(payload) && isRecord(payload.Automystics) ? payload.Automystics : payload;
-  walk(root, isRecord(root) ? root : {}, [], 0);
+  }
   return observations;
 }
 

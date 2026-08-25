@@ -265,6 +265,9 @@ function matchesMappedDestination(row: TelemetryKpiRow, requestedNames: Set<stri
   if (destination === "dailyenergy") return [...requestedNames].some((name) => ["dailyenergy", "todayenergy", "todayyield"].includes(name));
   if (destination === "totalenergy") return [...requestedNames].some((name) => ["totalenergy", "lifetimeenergy"].includes(name));
   if (destination === "specificyield") return requestedNames.has("specificyield") || requestedNames.has("todayyield");
+  if (destination === "voltage") return [...requestedNames].some((name) => ["voltage", "phaseabvoltage", "phasebcvoltage", "phasecavoltage"].includes(name));
+  if (destination === "current") return [...requestedNames].some((name) => ["current", "acurrent", "phaseacurrent", "iacurrent"].includes(name));
+  if (destination === "frequency") return requestedNames.has("frequency") || requestedNames.has("hz");
   if (destination === "alarm" || destination === "fault") return [...requestedNames].some((name) => ["alarm", "alarms", "alarmcode", "fault", "faultcode"].includes(name));
   return false;
 }
@@ -436,22 +439,26 @@ export function rawInverterIdentitySignals(rows: TelemetryKpiRow[]): RawInverter
     });
 }
 
-function latestMetricMatching(rows: TelemetryKpiRow[], predicate: (name: string) => boolean) {
+function latestMetricMatching(rows: TelemetryKpiRow[], predicate: (row: TelemetryKpiRow) => boolean) {
   const matches = rows
-    .filter((row) => predicate(normalizedKey(row.name)))
+    .filter(predicate)
     .map((row) => ({ row, metric: asRawMetric(row) }))
     .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null);
   if (!matches.length) return null;
   return matches.reduce((latest, candidate) => rowTimestamp(candidate.row) > rowTimestamp(latest.row) ? candidate : latest);
 }
 
-function latestMetricsByParameter(rows: TelemetryKpiRow[], predicate: (name: string) => boolean) {
+function latestMetricsByParameter(
+  rows: TelemetryKpiRow[],
+  predicate: (row: TelemetryKpiRow) => boolean,
+  identity: (row: TelemetryKpiRow) => string = normalizedParameter,
+) {
   const newest = new Map<string, { row: TelemetryKpiRow; metric: RawTelemetryMetric }>();
   for (const row of rows) {
-    const parameter = normalizedKey(row.name);
-    if (!predicate(parameter)) continue;
+    if (!predicate(row)) continue;
     const metric = asRawMetric(row);
     if (!metric) continue;
+    const parameter = identity(row);
     const current = newest.get(parameter);
     if (!current || rowTimestamp(row) >= rowTimestamp(current.row)) newest.set(parameter, { row, metric });
   }
@@ -509,7 +516,10 @@ export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
       source: null,
     }
     : (() => {
-      const mainMeter = latestMetricMatching(rows, (name) => ["actpow", "mainmeteractivepower", "gridactivepower", "plantactivepower"].includes(name));
+      const mainMeter = latestMetricMatching(rows, (row) =>
+        ["actpow", "mainmeteractivepower", "gridactivepower", "plantactivepower"].includes(normalizedParameter(row))
+        || mappedDestination(row) === "activepower",
+      );
       if (mainMeter) {
         return { value: mainMeter.metric.value, method: "main-meter" as const, unit: "raw" as const, included: [mainMeter.metric], excluded: [], source: mainMeter.metric };
       }
@@ -529,7 +539,13 @@ export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
       return { value: null, method: "unavailable" as const, unit: "raw" as const, included: [], excluded: [], source: null };
     })();
 
-  const inverterEnergy = latestMetricsByParameter(rows, (name) => /^inv\d+.*(totalenergy|lifetimeenergy|energykwh|dailyenergy|todayenergy|yield)$/.test(name));
+  const inverterEnergy = latestMetricsByParameter(
+    rows,
+    (row) =>
+      /^inv\d+.*(totalenergy|lifetimeenergy|energykwh)$/.test(normalizedParameter(row))
+      || (Boolean(declaredInverterIdentity(row)) && mappedDestination(row) === "totalenergy"),
+    (row) => declaredInverterIdentity(row) ?? normalizedParameter(row),
+  );
   const energySelection = rejectPowerOutliers(inverterEnergy);
   const totalEnergy: ScadaAggregate = energySelection.included.length
     ? {

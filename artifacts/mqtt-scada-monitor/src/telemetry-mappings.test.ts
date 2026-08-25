@@ -72,3 +72,19 @@ test("uses a mapping loaded after a long-lived consumer has already started", ()
   assert.equal(afterClear?.admin_mapping_destination, undefined);
   assert.equal(afterClear?.inverter_id, undefined);
 });
+
+test("maps retained discovered evidence by its camel-case source identity fields", () => {
+  const [mapped] = applyTelemetryMappings([{
+    normalizedName: "actpow",
+    sourceName: "Solar gateway",
+    address: "305003",
+    deviceId: "INV-01",
+    rawValue: "120.5",
+    reportedValue: "120.5",
+  }], [mapping]);
+
+  assert.equal(mapped?.admin_mapping_destination, "active-power");
+  assert.equal(mapped?.inverter_id, "inv1");
+  assert.equal(mapped?.rawValue, "120.5");
+  assert.equal(mapped?.reportedValue, "120.5");
+});

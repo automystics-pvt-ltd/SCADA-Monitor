@@ -1,4 +1,4 @@
-import { lazy, Suspense, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -232,19 +232,20 @@ function extractModbusRows(payload: JsonValue): ModbusRow[] {
       server_name: candidate.server_name ?? candidate.source ?? candidate.device ?? candidate.server,
     });
   };
-  const visit = (value: JsonValue, depth = 0) => {
-    if (depth > 6 || typeof value !== 'object' || value === null || visited.has(value)) return;
+  const pending: JsonValue[] = [payload];
+  let nodes = 0;
+  while (pending.length && nodes < 10_000) {
+    const value = pending.pop()!;
+    nodes += 1;
+    if (typeof value !== 'object' || value === null || visited.has(value)) continue;
     visited.add(value);
     if (Array.isArray(value)) {
-      value.forEach((item) => visit(item, depth + 1));
-      return;
+      pending.push(...value);
+      continue;
     }
     appendRow(value);
-    Object.values(value).forEach((child) => {
-      if (typeof child === 'object' && child !== null) visit(child, depth + 1);
-    });
-  };
-  visit(payload);
+    pending.push(...Object.values(value));
+  }
   return rows;
 }
 
@@ -440,6 +441,14 @@ type TelemetrySortKey = 'category' | 'parameter' | 'raw' | 'scaled' | 'unit' | '
 type SortDirection = 'asc' | 'desc';
 
 function telemetryCategory(row: ModbusRow) {
+  const mappedCategory = row.admin_mapping_category ?? row.adminMappingCategory;
+  if (typeof mappedCategory === 'string' && mappedCategory.trim()) return mappedCategory.trim();
+  const mappedDestination = String(row.admin_mapping_destination ?? row.adminMappingDestination ?? '').toLowerCase();
+  if (['active-power', 'voltage', 'current', 'frequency'].includes(mappedDestination)) return 'Electrical';
+  if (['daily-energy', 'total-energy', 'specific-yield'].includes(mappedDestination)) return 'Energy';
+  if (['alarm', 'fault'].includes(mappedDestination)) return 'Alarms';
+  if (mappedDestination === 'communication') return 'Communication';
+  if (mappedDestination === 'environmental') return 'Environment';
   const name = String(row.name || '').toLowerCase();
   if (name.includes('voltage') || name.includes('current')) return 'Electrical';
   if (name.includes('power') || name.includes('frequency')) return 'Power';
@@ -2926,6 +2935,10 @@ function AppShell() {
   const [calibrationProfile, setCalibrationProfile] = useState<PlantCalibrationProfile | null>(null);
   const [calibrationProfileError, setCalibrationProfileError] = useState('');
   const telemetryMappingStoreRef = useRef(createTelemetryMappingStore());
+  const applySnapshotMappings = useCallback((snapshot: SavedKpiSnapshot): SavedKpiSnapshot => ({
+    ...snapshot,
+    parameters: telemetryMappingStoreRef.current.apply((snapshot.parameters ?? []) as ModbusRow[]) as typeof snapshot.parameters,
+  }), []);
   const streamRef = useRef<EventSource | null>(null);
   const streamGenerationRef = useRef(0);
   const seenTelemetryEventsRef = useRef(new Map<string, true>());
@@ -2984,6 +2997,7 @@ function AppShell() {
   }, []);
   useEffect(() => {
     if (mode !== 'live') return;
+    setSavedKpiSnapshot(null);
     const controller = new AbortController();
     const loadSavedKpiSnapshot = async () => {
       try {
@@ -2991,9 +3005,12 @@ function AppShell() {
         const response = await fetch(`/api/mqtt/snapshots/latest?siteName=${encodeURIComponent(activeSite)}`, { signal: controller.signal, cache: 'no-store' });
         const payload = await response.json() as { snapshot?: unknown };
         if (!response.ok || controller.signal.aborted) return;
-        const snapshot = parseSavedKpiSnapshot(payload.snapshot);
+        const parsedSnapshot = parseSavedKpiSnapshot(payload.snapshot);
+        const snapshot = parsedSnapshot ? applySnapshotMappings(parsedSnapshot) : null;
         if (snapshot?.saveStatus === 'saved') {
           setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
+        } else {
+          setSavedKpiSnapshot(null);
         }
       } catch {
         // Keep any newer snapshot already received through SSE.
@@ -3005,7 +3022,7 @@ function AppShell() {
       controller.abort();
       window.clearInterval(refreshTimer);
     };
-  }, [activeSite, mode]);
+  }, [activeSite, applySnapshotMappings, mode]);
   useEffect(() => {
     const controller = new AbortController();
     const loadLocationPermissions = async () => {
@@ -3077,11 +3094,13 @@ function AppShell() {
           const mappings = payload.mappings;
           telemetryMappingStoreRef.current.setMappings(mappings);
           setModbusRows((current) => telemetryMappingStoreRef.current.apply(current) as ModbusRow[]);
+          setSavedKpiSnapshot((current) => current ? applySnapshotMappings(current) : current);
         }
       } catch {
         if (!controller.signal.aborted) {
           telemetryMappingStoreRef.current.setMappings([]);
           setModbusRows((current) => telemetryMappingStoreRef.current.apply(current) as ModbusRow[]);
+          setSavedKpiSnapshot((current) => current ? applySnapshotMappings(current) : current);
         }
       }
     };
@@ -3091,7 +3110,7 @@ function AppShell() {
       controller.abort();
       window.clearInterval(refresh);
     };
-  }, [plantSiteName, scadaSession.authenticated]);
+  }, [applySnapshotMappings, plantSiteName, scadaSession.authenticated]);
 
   useEffect(() => {
     if (!weatherLocation) {
@@ -3186,7 +3205,7 @@ function AppShell() {
           type: String(telemetry.type || telemetry.deviceType || 'MQTT device'),
           status: 'online',
           lastSeen: observedAt,
-          telemetry,
+          telemetry: { ...telemetry, mappedEvidence: incomingRows.filter((row) => String(row.device_id ?? row.deviceId ?? row.inverter_id ?? row.inverterId ?? '') === identity) },
         };
         return existing ? next.map((item) => item.id === identity ? { ...item, ...device } : item) : [device, ...next];
       }, current));
@@ -3264,7 +3283,8 @@ function AppShell() {
     stream.addEventListener('snapshot', (event) => {
       if (generation !== streamGenerationRef.current) return;
       try {
-        const snapshot = parseSavedKpiSnapshot(JSON.parse((event as MessageEvent).data));
+        const parsedSnapshot = parseSavedKpiSnapshot(JSON.parse((event as MessageEvent).data));
+        const snapshot = parsedSnapshot ? applySnapshotMappings(parsedSnapshot) : null;
         if (!snapshot || snapshot.saveStatus !== 'saved') return;
         setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
       } catch {

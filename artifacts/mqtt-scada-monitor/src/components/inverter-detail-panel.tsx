@@ -124,7 +124,83 @@ function matchingValue(value: JsonValue, keys: string[], depth = 0): { value: nu
   return null;
 }
 
-function telemetryMetric(device: Device, paths: string[][], keys: string[], unit: string, allowRawSource = false): Metric {
+function findMappedRow(value: JsonValue, mappedDests: string[]): Record<string, JsonValue> | null {
+  const pending: JsonValue[] = [value];
+  const visited = new Set<object>();
+  while (pending.length) {
+    const current = pending.pop();
+    if (!current || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+    if (Array.isArray(current)) {
+      pending.push(...current);
+      continue;
+    }
+    if (typeof current.admin_mapping_destination === 'string') {
+      const dest = current.admin_mapping_destination.replace(/[^a-z0-9]/gi, '').toLowerCase();
+      if (mappedDests.includes(dest)) return current;
+    }
+    pending.push(...Object.values(current));
+  }
+  return null;
+}
+
+function extractMappedParameters(value: JsonValue, siteName: string, deviceId: string, deviceName: string): DeviceParameter[] {
+  const params: DeviceParameter[] = [];
+  const pending: JsonValue[] = [value];
+  const visited = new Set<object>();
+  while (pending.length) {
+    const current = pending.pop();
+    if (!current || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+    if (Array.isArray(current)) {
+      pending.push(...current);
+      continue;
+    }
+    if (current.admin_mapping_destination && typeof current.admin_mapping_destination === 'string') {
+      const numeric = asNumber(current.data ?? current.value ?? current.reported_value ?? current.currentValue);
+      const sourceUnit = current.reported_unit ?? current.source_unit ?? current.unit;
+      params.push({
+        observationId: String(current.admin_mapping_id || current.id || current.admin_mapping_destination),
+        signalKey: String(current.name || current.admin_mapping_destination),
+        siteName,
+        deviceId,
+        deviceName,
+        topic: 'mapped-live',
+        originalName: String(current.name || 'unknown'),
+        normalizedName: current.admin_mapping_destination,
+        displayLabel: String(current.admin_mapping_label || current.name || 'Mapped Parameter'),
+        category: String(current.admin_mapping_category || 'Overview'),
+        rawValue: String(current.raw_data ?? current.data ?? current.value ?? ''),
+        value: numeric,
+        unit: typeof sourceUnit === 'string' && sourceUnit.trim() ? sourceUnit : null,
+        address: String(current.full_addr ?? current.address ?? current.addr ?? ''),
+        sourceName: String(current.server_name ?? current.source ?? 'MQTT source'),
+        receivedAt: new Date().toISOString(),
+        provenance: 'live',
+        dataQuality: 'source-reported',
+        scalingStatus: 'raw',
+        freshness: 'live'
+      });
+    }
+    pending.push(...Object.values(current));
+  }
+  return params;
+}
+
+function telemetryMetric(device: Device, mappedDests: string[], paths: string[][], keys: string[], unit: string, allowRawSource = false): Metric {
+  const mappedRow = findMappedRow(device.telemetry, mappedDests);
+  if (mappedRow) {
+    const val = asNumber(mappedRow.data ?? mappedRow.value ?? mappedRow.reported_value ?? mappedRow.currentValue);
+    if (val !== null) {
+      return {
+        value: val,
+        unit: (mappedRow.admin_mapping_injected_source_unit ? mappedRow.reported_unit : mappedRow.reported_unit ?? mappedRow.source_unit ?? mappedRow.unit ?? unit) as string,
+        source: `${mappedRow.admin_mapping_label || mappedRow.name} · ${mappedRow.full_addr || mappedRow.address || '—'}`,
+        quality: 'reported'
+      };
+    }
+  }
+
   if (device.sourceEvidence && allowRawSource) {
     const verified = device.sourceEvidence.scalingStatus === 'validated';
     return {
@@ -720,16 +796,16 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
   }, [device.id, device.name, device.telemetry, mode, range, selectedDateKey, selectedHistoryBounds, siteName]);
 
   const metrics = useMemo(() => ({
-    power: telemetryMetric(device, [['power', 'active_kw'], ['power', 'activePower'], ['ac', 'active_kw']], ['activekw', 'activepower', 'powerkw', 'realpowerkw', 'outputpowerkw'], 'kW', true),
-    capacity: telemetryMetric(device, [['capacity', 'installed_mwp'], ['capacity', 'installed_kw'], ['power', 'rated_kw']], ['installedpowermwp', 'installedcapacitymwp', 'ratedpowerkw', 'ratedcapacitykw', 'installedpowerkw'], ''),
-    dailyEnergy: telemetryMetric(device, [['energy', 'daily_mwh'], ['energy', 'daily_kwh'], ['energy', 'today_kwh']], ['dailyenergymwh', 'dailyenergykwh', 'todayenergykwh', 'todaygenerationkwh'], ''),
-    lifetimeEnergy: telemetryMetric(device, [['energy', 'total_kwh'], ['energy', 'lifetime_kwh']], ['totalenergykwh', 'lifetimeenergykwh', 'totalgenerationkwh'], 'kWh'),
-    voltage: telemetryMetric(device, [['dc_bus', 'voltage_v'], ['dc', 'voltage_v']], ['dcbusvoltagev', 'dcvoltagev', 'voltagev'], 'V'),
-    current: telemetryMetric(device, [['dc_bus', 'current_a'], ['dc', 'current_a']], ['dcbuscurrenta', 'dccurrenta', 'currenta'], 'A'),
-    cabinetTemp: telemetryMetric(device, [['temperature', 'cabinet_c']], ['cabinettemperaturec', 'cabinettemp', 'cabinetc'], '°C'),
-    heatsinkTemp: telemetryMetric(device, [['temperature', 'heatsink_c']], ['heatsinktemperaturec', 'heatsinktemp', 'heatsinkc'], '°C'),
-    efficiency: telemetryMetric(device, [['power', 'efficiency']], ['efficiency', 'efficiencypct'], '%'),
-    reactive: telemetryMetric(device, [['power', 'reactive_kvar']], ['reactivekvar', 'reactivepowerkvar'], 'kVAr'),
+    power: telemetryMetric(device, ['activepower', 'actpow', 'acpower'], [['power', 'active_kw'], ['power', 'activePower'], ['ac', 'active_kw']], ['activekw', 'activepower', 'powerkw', 'realpowerkw', 'outputpowerkw'], 'kW', true),
+    capacity: telemetryMetric(device, ['capacity', 'installedpower', 'ratedpower'], [['capacity', 'installed_mwp'], ['capacity', 'installed_kw'], ['power', 'rated_kw']], ['installedpowermwp', 'installedcapacitymwp', 'ratedpowerkw', 'ratedcapacitykw', 'installedpowerkw'], ''),
+    dailyEnergy: telemetryMetric(device, ['dailyenergy', 'todayenergy'], [['energy', 'daily_mwh'], ['energy', 'daily_kwh'], ['energy', 'today_kwh']], ['dailyenergymwh', 'dailyenergykwh', 'todayenergykwh', 'todaygenerationkwh'], ''),
+    lifetimeEnergy: telemetryMetric(device, ['totalenergy', 'lifetimeenergy'], [['energy', 'total_kwh'], ['energy', 'lifetime_kwh']], ['totalenergykwh', 'lifetimeenergykwh', 'totalgenerationkwh'], 'kWh'),
+    voltage: telemetryMetric(device, ['voltage', 'dcvoltage', 'busvoltage'], [['dc_bus', 'voltage_v'], ['dc', 'voltage_v']], ['dcbusvoltagev', 'dcvoltagev', 'voltagev'], 'V'),
+    current: telemetryMetric(device, ['current', 'dccurrent', 'buscurrent'], [['dc_bus', 'current_a'], ['dc', 'current_a']], ['dcbuscurrenta', 'dccurrenta', 'currenta'], 'A'),
+    cabinetTemp: telemetryMetric(device, ['cabinettemperature', 'cabinettemp'], [['temperature', 'cabinet_c']], ['cabinettemperaturec', 'cabinettemp', 'cabinetc'], '°C'),
+    heatsinkTemp: telemetryMetric(device, ['heatsinktemperature', 'heatsinktemp'], [['temperature', 'heatsink_c']], ['heatsinktemperaturec', 'heatsinktemp', 'heatsinkc'], '°C'),
+    efficiency: telemetryMetric(device, ['efficiency'], [['power', 'efficiency']], ['efficiency', 'efficiencypct'], '%'),
+    reactive: telemetryMetric(device, ['reactivepower', 'reactive'], [['power', 'reactive_kvar']], ['reactivekvar', 'reactivepowerkvar'], 'kVAr'),
   }), [device]);
   const rawRows = useMemo(() => flattenJson(device.telemetry), [device.telemetry]);
   const alarms = Array.isArray(device.telemetry.alarms) ? device.telemetry.alarms : null;
@@ -782,7 +858,18 @@ export default function InverterDetailPanel({ device, onClose, weather, siteName
     return Array.from(params.values()).sort((a, b) => a.parameter.localeCompare(b.parameter));
   }, [measurements]);
 
-  const groupedDeviceParams = useMemo(() => groupDeviceParameters(deviceParams), [deviceParams]);
+  const mappedParams = useMemo(() => extractMappedParameters(device.telemetry, siteName, device.id, device.name), [device.telemetry, siteName, device.id, device.name]);
+
+  const groupedDeviceParams = useMemo(() => {
+    const all = [...deviceParams, ...mappedParams];
+    const deduped = new Map<string, DeviceParameter>();
+    for (const p of all) {
+      if (!deduped.has(p.normalizedName) || p.freshness === 'live') {
+        deduped.set(p.normalizedName, p);
+      }
+    }
+    return groupDeviceParameters(Array.from(deduped.values()));
+  }, [deviceParams, mappedParams]);
 
   return (
     <>

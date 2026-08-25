@@ -5,6 +5,7 @@ import {
   mqttInverterEnergyHistoryTable,
   mqttInverterMeasurementHistoryTable,
   mqttSnapshotsTable,
+  platformTelemetryMappingsTable,
 } from "@workspace/db";
 import type { ReportFilterSet, ScadaReportRecord, ScadaReportType } from "./scada-reporting";
 
@@ -119,7 +120,11 @@ function cte(args: QueryArgs) {
           ? sql`exists (
               select 1
               from jsonb_array_elements(
-                case when jsonb_typeof(s.data->'latestParameters') = 'array' then s.data->'latestParameters' else '[]'::jsonb end
+                case
+                  when jsonb_typeof(s.data->'latestDiscoveredParameters') = 'array' then s.data->'latestDiscoveredParameters'
+                  when jsonb_typeof(s.data->'latestParameters') = 'array' then s.data->'latestParameters'
+                  else '[]'::jsonb
+                end
               ) as scoped_parameter(value)
               where coalesce(
                 nullif(scoped_parameter.value->>'site_name', ''),
@@ -131,28 +136,68 @@ function cte(args: QueryArgs) {
             )`
           : sql`true`}
     ),
+    active_mappings as (
+      select site_name, device_id, source_identity, source_name, normalized_name, address,
+        destination, display_label, source_unit
+      from ${platformTelemetryMappingsTable}
+      where status = 'active'
+    ),
     all_records as (
       select
         ('measurement|' || m.id)::text as id, 'measurement'::text as record_type,
-        ${measurementCategory}::text as category, m.site_name, m.inverter_id as device_id,
-        m.inverter_name as device_name, m.parameter, m.display_label, m.measurement_kind,
-        m.value, m.unit, m.address, m.source_name, m.observed_at, m.received_at,
+        case
+          when tm.destination in ('daily-energy', 'total-energy', 'specific-yield') then 'energy'
+          when tm.destination in ('active-power', 'voltage', 'current', 'frequency') then 'electrical'
+          when tm.destination in ('alarm', 'fault') then 'alarms'
+          when tm.destination = 'communication' then 'communication'
+          when tm.destination = 'environmental' then 'environmental'
+          when tm.destination = 'inverter-identity' then 'inverter'
+          else ${measurementCategory}
+        end::text as category,
+        m.site_name, m.inverter_id as device_id,
+        m.inverter_name as device_name, m.parameter,
+        coalesce(nullif(tm.display_label, ''), m.display_label) as display_label,
+        coalesce(tm.destination, m.measurement_kind) as measurement_kind,
+        m.value, coalesce(nullif(m.unit, ''), tm.source_unit) as unit, m.address, m.source_name, m.observed_at, m.received_at,
         'historical-saved'::text as provenance,
         case when m.scaling_status = 'validated' then 'validated' else 'raw' end::text as quality,
         null::text as status, null::text as reason,
         null::text as source_reported_value, null::text as source_reported_unit,
-        m.raw_value::text as transport_raw_value, null::text as source_identity
+        m.raw_value::text as transport_raw_value, tm.source_identity
       from ${mqttInverterMeasurementHistoryTable} m
+      left join active_mappings tm on tm.site_name = m.site_name
+        and tm.device_id = m.inverter_id
+        and lower(tm.source_name) = lower(m.source_name)
+        and tm.normalized_name = regexp_replace(lower(m.parameter), '[^a-z0-9]+', '', 'g')
+        and tm.address = coalesce(nullif(m.address, ''), '—')
+        and tm.source_identity = (m.site_name || '|' || m.source_name || '|' || regexp_replace(lower(m.parameter), '[^a-z0-9]+', '', 'g') || '|' || coalesce(nullif(m.address, ''), '—'))
       where m.topic = ${args.topic} and m.observed_at >= ${args.from} and m.observed_at <= ${args.to}
       union all
       select
-        ('energy|' || e.id)::text, 'energy', 'energy', e.site_name, e.inverter_id,
-        e.inverter_name, e.parameter, e.parameter, 'energy', e.value, e.unit, e.address,
+        ('energy|' || e.id)::text, 'energy',
+        case
+          when tm.destination in ('daily-energy', 'total-energy', 'specific-yield') then 'energy'
+          when tm.destination in ('active-power', 'voltage', 'current', 'frequency') then 'electrical'
+          when tm.destination in ('alarm', 'fault') then 'alarms'
+          when tm.destination = 'communication' then 'communication'
+          when tm.destination = 'environmental' then 'environmental'
+          when tm.destination = 'inverter-identity' then 'inverter'
+          else 'energy'
+        end,
+        e.site_name, e.inverter_id,
+        e.inverter_name, e.parameter, coalesce(nullif(tm.display_label, ''), e.parameter),
+        coalesce(tm.destination, 'energy'), e.value, coalesce(nullif(e.unit, ''), tm.source_unit), e.address,
         e.source_name, e.observed_at, e.received_at, 'historical-saved',
         case when e.scaling_status = 'validated' then 'validated' else 'raw' end,
         null::text, null::text,
-        null::text, null::text, e.raw_value::text, null::text
+        null::text, null::text, e.raw_value::text, tm.source_identity
       from ${mqttInverterEnergyHistoryTable} e
+      left join active_mappings tm on tm.site_name = e.site_name
+        and tm.device_id = e.inverter_id
+        and lower(tm.source_name) = lower(e.source_name)
+        and tm.normalized_name = regexp_replace(lower(e.parameter), '[^a-z0-9]+', '', 'g')
+        and tm.address = coalesce(nullif(e.address, ''), '—')
+        and tm.source_identity = (e.site_name || '|' || e.source_name || '|' || regexp_replace(lower(e.parameter), '[^a-z0-9]+', '', 'g') || '|' || coalesce(nullif(e.address, ''), '—'))
       where e.topic = ${args.topic} and e.observed_at >= ${args.from} and e.observed_at <= ${args.to}
       union all
       select
@@ -190,26 +235,35 @@ function cte(args: QueryArgs) {
       union all
       select
         ('snapshot|' || s.id || '|' || p.ordinality)::text, 
-        case when ${snapshotCategory} = 'alarms' then 'alarm' else 'snapshot' end,
-        ${snapshotCategory}, ${snapshotSite},
+        case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then 'alarm' else 'snapshot' end,
+        case
+          when tm.destination in ('daily-energy', 'total-energy', 'specific-yield') then 'energy'
+          when tm.destination in ('active-power', 'voltage', 'current', 'frequency') then 'electrical'
+          when tm.destination in ('alarm', 'fault') then 'alarms'
+          when tm.destination = 'communication' then 'communication'
+          when tm.destination = 'environmental' then 'environmental'
+          when tm.destination = 'inverter-identity' then 'inverter'
+          else ${snapshotCategory}
+        end,
+        ${snapshotSite},
         coalesce(nullif(p.value->>'inverter_id', ''), nullif(p.value->>'inverterId', ''), nullif(p.value->>'device_id', ''), nullif(p.value->>'deviceId', '')),
-        coalesce(nullif(p.value->>'inverter_name', ''), nullif(p.value->>'inverterName', ''), nullif(p.value->>'device_name', ''), nullif(p.value->>'deviceName', '')),
+        coalesce(nullif(p.value->>'inverter_name', ''), nullif(p.value->>'inverterName', ''), nullif(p.value->>'device_name', ''), nullif(p.value->>'deviceName', ''), nullif(p.value->>'deviceName', '')),
         ${snapshotParameter},
-        coalesce(nullif(p.value->>'display_name', ''), nullif(p.value->>'displayName', ''), nullif(p.value->>'label', ''), ${snapshotParameter}),
-        'snapshot',
-        case when ${snapshotCategory} = 'alarms' then null
+        coalesce(nullif(tm.display_label, ''), nullif(p.value->>'display_name', ''), nullif(p.value->>'displayName', ''), nullif(p.value->>'label', ''), ${snapshotParameter}),
+        coalesce(tm.destination, 'snapshot'),
+        case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then null
              when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved')
-               and coalesce(p.value->>'data', '') ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$' then (p.value->>'data')::double precision
+                and coalesce(p.value->>'value', p.value->>'data', '') ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$' then coalesce(p.value->>'value', p.value->>'data')::double precision
              else null end,
-        case when ${snapshotCategory} = 'alarms' then ''
-             when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then coalesce(p.value->>'engineering_unit', p.value->>'unit', 'source units')
+        case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then ''
+              when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then coalesce(p.value->>'engineering_unit', p.value->>'unit', p.value->>'sourceUnit', tm.source_unit, 'source units')
              else '' end,
         coalesce(p.value->>'full_addr', p.value->>'address', p.value->>'addr', '—'),
-        coalesce(p.value->>'server_name', p.value->>'source', 'Saved MQTT snapshot'),
+        coalesce(p.value->>'server_name', p.value->>'sourceName', p.value->>'source', 'Saved MQTT snapshot'),
         ${snapshotObserved},
         s.captured_at,
         case when s.captured_at = s.latest_captured_at then 'latest-saved' else 'historical-saved' end,
-        case when ${snapshotCategory} = 'alarms' then 'source-reported'
+        case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then 'source-reported'
              when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then 'validated'
               when p.value->>'source_mapping_status' = 'source-reported' then 'source-reported'
              else 'raw' end,
@@ -218,13 +272,29 @@ function cte(args: QueryArgs) {
              then coalesce(p.value->>'reason', p.value->>'description', p.value->>'message', p.value->>'cause', 'Source-reported alarm/fault evidence.')
               else null end,
         coalesce(p.value->>'reported_value', p.value->>'reportedValue', p.value->>'customer_value', p.value->>'customerValue'),
-        coalesce(p.value->>'reported_unit', p.value->>'reportedUnit', p.value->>'customer_unit', p.value->>'customerUnit', p.value->>'source_unit', p.value->>'sourceUnit'),
+        coalesce(p.value->>'reported_unit', p.value->>'reportedUnit', p.value->>'customer_unit', p.value->>'customerUnit', p.value->>'source_unit', p.value->>'sourceUnit', tm.source_unit),
         coalesce(p.value->>'raw_data', p.value->>'rawValue', p.value->>'raw_value', p.value->>'source_raw_value', p.value->>'sourceRawValue'),
-        coalesce(p.value->>'source_identity', p.value->>'sourceIdentity')
+        coalesce(p.value->>'source_identity', p.value->>'sourceIdentity', tm.source_identity)
       from snapshot_scope s
       cross join lateral jsonb_array_elements(
-        case when jsonb_typeof(s.data->'latestParameters') = 'array' then s.data->'latestParameters' else '[]'::jsonb end
+        case
+          when jsonb_typeof(s.data->'latestDiscoveredParameters') = 'array' then s.data->'latestDiscoveredParameters'
+          when jsonb_typeof(s.data->'latestParameters') = 'array' then s.data->'latestParameters'
+          else '[]'::jsonb
+        end
       ) with ordinality p(value, ordinality)
+      left join active_mappings tm on tm.site_name = ${snapshotSite}
+        and tm.device_id = coalesce(nullif(p.value->>'inverter_id', ''), nullif(p.value->>'inverterId', ''), nullif(p.value->>'device_id', ''), nullif(p.value->>'deviceId', ''))
+        and lower(tm.source_name) = lower(coalesce(p.value->>'server_name', p.value->>'sourceName', p.value->>'source', 'Saved MQTT snapshot'))
+        and tm.normalized_name = coalesce(nullif(p.value->>'normalizedName', ''), regexp_replace(lower(${snapshotParameter}), '[^a-z0-9]+', '', 'g'))
+        and tm.address = coalesce(p.value->>'full_addr', p.value->>'address', p.value->>'addr', '—')
+        and tm.source_identity = coalesce(
+          nullif(p.value->>'source_identity', ''),
+          nullif(p.value->>'sourceIdentity', ''),
+          ${snapshotSite} || '|' || coalesce(p.value->>'server_name', p.value->>'sourceName', p.value->>'source', 'Saved MQTT snapshot')
+            || '|' || coalesce(nullif(p.value->>'normalizedName', ''), regexp_replace(lower(${snapshotParameter}), '[^a-z0-9]+', '', 'g'))
+            || '|' || coalesce(p.value->>'full_addr', p.value->>'address', p.value->>'addr', '—')
+        )
       where coalesce(s.data->>'saveStatus',
         case when s.message_count = 0 then 'missing' when s.parameter_count = 0 then 'incomplete' else 'saved' end) = 'saved'
         and ${snapshotObserved} >= ${args.from} and ${snapshotObserved} <= ${args.to}

@@ -62,6 +62,30 @@ test("walks parameter containers instead of discarding nested source evidence", 
   assert.ok(namedContainer.some((parameter) => parameter.originalName.endsWith("voltage")));
 });
 
+test("discovers a deeply nested future-device parameter without a silent traversal cutoff", () => {
+  let payload: Record<string, unknown> = {
+    name: "future_device_register",
+    data: "42",
+    device_id: "NEXT-01",
+    server_name: "Future gateway",
+    address: "40123",
+    unit: "source-unit",
+  };
+  for (let depth = 0; depth < 20; depth += 1) payload = { [`layer_${depth}`]: payload };
+
+  const parameters = discoverDeviceParameters(payload, {
+    siteName: "Plant A",
+    topic: "plant/telemetry",
+    receivedAt: "2026-08-25T07:00:00.000Z",
+    provenance: "live",
+  });
+
+  assert.equal(parameters.length, 1);
+  assert.equal(parameters[0]?.deviceId, "NEXT-01");
+  assert.equal(parameters[0]?.address, "40123");
+  assert.equal(parameters[0]?.sourceUnit, "source-unit");
+});
+
 test("does not assign energy semantics from incidental character sequences", () => {
   const switchStatus = discoverDeviceParameters({ name: "switch_status", data: "closed", device_id: "inv-a" }, context)[0];
   assert.equal(switchStatus?.category, "Discovered / Other Parameters");

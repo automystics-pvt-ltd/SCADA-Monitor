@@ -21,3 +21,4 @@
 - [SCADA lifecycle enforcement](scada-lifecycle-enforcement.md) — Archived sites disappear from SCADA; all operational evidence requires an explicit active site scope.
 - [Telemetry mapping overlay refresh](telemetry-mapping-overlay-refresh.md) — Rebuild Admin-derived mapping overlays on every refresh so cleared mappings never persist on retained evidence.
 - [Telemetry mapping inverter attribution](telemetry-mapping-inverter-attribution.md) — Active-power mappings need an explicit inv1–inv5 identity before they can contribute to an inverter flow.
+- [Site-bound snapshot evidence](site-bound-snapshot-evidence.md) — Saved SCADA evidence must clear on site changes and cannot be reused across plants.

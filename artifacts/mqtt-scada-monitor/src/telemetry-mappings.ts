@@ -20,7 +20,7 @@ function normalized(value: unknown) {
 }
 
 function rowSourceName(row: TelemetryRow) {
-  return String(row.server_name ?? row.source ?? row.device ?? row.server ?? "MQTT source").trim();
+  return String(row.server_name ?? row.sourceName ?? row.source ?? row.device ?? row.server ?? "MQTT source").trim();
 }
 
 function rowAddress(row: TelemetryRow) {
@@ -29,6 +29,11 @@ function rowAddress(row: TelemetryRow) {
 
 function rowDeviceId(row: TelemetryRow) {
   const value = row.device_id ?? row.deviceId ?? row.inverter_id ?? row.inverterId ?? row.asset_id ?? row.assetId ?? row.server_id ?? row.serverId;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function rowSourceIdentity(row: TelemetryRow) {
+  const value = row.source_identity ?? row.sourceIdentity;
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
@@ -53,15 +58,17 @@ export function applyTelemetryMappings<T extends TelemetryRow>(rows: T[], mappin
     if (injectedInverter) delete baseRow.inverter_id;
     if (injectedSourceUnit) delete baseRow.reported_unit;
 
-    const name = normalized(baseRow.name ?? baseRow.parameter ?? baseRow.tag);
+    const name = normalized(baseRow.name ?? baseRow.parameter ?? baseRow.tag ?? baseRow.normalizedName ?? baseRow.originalName);
     const sourceName = rowSourceName(baseRow);
     const address = rowAddress(baseRow);
     const deviceId = rowDeviceId(baseRow);
+    const sourceIdentity = rowSourceIdentity(baseRow);
     const candidates = mappings.filter((mapping) =>
       mapping.sourceName === sourceName
       && mapping.normalizedName === name
       && mapping.address === address
-      && (!deviceId || mapping.deviceId === deviceId),
+      && (!deviceId || mapping.deviceId === deviceId)
+      && (!sourceIdentity || mapping.sourceIdentity === sourceIdentity),
     );
     // A source payload may omit a device ID. Only apply when the remaining
     // source/register identity resolves to exactly one managed mapping.

@@ -21,6 +21,7 @@ import { deviceCommunicationState, heartbeatWindows, latestBootstrapMessages, me
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
 import { deviceParameterFreshness, discoverDeviceParameters, discoverDeviceParametersFromRawPayload, latestDeviceParameterWins, type DiscoveredDeviceParameter } from "../lib/device-parameter-discovery";
+import { applyActiveTelemetryMappings } from "../lib/telemetry-mapping-resolution";
 import {
   keepReportRecord,
   reportCategoryForParameter,
@@ -1469,14 +1470,22 @@ export async function listLatestDeviceParameters(siteName: string, deviceId?: st
     for (const parameter of snapshotDiscoveredParameters(snapshot, siteName)) add(parameter);
   }
 
+  const mappingConditions = [
+    eq(platformTelemetryMappingsTable.siteName, siteName),
+    eq(platformTelemetryMappingsTable.status, "active"),
+  ];
+  if (deviceId) mappingConditions.push(eq(platformTelemetryMappingsTable.deviceId, deviceId));
+  const mappings = await db.select()
+    .from(platformTelemetryMappingsTable)
+    .where(and(...mappingConditions));
   const now = Date.now();
-  return [...latest.values()]
+  return applyActiveTelemetryMappings([...latest.values()]
     .sort((left, right) => {
       const rightTime = Date.parse(right.observedAt ?? right.receivedAt);
       const leftTime = Date.parse(left.observedAt ?? left.receivedAt);
       return rightTime - leftTime || left.displayLabel.localeCompare(right.displayLabel);
     })
-    .map((parameter) => ({ ...parameter, ...deviceParameterFreshness(parameter, now) }));
+    .map((parameter) => ({ ...parameter, ...deviceParameterFreshness(parameter, now) })), mappings);
 }
 
 export async function runLiveTelemetryTest(siteName: string, deviceId: string, timeoutSeconds: number): Promise<LiveTelemetryTestResult> {
