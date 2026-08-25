@@ -10,6 +10,7 @@
 - [SCADA session boundary](scada-session-boundary.md) — Platform Admin grants belong to the same user identity, but require a separate SCADA session before operator telemetry can load.
 - [Versioned SCADA snapshot identity](versioned-scada-snapshot-identity.md) — Keep new 15-minute snapshots idempotent without deleting legacy records.
 - [Live MQTT delivery ordering](live-mqtt-delivery-ordering.md) — Keep SSE identities contiguous and replay both durable and in-memory evidence during asynchronous archival.
+- [Live energy lane continuity](live-energy-lane-continuity.md) — Preserve direct energy samples through reconnects; clear only when the authenticated site scope changes.
 - [MQTT consumer handoff](mqtt-consumer-handoff.md) — After an API restart, wait for the previous consumer lease to expire before diagnosing broker delivery.
 - [Fault guidance provenance](fault-guidance-provenance.md) — Scope code mappings to evidence, preserve raw faults, and never invent unknown-code reasons.
 - [Complete report evidence presentation](complete-report-evidence-presentation.md) — Page dense evidence in the UI, but keep selected-period payloads and all exports complete.

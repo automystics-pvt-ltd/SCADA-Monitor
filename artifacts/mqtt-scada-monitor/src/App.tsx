@@ -1630,10 +1630,18 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel, liveSt
     [preferredSource?.address, preferredSource?.parameter, streamSamples],
   );
   const latestStreamSample = liveSeries.at(-1);
-  const hasLiveSeries = mode === 'live'
+  const latestStreamSampleAge = latestStreamSample ? now - Date.parse(latestStreamSample.receivedAt) : Number.POSITIVE_INFINITY;
+  const liveSeriesCurrent = mode === 'live'
     && liveState === 'fresh'
+    && Number.isFinite(latestStreamSampleAge)
+    && latestStreamSampleAge >= 0
+    && latestStreamSampleAge <= DEVICE_ONLINE_MAX_AGE_MS;
+  const hasLiveSeries = mode === 'live'
+    && liveState !== 'unavailable'
     && latestStreamSample !== undefined
-    && Date.parse(latestStreamSample.receivedAt) >= now - DEVICE_ONLINE_MAX_AGE_MS;
+    && Number.isFinite(latestStreamSampleAge)
+    && latestStreamSampleAge >= 0
+    && latestStreamSampleAge <= DEVICE_STALE_MAX_AGE_MS;
   const data = mode === 'demo'
     ? energyDataByRange[range]
     : hasLiveSeries
@@ -1648,7 +1656,9 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel, liveSt
   const hasDisplayValue = mode === 'demo' || hasVerifiedValue || hasRawValue || hasLiveSeries;
   const displayValue = mode === 'demo'
     ? range === 'daily' ? '14.13' : range === 'monthly' ? '96.1' : '3,862'
-    : hasVerifiedValue
+      : liveSeriesCurrent
+        ? latestStreamSample!.value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+        : hasVerifiedValue
       ? dailyEnergy.value!.toLocaleString(undefined, { maximumFractionDigits: 2 })
       : hasRawValue
         ? rawFallback!.value!.toLocaleString(undefined, { maximumFractionDigits: 4 })
@@ -1657,7 +1667,7 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel, liveSt
           : 'Data unavailable';
   const displayUnit = mode === 'demo'
     ? range === 'yearly' ? 'MWh this year' : `MWh ${range === 'daily' ? 'today' : 'this month'}`
-    : hasVerifiedValue ? `${dailyEnergy.unit} · ${dailyEnergy.profileVersion}` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : hasLiveSeries ? 'raw · live SSE' : 'no verified daily counter';
+    : liveSeriesCurrent ? 'raw · live SSE' : hasVerifiedValue ? `${dailyEnergy.unit} · ${dailyEnergy.profileVersion}` : hasRawValue ? `raw${savedLabel ? ` · Last Saved: ${savedLabel}` : ''}` : hasLiveSeries ? 'raw · last live sample' : 'no verified daily counter';
   return (
     <div className="scada-chart-surface bg-[#090B13] border border-[#1E293B] rounded-xl p-6 flex flex-col h-full relative overflow-hidden group">
       <div className="flex items-center justify-between mb-6 border-b border-[#1E293B] pb-4 relative z-10">
@@ -1668,7 +1678,7 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel, liveSt
              </div>
              Energy Summary
            </h3>
-            <p className="text-[10px] text-slate-500 font-medium tracking-wide mt-1">{mode === 'demo' ? 'Demonstration trend' : hasLiveSeries ? `Live SSE lane · ${liveSeries.length} source sample${liveSeries.length === 1 ? '' : 's'} · ${latestStreamSample?.parameter} · ${latestStreamSample?.address}` : liveState !== 'fresh' ? 'Live energy lane paused while fresh source data is unavailable' : hasVerifiedValue ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter · ${dailyEnergy.profileVersion}` : hasRawValue ? 'Source-backed raw daily-energy register' : 'Verified energy history unavailable'}</p>
+            <p className="text-[10px] text-slate-500 font-medium tracking-wide mt-1">{mode === 'demo' ? 'Demonstration trend' : hasLiveSeries ? `${liveSeriesCurrent ? 'Live SSE lane' : 'Last live energy samples'} · ${liveSeries.length} source sample${liveSeries.length === 1 ? '' : 's'} · ${latestStreamSample?.parameter} · ${latestStreamSample?.address}` : liveState !== 'fresh' ? 'Live energy lane paused while fresh source data is unavailable' : hasVerifiedValue ? `${dailyEnergy.provenance === 'snapshot' ? 'Saved-window' : 'Live'} verified daily counter · ${dailyEnergy.profileVersion}` : hasRawValue ? 'Source-backed raw daily-energy register' : 'Verified energy history unavailable'}</p>
         </div>
         <div role="tablist" aria-label="Energy time range" className="flex bg-[#0F1322] p-1 rounded-lg border border-[#1E293B] shadow-inner shrink-0">
            {(['daily', 'monthly', 'yearly'] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={range === option} onClick={() => setRange(option)} data-testid={`button-energy-range-${option}`} className={`px-3 py-1 text-[11px] rounded-md font-bold capitalize transition-all focus-ring ${range === option ? 'bg-[#2563EB] text-white shadow-md' : 'text-slate-500 hover:text-slate-300 hover:bg-[#1E293B]'}`}>{option}</button>)}
@@ -1703,7 +1713,7 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel, liveSt
           ) : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">{liveState !== 'fresh' && mode === 'live' ? <>Live lane paused<br /><span className="text-[10px]">Awaiting a fresh direct MQTT/SSE energy counter.</span></> : <>Data unavailable<br /><span className="text-[10px]">Awaiting a source-backed daily-energy counter.</span></>}</div>}
       </div>
       <div className="flex justify-between text-[10px] font-bold tracking-widest text-slate-500 mt-4 mono relative z-10">
-        {hasLiveSeries ? <><span>{new Date(firstStreamSample!.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span className="text-blue-300">LIVE SSE</span><span>{new Date(latestStreamSample!.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></> : <><span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span></>}
+        {hasLiveSeries ? <><span>{new Date(firstStreamSample!.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span className={liveSeriesCurrent ? 'text-blue-300' : 'text-amber-300'}>{liveSeriesCurrent ? 'LIVE SSE' : 'LAST LIVE'}</span><span>{new Date(latestStreamSample!.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></> : <><span>00</span><span>02</span><span>04</span><span>06</span><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span><span>22</span></>}
       </div>
     </div>
   );
@@ -2999,6 +3009,7 @@ function AppShell() {
   const streamRef = useRef<EventSource | null>(null);
   const streamGenerationRef = useRef(0);
   const seenTelemetryEventsRef = useRef(new Map<string, true>());
+  const energyStreamScopeRef = useRef('');
 
   useEffect(() => {
     localStorage.setItem('solar-scada-theme', theme);
@@ -3292,7 +3303,6 @@ function AppShell() {
     setLastTelemetryAt(null);
     setDevices([]);
     setModbusRows([]);
-    setEnergyStream([]);
     setSourceBackedInverterRecords([]);
     setSelectedInverterId(null);
     setRawPayload('Waiting for the first MQTT payload…');
@@ -3401,6 +3411,13 @@ function AppShell() {
     };
     setSettingsOpen(false);
   };
+
+  useEffect(() => {
+    const scope = scadaSession.authenticated && plantSiteName ? plantSiteName : '';
+    if (energyStreamScopeRef.current === scope) return;
+    energyStreamScopeRef.current = scope;
+    setEnergyStream([]);
+  }, [plantSiteName, scadaSession.authenticated]);
 
   useEffect(() => {
     if (mode !== 'live') return;
