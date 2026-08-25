@@ -2332,8 +2332,8 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
   const qualityObserved = qualityTotal + qualityCounts.unreported;
   const qualityPercent = hasUsableEvidence && qualityObserved ? Math.round((qualityCounts.good / qualityObserved) * 100) : null;
   return (
-    <div className="flex h-fit flex-col gap-3 self-start">
-      <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-3.5">
+    <div className="scada-dashboard-side-panels flex h-full min-h-0 flex-col gap-3">
+       <div className="scada-interactive-card flex min-h-0 flex-1 flex-col bg-[#090B13] border border-[#1E293B] rounded-xl p-3.5">
         <div className="mb-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertTriangle size={14} className={reports.length ? 'text-rose-400' : 'text-slate-400'} />
@@ -2394,7 +2394,7 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
              </div>
            </div>
         </div>
-           <p className="mt-2.5 text-[9px] text-slate-500">{showingSavedData ? `Last Saved Data: ${savedLabel ?? 'timestamp unavailable'}. ${qualityObserved ? `${qualityCounts.good} of ${qualityObserved} saved parameters are source-confirmed good.` : 'No quality metadata was reported in the saved record.'}` : !hasFreshTelemetry ? 'Cached quality evidence remains traceable in Live Data until a fresh payload arrives.' : qualityObserved ? `${qualityCounts.good} of ${qualityObserved} observed parameter${qualityObserved === 1 ? '' : 's'} are source-confirmed good${qualityCounts.unreported ? ` · ${qualityCounts.unreported} unreported` : ''}.` : 'Data unavailable until telemetry parameters arrive.'}</p>
+            <p className="mt-auto pt-2.5 text-[9px] text-slate-500">{showingSavedData ? `Last Saved Data: ${savedLabel ?? 'timestamp unavailable'}. ${qualityObserved ? `${qualityCounts.good} of ${qualityObserved} saved parameters are source-confirmed good.` : 'No quality metadata was reported in the saved record.'}` : !hasFreshTelemetry ? 'Cached quality evidence remains traceable in Live Data until a fresh payload arrives.' : qualityObserved ? `${qualityCounts.good} of ${qualityObserved} observed parameter${qualityObserved === 1 ? '' : 's'} are source-confirmed good${qualityCounts.unreported ? ` · ${qualityCounts.unreported} unreported` : ''}.` : 'Data unavailable until telemetry parameters arrive.'}</p>
       </div>
     </div>
   );
