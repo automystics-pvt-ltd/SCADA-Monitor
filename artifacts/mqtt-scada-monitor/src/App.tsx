@@ -2,7 +2,7 @@ import { lazy, Suspense, type FormEvent, type ReactNode, useCallback, useEffect,
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
-import { Route, Switch, useLocation } from 'wouter';
+import { Route, Router, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { approvedDisplayTelemetryUnit, approvedDisplayTelemetryValue, isSourceReportedEvidence, sourceReportedTelemetryUnit, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
@@ -2368,8 +2368,8 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
   const qualityObserved = qualityTotal + qualityCounts.unreported;
   const qualityPercent = hasUsableEvidence && qualityObserved ? Math.round((qualityCounts.good / qualityObserved) * 100) : null;
   return (
-    <div className="scada-dashboard-side-panels flex h-fit flex-col gap-3 self-start">
-       <div className="scada-interactive-card bg-scada-surface border border-scada-border rounded-xl p-3.5">
+    <div data-testid="panel-alarms-data-quality" className="scada-dashboard-side-panels flex h-fit flex-col gap-3 self-start">
+       <div data-testid="panel-alarm-summary" className="scada-interactive-card bg-scada-surface border border-scada-border rounded-xl p-3.5">
         <div className="mb-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertTriangle size={14} className={reports.length ? 'text-rose-400' : 'text-scada-muted'} />
@@ -2398,7 +2398,7 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
         </div>
       </div>
       
-       <div className="scada-interactive-card bg-scada-surface border border-scada-border rounded-xl p-3.5">
+       <div data-testid="panel-data-quality" className="scada-interactive-card bg-scada-surface border border-scada-border rounded-xl p-3.5">
         <div className="mb-2.5 flex items-center gap-2">
           <Check size={14} className="text-scada-muted" />
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-scada-text">Data Quality</h3>
@@ -4255,8 +4255,7 @@ function AppShell() {
                 <div className="scada-dashboard-system-metric" title={persistence.nextScheduledAt ? `${dashboardPersistenceResumeMessage ? `${dashboardPersistenceResumeMessage}. ` : ''}Next scheduled save: ${formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}.` : 'The next save window is not available.'}><span><RefreshCw size={15} aria-hidden="true" /></span><div><p>Next save in</p><strong>{dashboardNextSaveCountdown}</strong></div></div>
                 <div className="scada-dashboard-system-metric" title={persistence.savingActive ? `Historical snapshots save every ${persistence.intervalMinutes} minutes.` : dashboardPersistenceResumeMessage ?? 'Historical saving is paused.'}><span><Database size={15} aria-hidden="true" /></span><div><p>Persistence</p><strong>{persistence.savingActive ? `Auto every ${persistence.intervalMinutes} min` : 'Saving paused'}</strong></div></div>
               </section>}
-              <DashboardPowerFlow {...dashboardFlowReading} mode={mode} monitoringStatus={deviceCommunication} />
-              <div className="scada-dashboard-kpis grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
+              <div data-testid="dashboard-kpis" className="scada-dashboard-kpis grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
               <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} footerIcon={Activity} tone="blue" subtext={mode === 'demo' ? 'Live plant output' : acPowerCard.value === 'Not reported' ? 'Output unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('power')} help={`Total AC Power. ${acPowerCard.details}`} />
               <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} footerIcon={Sun} tone="amber" subtext={mode === 'demo' ? 'Day total' : dailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${dailyEnergyCard.details}`} />
               <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} footerIcon={Database} tone="violet" subtext={mode === 'demo' ? 'Lifetime generation' : totalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Total Energy. ${totalEnergyCard.details}`} />
@@ -4264,6 +4263,7 @@ function AppShell() {
               <KpiCard title="Inverters Online" value={inverterCard.value} icon={Check} footerIcon={Check} tone={inverterCard.tone} variant="inverter" availability={inverterCard.availability} subtext={inverterCard.status} onClick={() => navigateTo('inverters')} help={inverterCard.help} />
               <KpiCard title="Active Alarms" value={activeAlarmCardCount.toString()} icon={AlertTriangle} footerIcon={activeAlarmCardCount ? AlertTriangle : Check} tone={activeAlarmCardCount ? 'red' : 'green'} variant="alarm" subtext={showingSavedRecord ? `Saved record · verify live` : activeAlarmCardCount ? 'Requires attention' : 'No active alarms'} onClick={() => navigateTo('alarms')} help={rawKpis.alarms ? `Active Alarms. Latest source alarm value: ${rawKpis.alarms.value}${rawKpis.alarms.sourceUnit ? ` ${rawKpis.alarms.sourceUnit}` : ''}.${showingSavedRecord ? ` Saved: ${lastSavedLabel}; current alarm state requires live telemetry.` : ''}` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
             </div>
+            <DashboardPowerFlow {...dashboardFlowReading} mode={mode} monitoringStatus={deviceCommunication} />
           </section>
           
           <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
@@ -4313,14 +4313,21 @@ function AppShell() {
   );
 }
 
+function artifactRouterBase() {
+  if (typeof window === 'undefined') return import.meta.env.BASE_URL.replace(/\/$/, '');
+  return window.location.pathname === '/' ? '' : window.location.pathname.replace(/\/$/, '');
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
-        <Switch>
-          <Route path="/" component={AppShell} />
-          <Route component={NotFound} />
-        </Switch>
+        <Router base={artifactRouterBase()}>
+          <Switch>
+            <Route path="/" component={AppShell} />
+            <Route component={NotFound} />
+          </Switch>
+        </Router>
       </ErrorBoundary>
     </QueryClientProvider>
   );
