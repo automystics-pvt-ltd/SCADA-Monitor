@@ -29,3 +29,4 @@
 - [Saved record time provenance](saved-record-time-provenance.md) — Label saved dashboard evidence with capture time, not its scheduled collection slot.
 - [Operational visual language](operational-visual-language.md) — Use graphite surfaces and one restrained solar accent; reserve colour for evidence and operational state.
 - [Proxied visual test routing](proxied-visual-test-routing.md) — Replit’s artifact proxy can expose a path prefix while Vite reports a root base; dashboard tests must use the browser path and exclude the dev banner.
+- [Post-merge pnpm catalogs](post-merge-pnpm-catalog.md) — Workspace catalog changes require non-frozen lockfile reconciliation during post-merge setup.
