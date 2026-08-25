@@ -23,8 +23,11 @@ export interface PlatformTelemetryParameter {
   normalizedName: string;
   displayLabel: string;
   category: string;
-  rawValue: string;
-  reportedValue: string;
+  evidenceAvailable: boolean;
+  /** @nullable */
+  rawValue: string | null;
+  /** @nullable */
+  reportedValue: string | null;
   /** @nullable */
   reportedNumericValue: number | null;
   /** @nullable */
@@ -41,7 +44,8 @@ export interface PlatformTelemetryParameter {
   sourceIdentity: string;
   /** @nullable */
   observedAt: Date | null;
-  receivedAt: Date;
+  /** @nullable */
+  receivedAt: Date | null;
   provenance: PlatformTelemetryParameterProvenance;
   dataQuality: PlatformTelemetryParameterDataQuality;
   scalingStatus: PlatformTelemetryParameterScalingStatus;

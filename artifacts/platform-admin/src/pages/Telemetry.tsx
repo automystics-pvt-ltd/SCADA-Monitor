@@ -121,17 +121,19 @@ function ParameterMappingRow({
   }
 
   const isMapped = !!m && m.status === 'active';
+  const canSave = !isMapped || isDirty;
 
   return (
     <TableRow className={`group transition-colors ${isDirty ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/30"}`}>
       {/* Source Parameter */}
       <TableCell className="align-top py-3">
-        <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1">
           <div className={`w-1.5 h-1.5 rounded-full flex-none ${isMapped ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-muted-foreground/30'}`} />
-          <div className="font-semibold text-foreground text-sm truncate max-w-[240px]" title={parameter.sourceName}>
-            {parameter.sourceName}
-          </div>
+            <div className="font-semibold text-foreground text-sm truncate max-w-[240px]" title={parameter.displayLabel}>
+              {parameter.displayLabel}
+            </div>
         </div>
+          <div className="text-[10px] text-muted-foreground pl-3.5">Source: {parameter.sourceName}</div>
         <div className="font-mono text-[10px] text-muted-foreground truncate max-w-[250px] pl-3.5" title={parameter.sourceIdentity}>
           {parameter.sourceIdentity}
         </div>
@@ -144,19 +146,27 @@ function ParameterMappingRow({
 
       {/* Latest Evidence */}
       <TableCell className="align-top py-3">
-        <div className="flex items-baseline gap-1.5">
-          <span className="font-mono text-sm font-medium text-emerald-600 dark:text-emerald-400">
-            {parameter.reportedValue}
-          </span>
-          {parameter.sourceUnit && (
-            <Badge variant="outline" className="text-[9px] uppercase h-4 px-1 rounded bg-background/50 border-border/50 text-muted-foreground font-mono font-normal flex-none">
-              {parameter.sourceUnit}
-            </Badge>
-          )}
-        </div>
-        <div className="text-[10px] text-muted-foreground mt-1 font-mono truncate max-w-[180px] opacity-70" title={`RAW: ${parameter.rawValue}`}>
-          RAW: {parameter.rawValue}
-        </div>
+        {parameter.evidenceAvailable ? (
+          <>
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-mono text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                {parameter.reportedValue}
+              </span>
+              {parameter.sourceUnit && (
+                <Badge variant="outline" className="text-[9px] uppercase h-4 px-1 rounded bg-background/50 border-border/50 text-muted-foreground font-mono font-normal flex-none">
+                  {parameter.sourceUnit}
+                </Badge>
+              )}
+            </div>
+            <div className="text-[10px] text-muted-foreground mt-1 font-mono truncate max-w-[180px] opacity-70" title={`RAW: ${parameter.rawValue}`}>
+              RAW: {parameter.rawValue}
+            </div>
+          </>
+        ) : (
+          <div className="rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-300">
+            Evidence unavailable. Saved configuration remains editable.
+          </div>
+        )}
         {parameter.displayValue !== null && parameter.displayValue !== undefined && (
           <div className="mt-1 text-[10px] font-medium text-primary">
             Actual: <span className="font-mono">{parameter.displayValue}</span>{parameter.displayUnit ? ` ${parameter.displayUnit}` : ''}
@@ -164,6 +174,10 @@ function ParameterMappingRow({
           </div>
         )}
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          <Badge variant="secondary" className={isMapped ? "text-[8px] h-3.5 px-1 rounded-sm leading-none font-medium uppercase tracking-wider bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "text-[8px] h-3.5 px-1 rounded-sm leading-none font-medium uppercase tracking-wider"}>
+            {isMapped ? `Saved · v${m.version}` : "Unmapped"}
+          </Badge>
+          {isDirty && <Badge variant="secondary" className="text-[8px] h-3.5 px-1 rounded-sm leading-none font-medium uppercase tracking-wider bg-primary/10 text-primary">Unsaved edit</Badge>}
           <Badge variant="secondary" className={`text-[8px] h-3.5 px-1 rounded-sm leading-none font-medium uppercase tracking-wider ${parameter.dataQuality === 'validated' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
             {parameter.dataQuality}
           </Badge>
@@ -258,13 +272,13 @@ function ParameterMappingRow({
         <div className="flex flex-col items-end gap-2">
           <Button 
             size="sm" 
-            className={`h-8 w-20 text-xs font-semibold shadow-sm transition-all duration-300 ${isDirty ? 'opacity-100 translate-x-0' : 'opacity-50 grayscale'}`}
-            variant={isDirty ? "default" : "secondary"}
-            disabled={!isDirty || isSaving}
+            className={`h-8 w-28 text-xs font-semibold shadow-sm transition-all duration-300 ${canSave ? 'opacity-100 translate-x-0' : 'opacity-50 grayscale'}`}
+            variant={canSave ? "default" : "secondary"}
+            disabled={!canSave || isSaving}
             onClick={handleSave}
           >
             {isSaving ? <RefreshCw className="w-3 h-3 animate-spin mr-1.5" /> : <Save className="w-3 h-3 mr-1.5" />}
-            Save
+            {isSaving ? "Saving" : isDirty ? "Save edit" : isMapped ? "Saved" : "Save mapping"}
           </Button>
 
           {isMapped && (
@@ -435,7 +449,7 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
             ) : (
               filtered.map(param => (
                 <ParameterMappingRow 
-                  key={param.signalKey} 
+                  key={[param.siteName, param.deviceId, param.sourceIdentity, param.normalizedName, param.address ?? "—"].join("\u001f")}
                   parameter={param} 
                   onSave={handleSave} 
                   onClear={handleClear} 

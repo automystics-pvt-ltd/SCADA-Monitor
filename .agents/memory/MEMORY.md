@@ -23,3 +23,4 @@
 - [Telemetry mapping inverter attribution](telemetry-mapping-inverter-attribution.md) — Active-power mappings need an explicit inv1–inv5 identity before they can contribute to an inverter flow.
 - [Approved telemetry display transforms](approved-telemetry-display-transforms.md) — Admin mappings may produce an approved display value, but raw/reported evidence and KPI calibration stay separate.
 - [Site-bound snapshot evidence](site-bound-snapshot-evidence.md) — Saved SCADA evidence must clear on site changes and cannot be reused across plants.
+- [Saved telemetry mapping visibility](saved-telemetry-mapping-visibility.md) — Preserve editable configuration rows without fabricating evidence; use the complete source identity.

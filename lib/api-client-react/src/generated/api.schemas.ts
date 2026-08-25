@@ -325,6 +325,7 @@ export const PlatformTelemetryParameterProvenance = {
   recovered: 'recovered',
   replay: 'replay',
   snapshot: 'snapshot',
+  configuration: 'configuration',
 } as const;
 
 export type PlatformTelemetryParameterDataQuality = typeof PlatformTelemetryParameterDataQuality[keyof typeof PlatformTelemetryParameterDataQuality];
@@ -379,8 +380,11 @@ export interface PlatformTelemetryParameter {
   normalizedName: string;
   displayLabel: string;
   category: string;
-  rawValue: string;
-  reportedValue: string;
+  evidenceAvailable: boolean;
+  /** @nullable */
+  rawValue: string | null;
+  /** @nullable */
+  reportedValue: string | null;
   /** @nullable */
   reportedNumericValue: number | null;
   /** @nullable */
@@ -397,7 +401,8 @@ export interface PlatformTelemetryParameter {
   sourceIdentity: string;
   /** @nullable */
   observedAt: string | null;
-  receivedAt: string;
+  /** @nullable */
+  receivedAt: string | null;
   provenance: PlatformTelemetryParameterProvenance;
   dataQuality: PlatformTelemetryParameterDataQuality;
   scalingStatus: PlatformTelemetryParameterScalingStatus;

@@ -15,4 +15,5 @@ export const PlatformTelemetryParameterProvenance = {
   recovered: 'recovered',
   replay: 'replay',
   snapshot: 'snapshot',
+  configuration: 'configuration',
 } as const;

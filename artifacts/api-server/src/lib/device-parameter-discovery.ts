@@ -220,8 +220,8 @@ function buildParameter(
   const value = numericValue(reported);
   const validated = scalingValidated(mappedSource);
   const sourceMappingStatus = mappedSource.source_mapping_status === "source-reported" ? "source-reported" as const : "raw" as const;
-  const signalKey = [identity.siteName, identity.deviceId, normalizedName, address ?? "—"].join("|");
   const sourceIdentityKey = [identity.siteName, identity.sourceName, normalizedName, address ?? "—"].join("|");
+  const signalKey = [identity.siteName, identity.deviceId, sourceIdentityKey, normalizedName, address ?? "—"].join("|");
   const observationId = `parameter:${hash([sourceIdentityKey, observedAt ?? "", context.receivedAt, rawText(reported), rawText(mappedSource.raw_data ?? mappedSource.rawValue ?? mappedSource.raw_value ?? rawValue)].join("|"))}`;
   return {
     observationId,

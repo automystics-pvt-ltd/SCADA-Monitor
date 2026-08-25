@@ -741,8 +741,9 @@ components:
         normalizedName: { type: string }
         displayLabel: { type: string }
         category: { type: string }
-        rawValue: { type: string }
-        reportedValue: { type: string }
+        evidenceAvailable: { type: boolean }
+        rawValue: { type: [string, "null"] }
+        reportedValue: { type: [string, "null"] }
         reportedNumericValue: { type: [number, "null"] }
         displayValue: { type: [string, "null"] }
         displayNumericValue: { type: [number, "null"] }
@@ -752,14 +753,14 @@ components:
         sourceName: { type: string }
         sourceIdentity: { type: string }
         observedAt: { type: [string, "null"], format: date-time }
-        receivedAt: { type: string, format: date-time }
-        provenance: { type: string, enum: [live, retained, recovered, replay, snapshot] }
+        receivedAt: { type: [string, "null"], format: date-time }
+        provenance: { type: string, enum: [live, retained, recovered, replay, snapshot, configuration] }
         dataQuality: { type: string, enum: [validated, raw, source-reported] }
         scalingStatus: { type: string, enum: [validated, raw] }
         mappingValidationStatus: { type: [string, "null"], enum: [valid, not-numeric, non-finite, null] }
         freshness: { type: string, enum: [live, stale, saved, retained, recovered, replay] }
         mapping: { anyOf: [{ $ref: "#/components/schemas/PlatformTelemetryMapping" }, { type: "null" }] }
-      required: [observationId, signalKey, siteName, deviceId, deviceName, topic, originalName, normalizedName, displayLabel, category, rawValue, reportedValue, reportedNumericValue, displayValue, displayNumericValue, displayUnit, sourceUnit, address, sourceName, sourceIdentity, observedAt, receivedAt, provenance, dataQuality, scalingStatus, mappingValidationStatus, freshness, mapping]
+      required: [observationId, signalKey, siteName, deviceId, deviceName, topic, originalName, normalizedName, displayLabel, category, evidenceAvailable, rawValue, reportedValue, reportedNumericValue, displayValue, displayNumericValue, displayUnit, sourceUnit, address, sourceName, sourceIdentity, observedAt, receivedAt, provenance, dataQuality, scalingStatus, mappingValidationStatus, freshness, mapping]
     PlatformTelemetryParameterList:
       type: object
       properties:

@@ -91,6 +91,7 @@ import {
 } from "../middlewares/platformAdminAuthorization";
 import { rolePermissions, type RolePermissionsConfig, type ScadaPermission } from "../middlewares/platformSiteAccessPolicy";
 import { hashScadaPassword, normalizeScadaUsername } from "../lib/auth";
+import { mappingWorkspaceRows, telemetryMappingIdentityKey } from "../lib/telemetry-mapping-workspace";
 
 const router: IRouter = Router();
 
@@ -142,16 +143,6 @@ function telemetryMappingResponse(mapping: typeof platformTelemetryMappingsTable
     version: mapping.version,
     updatedAt: mapping.updatedAt.toISOString(),
   };
-}
-
-function telemetryMappingKey(mapping: {
-  siteName: string;
-  deviceId: string;
-  sourceIdentity: string;
-  normalizedName: string;
-  address: string;
-}) {
-  return [mapping.siteName, mapping.deviceId, mapping.sourceIdentity, mapping.normalizedName, mapping.address].join("\u001f");
 }
 
 async function activeManagedSite(siteName: string) {
@@ -527,18 +518,14 @@ router.get("/platform-admin/telemetry/parameters", async (req: Request, res): Pr
       eq(platformTelemetryMappingsTable.status, "active"),
     )),
   ]);
-  const mappingByIdentity = new Map(mappings.map((mapping) => [telemetryMappingKey(mapping), mapping]));
+  const workspaceRows = mappingWorkspaceRows(
+    parameters,
+    mappings.filter((mapping) => !query.data.deviceId || mapping.deviceId === query.data.deviceId),
+  );
   const data = ListPlatformTelemetryParametersResponse.parse({
     siteName: site.siteName,
     deviceId: query.data.deviceId ?? null,
-    parameters: parameters.map((parameter) => {
-      const mapping = mappingByIdentity.get(telemetryMappingKey({
-        siteName: parameter.siteName,
-        deviceId: parameter.deviceId,
-        sourceIdentity: parameter.sourceIdentity,
-        normalizedName: parameter.normalizedName,
-        address: parameter.address ?? "—",
-      }));
+    parameters: workspaceRows.map(({ parameter, mapping }) => {
       return {
         observationId: parameter.observationId,
         signalKey: parameter.signalKey,
@@ -550,6 +537,7 @@ router.get("/platform-admin/telemetry/parameters", async (req: Request, res): Pr
         normalizedName: parameter.normalizedName,
         displayLabel: parameter.displayLabel,
         category: parameter.category,
+        evidenceAvailable: parameter.evidenceAvailable,
         rawValue: parameter.rawValue,
         reportedValue: parameter.reportedValue,
         reportedNumericValue: parameter.reportedNumericValue,
@@ -607,17 +595,38 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
     res.status(404).json({ error: "Choose an active managed site." });
     return;
   }
+  const identity = {
+    siteName: site.siteName,
+    deviceId: data.data.deviceId,
+    sourceIdentity: data.data.sourceIdentity,
+    normalizedName: data.data.normalizedName,
+    address: data.data.address,
+  };
+  const [previous] = await db.select().from(platformTelemetryMappingsTable)
+    .where(and(
+      eq(platformTelemetryMappingsTable.siteName, identity.siteName),
+      eq(platformTelemetryMappingsTable.deviceId, identity.deviceId),
+      eq(platformTelemetryMappingsTable.sourceIdentity, identity.sourceIdentity),
+      eq(platformTelemetryMappingsTable.normalizedName, identity.normalizedName),
+      eq(platformTelemetryMappingsTable.address, identity.address),
+    ))
+    .limit(1);
   const parameter = (await listLatestDeviceParameters(site.siteName, data.data.deviceId)).find((candidate) =>
-    candidate.sourceIdentity === data.data.sourceIdentity
-    && candidate.normalizedName === data.data.normalizedName
-    && (candidate.address ?? "—") === data.data.address,
+    telemetryMappingIdentityKey({
+      siteName: candidate.siteName,
+      deviceId: candidate.deviceId,
+      sourceIdentity: candidate.sourceIdentity,
+      normalizedName: candidate.normalizedName,
+      address: candidate.address ?? "—",
+    }) === telemetryMappingIdentityKey(identity),
   );
-  if (!parameter) {
-    res.status(400).json({ error: "The mapping must match a currently received parameter from this exact site, device, source, and register." });
+  if (!parameter && !previous) {
+    res.status(400).json({ error: "A new mapping must match currently discovered source evidence from this exact site, device, source, and register." });
     return;
   }
-  if (data.data.sourceUnit !== undefined && data.data.sourceUnit !== null && data.data.sourceUnit !== (parameter.sourceUnit ?? "")) {
-    res.status(400).json({ error: "The source unit must match the unit currently reported by this parameter. Mapping cannot invent a unit." });
+  const sourceUnit = parameter?.sourceUnit ?? previous?.sourceUnit ?? null;
+  if (data.data.sourceUnit !== undefined && data.data.sourceUnit !== null && data.data.sourceUnit !== (sourceUnit ?? "")) {
+    res.status(400).json({ error: "The source unit must match the current or previously saved source unit. Mapping cannot invent a unit." });
     return;
   }
   const multiplier = data.data.scalingMultiplier ?? 1;
@@ -626,7 +635,7 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
     res.status(400).json({ error: "Scaling must use finite multiplier and offset values within the approved operational range." });
     return;
   }
-  const displayUnit = data.data.displayUnit?.trim() || parameter.sourceUnit || null;
+  const displayUnit = data.data.displayUnit?.trim() || sourceUnit || null;
   if (data.data.displayUnit !== undefined && !displayUnit) {
     res.status(400).json({ error: "Choose a display unit, or wait for the device to report its source unit." });
     return;
@@ -639,31 +648,15 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
     res.status(400).json({ error: "Use a managed inverter identity from inv1 through inv5." });
     return;
   }
-  const identity = {
-    siteName: site.siteName,
-    deviceId: parameter.deviceId,
-    sourceIdentity: parameter.sourceIdentity,
-    normalizedName: parameter.normalizedName,
-    address: parameter.address ?? "—",
-  };
-  const [previous] = await db.select().from(platformTelemetryMappingsTable)
-    .where(and(
-      eq(platformTelemetryMappingsTable.siteName, identity.siteName),
-      eq(platformTelemetryMappingsTable.deviceId, identity.deviceId),
-      eq(platformTelemetryMappingsTable.sourceIdentity, identity.sourceIdentity),
-      eq(platformTelemetryMappingsTable.normalizedName, identity.normalizedName),
-      eq(platformTelemetryMappingsTable.address, identity.address),
-    ))
-    .limit(1);
   const now = new Date();
   const [mapping] = await db.insert(platformTelemetryMappingsTable).values({
     ...identity,
-    sourceName: parameter.sourceName,
+    sourceName: parameter?.sourceName ?? previous!.sourceName,
     destination: data.data.destination,
     displayLabel: data.data.displayLabel.trim(),
     category: data.data.category.trim(),
     inverterIdentity: data.data.inverterIdentity?.trim() || null,
-    sourceUnit: parameter.sourceUnit,
+    sourceUnit,
     displayUnit,
     scalingMultiplier: multiplier,
     scalingOffset: offset,
@@ -681,12 +674,12 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
       platformTelemetryMappingsTable.address,
     ],
     set: {
-      sourceName: parameter.sourceName,
+      sourceName: parameter?.sourceName ?? previous!.sourceName,
       destination: data.data.destination,
       displayLabel: data.data.displayLabel.trim(),
       category: data.data.category.trim(),
       inverterIdentity: data.data.inverterIdentity?.trim() || null,
-      sourceUnit: parameter.sourceUnit,
+      sourceUnit,
       displayUnit,
       scalingMultiplier: multiplier,
       scalingOffset: offset,
@@ -700,7 +693,7 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
   }).returning();
   await audit(req.platformAdmin!, previous ? "telemetry-mapping.updated" : "telemetry-mapping.created", "telemetry-mapping", mapping.id, {
     ...identity,
-    sourceName: parameter.sourceName,
+    sourceName: parameter?.sourceName ?? previous!.sourceName,
     destination: mapping.destination,
     sourceUnit: mapping.sourceUnit,
     displayUnit: mapping.displayUnit,

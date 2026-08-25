@@ -1518,7 +1518,7 @@ export async function listLiveTelemetryDevices() {
 function discoveryCatalogParameter(discovery: typeof platformTelemetryDiscoveriesTable.$inferSelect): DiscoveredDeviceParameter {
   return {
     observationId: `catalog:${discovery.id}`,
-    signalKey: [discovery.siteName, discovery.deviceId, discovery.normalizedName, discovery.address].join("|"),
+    signalKey: [discovery.siteName, discovery.deviceId, discovery.sourceIdentity, discovery.normalizedName, discovery.address].join("|"),
     siteName: discovery.siteName,
     deviceId: discovery.deviceId,
     deviceName: discovery.deviceName,
@@ -1594,10 +1594,18 @@ async function persistDiscoveredParameterCatalog(parameters: DiscoveredDevicePar
  */
 export async function listLatestDeviceParameters(siteName: string, deviceId?: string) {
   const latest = new Map<string, DiscoveredDeviceParameter>();
+  const parameterIdentityKey = (parameter: DiscoveredDeviceParameter) => [
+    parameter.siteName,
+    parameter.deviceId,
+    parameter.sourceIdentity,
+    parameter.normalizedName,
+    parameter.address ?? "—",
+  ].join("\u001f");
   const add = (parameter: DiscoveredDeviceParameter) => {
     if (parameter.siteName !== siteName || (deviceId && parameter.deviceId !== deviceId)) return;
-    const existing = latest.get(parameter.signalKey);
-    if (latestDeviceParameterWins(existing, parameter)) latest.set(parameter.signalKey, parameter);
+    const identity = parameterIdentityKey(parameter);
+    const existing = latest.get(identity);
+    if (latestDeviceParameterWins(existing, parameter)) latest.set(identity, parameter);
   };
 
   const fallbackManagedSite = await soleManagedSiteForConfiguredFallback();
@@ -1620,7 +1628,13 @@ export async function listLatestDeviceParameters(siteName: string, deviceId?: st
           ...parameter,
           siteName,
           sourceIdentity: managedSourceIdentity(siteName, parameter.sourceName, parameter.normalizedName, parameter.address),
-          signalKey: [siteName, parameter.deviceId, parameter.normalizedName, parameter.address ?? "—"].join("|"),
+          signalKey: [
+            siteName,
+            parameter.deviceId,
+            managedSourceIdentity(siteName, parameter.sourceName, parameter.normalizedName, parameter.address),
+            parameter.normalizedName,
+            parameter.address ?? "—",
+          ].join("|"),
         }
         : parameter,
     );

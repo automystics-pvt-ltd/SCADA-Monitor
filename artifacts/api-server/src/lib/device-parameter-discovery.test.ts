@@ -123,6 +123,25 @@ test("uses source identity, timestamps, and raw values in deterministic observat
   assert.equal(first?.observedAt, "2026-08-25T09:00:00.000Z");
 });
 
+test("gives sources sharing a device and register distinct stable parameter identities", () => {
+  const sourceA = discoverDeviceParameters({
+    name: "phase_voltage",
+    data: 401,
+    device_id: "meter-1",
+    server_name: "gateway-a",
+    addr: "40001",
+  }, context)[0];
+  const sourceB = discoverDeviceParameters({
+    name: "phase_voltage",
+    data: 402,
+    device_id: "meter-1",
+    server_name: "gateway-b",
+    addr: "40001",
+  }, context)[0];
+  assert.notEqual(sourceA?.sourceIdentity, sourceB?.sourceIdentity);
+  assert.notEqual(sourceA?.signalKey, sourceB?.signalKey);
+});
+
 test("keeps source-reported TRN246 evidence separate from transport raw values and shared-register signals", () => {
   const rows = [1, 2, 3, 4, 5].flatMap((number) => discoverDeviceParameters({
     name: `inv${number}`,
