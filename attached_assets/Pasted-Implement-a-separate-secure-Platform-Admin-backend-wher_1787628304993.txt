@@ -1,0 +1,100 @@
+Implement a separate, secure Platform Admin backend where the Platform Admin has complete control over user management, organization/site assignment, access permissions, and account lifecycle, without disturbing the existing SCADA application functionality.
+
+The Platform Admin must be able to:
+
+Add/Create users
+View users
+Edit users
+Activate users
+Deactivate users
+Delete users
+Reset/manage user access
+Assign users to specific Organization(s)
+Assign users to specific Plant/Site(s)
+Assign appropriate roles and permissions
+Modify site access whenever required
+Remove site access whenever required
+View each user's assigned organization, sites, role, and account status
+Site-Level Access
+
+The Platform Admin should be able to assign a user to one or multiple specific sites.
+
+For example:
+
+User → Organization → Plant/Site → Role → Permissions
+
+A user must only be able to access the sites explicitly assigned to them. They must not be able to view or access data belonging to other organizations or unauthorized sites.
+
+SCADA Monitor Application Login
+
+The SCADA Monitoring application must have its own professional login page.
+
+The flow should be:
+
+Platform Admin creates user → Assigns Organization/Site/Role/Permissions → Activates user → User logs into SCADA Monitor → Authentication & authorization validated → Assigned Site(s) available → User accesses authorized SCADA data
+
+If a user is inactive, deleted, unauthorized, or has no valid site assignment, they must not be allowed to access the SCADA application.
+
+Role-Based Access
+
+Support configurable roles such as:
+
+Platform Admin — Full platform administration
+Site Admin — Full management of assigned site(s)
+Site Engineer — Monitoring, telemetry, alarms, analytics, and reports for assigned site(s)
+Viewer — Read-only access to authorized SCADA information
+
+Permissions should be configurable rather than hard-coded, allowing Platform Admin to control access to:
+
+Dashboard
+Live Monitoring
+Inverter Details
+Electrical Parameters
+Energy Analytics
+MPPT & Strings
+Alarms & Faults
+Historical Data
+SCADA Reports
+Data Export
+Site Configuration
+Device Configuration
+User Management
+Security & Isolation
+
+Enforce authorization at the backend/API level, not only through frontend menu visibility.
+
+Ensure:
+
+Organization A → Users → Sites → Data
+
+remains completely isolated from:
+
+Organization B → Users → Sites → Data
+
+Users must never be able to access another organization's SCADA data by changing URLs, IDs, API parameters, or frontend selections.
+
+Critical Requirement
+
+This must be implemented as a professional multi-tenant Solar SCADA access-control architecture while preserving all existing functionality.
+
+Do not modify, break, or disturb the existing MQTT/Modbus communication, telemetry processing, 15-minute data-saving logic, dashboard, reports, existing authentication behavior, or SCADA monitoring functionality.
+
+The final architecture should be:
+
+Separate Platform Admin Backend
+↓
+Organizations
+↓
+Plants/Sites
+↓
+Users
+↓
+Roles & Permissions
+↓
+SCADA Monitor Login
+↓
+Authorized Site Access
+↓
+Live + Saved SCADA Monitoring
+
+This should provide the Platform Admin with complete centralized control over who can access which site and what they can do within the Solar SCADA application, while keeping the actual SCADA monitoring experience secure, clean, and uninterrupted.
