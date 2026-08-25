@@ -33,6 +33,12 @@ When a row is explicitly source-reported, use its reported/customer value and re
 
 **How to apply:** Prefer `reported_value`/`customer_value` and their declared unit only for source-reported evidence. If a row is explicitly marked raw, ignore any convenience reported-value field and continue to show the raw register evidence.
 
+The same evidence precedence applies after persistence, not just to live cards: saved snapshots, historical report rows, charts, and exports must carry reported value/unit, transport raw, and source identity as distinct fields.
+
+**Why:** A row that is accurately presented live can become misleading when a later snapshot or report reconstructs it from transport data alone, or promotes a convenience reported value despite an explicit raw mapping.
+
+**How to apply:** Store the evidence components with archived records. On every projection, check the explicit raw mapping before validation or reported-value branches; raw mapping wins and cannot be promoted by a retained convenience field.
+
 An approved plant calibration profile may be role-specific. Installed DC capacity is optional unless calculating Specific Yield, so a confirmed Total Energy mapping can be verified without approving unrelated power, daily-energy, or capacity metadata.
 
 **Why:** Requiring a complete plant profile to approve one well-evidenced counter either hides valid energy evidence or pressures operators to fabricate unknown capacity values.

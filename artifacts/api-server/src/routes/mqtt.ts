@@ -93,9 +93,15 @@ function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
   if (!isRecord(snapshot.data)) return false;
   const messages = Array.isArray(snapshot.data.messages) ? snapshot.data.messages : [];
   const parameters = Array.isArray(snapshot.data.parameters) ? snapshot.data.parameters : [];
+  const discovered = Array.isArray(snapshot.data.latestDiscoveredParameters)
+    ? snapshot.data.latestDiscoveredParameters
+    : isRecord(snapshot.data.latestDiscoveredParameters)
+      ? Object.values(snapshot.data.latestDiscoveredParameters)
+      : [];
   return messages.some((message) => isRecord(message) && typeof message.payload === "string"
     && messageBelongsToSite({ ...message, sequence: 0, receivedAt: "", topic: "" } as StoredMessage, siteName))
-    || parameters.some((parameter) => payloadSiteName(parameter) === siteName);
+    || parameters.some((parameter) => payloadSiteName(parameter) === siteName)
+    || discovered.some((parameter) => isRecord(parameter) && (parameter.siteName === siteName || parameter.site_name === siteName));
 }
 
 type StoredMessage = {
@@ -171,6 +177,10 @@ type SavedKpiMetric = {
   rawData: string;
   address: string;
   sourceTimestamp?: string;
+  sourceReportedValue?: string;
+  sourceReportedUnit?: string;
+  transportRawValue?: string;
+  sourceIdentity?: string;
 };
 type SavedSnapshotEvidence = {
   id: number;
@@ -663,20 +673,24 @@ function emptySnapshotBuffer(startedAt: Date, key: string): SnapshotBuffer {
 }
 
 function numericParameterValue(parameter: Record<string, unknown>) {
-  const value = typeof parameter.data === "number" ? parameter.data : typeof parameter.data === "string" ? Number(parameter.data) : NaN;
+  const evidence = sourceReportedEvidence(parameter);
+  const candidate = evidence.isSourceReported ? evidence.sourceReportedValue : parameter.data;
+  const value = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
   return Number.isFinite(value) ? value : null;
 }
 
 function sourceReportedEvidence(parameter: Record<string, unknown>) {
-  const reportedValue = parameter.reported_value ?? parameter.reportedValue ?? parameter.customer_value ?? parameter.customerValue;
-  const reportedUnit = parameter.reported_unit ?? parameter.reportedUnit ?? parameter.customer_unit ?? parameter.customerUnit ?? parameter.source_unit ?? parameter.sourceUnit;
+  const mappingStatus = parameter.source_mapping_status ?? parameter.sourceMappingStatus;
+  const rawMapping = mappingStatus !== undefined && mappingStatus !== null && mappingStatus !== "" && mappingStatus !== "source-reported";
+  const reportedValue = rawMapping ? undefined : parameter.reported_value ?? parameter.reportedValue ?? parameter.customer_value ?? parameter.customerValue ?? parameter.engineering_value ?? parameter.engineeringValue;
+  const reportedUnit = rawMapping ? undefined : parameter.reported_unit ?? parameter.reportedUnit ?? parameter.customer_unit ?? parameter.customerUnit ?? parameter.source_unit ?? parameter.sourceUnit ?? parameter.engineering_unit ?? parameter.engineeringUnit;
   const transportRawValue = parameter.raw_data ?? parameter.rawValue ?? parameter.raw_value ?? parameter.source_raw_value ?? parameter.sourceRawValue;
   return {
     sourceReportedValue: reportedValue === undefined || reportedValue === null ? null : String(reportedValue),
     sourceReportedUnit: reportedUnit === undefined || reportedUnit === null ? null : String(reportedUnit),
     transportRawValue: transportRawValue === undefined || transportRawValue === null ? null : String(transportRawValue),
     sourceIdentity: typeof parameter.source_identity === "string" ? parameter.source_identity : typeof parameter.sourceIdentity === "string" ? parameter.sourceIdentity : null,
-    isSourceReported: parameter.source_mapping_status === "source-reported" || parameter.sourceMappingStatus === "source-reported",
+    isSourceReported: reportedValue !== undefined && reportedValue !== null,
   };
 }
 
@@ -807,6 +821,28 @@ function latestSavedMetric(parameters: Record<string, unknown>[], names: string[
     rawData: String(latest.parameter.raw_data ?? latest.parameter.data ?? ""),
     address: String(latest.parameter.full_addr ?? latest.parameter.addr ?? "—"),
     sourceTimestamp: parameterObservationTime(latest.parameter),
+    ...Object.fromEntries(Object.entries(sourceReportedEvidence(latest.parameter)).filter(([key, value]) => key !== "isSourceReported" && value !== null)) as Pick<SavedKpiMetric, "sourceReportedValue" | "sourceReportedUnit" | "transportRawValue" | "sourceIdentity">,
+  };
+}
+
+export function normalizeSavedSnapshotParameter(parameter: Record<string, unknown>) {
+  // Schema-v4 snapshots retain discovered parameters as a presentation-oriented
+  // shape. Normalize it at the persistence boundary so KPI and report consumers
+  // receive the same source evidence aliases as live MQTT parameters.
+  return {
+    ...parameter,
+    name: parameter.name ?? parameter.parameter ?? parameter.originalName,
+    data: parameter.data ?? parameter.rawValue ?? parameter.value,
+    raw_data: parameter.raw_data ?? parameter.rawValue ?? parameter.raw_value,
+    full_addr: parameter.full_addr ?? parameter.address ?? parameter.addr,
+    date_iso_8601: parameter.date_iso_8601 ?? parameter.observedAt,
+    timestamp: parameter.timestamp ?? parameter.observedAt,
+    reported_value: parameter.reported_value ?? parameter.reportedValue,
+    reported_unit: parameter.reported_unit ?? parameter.reportedUnit ?? parameter.sourceUnit,
+    source_unit: parameter.source_unit ?? parameter.sourceUnit,
+    source_identity: parameter.source_identity ?? parameter.sourceIdentity,
+    source_mapping_status: parameter.source_mapping_status ?? parameter.sourceMappingStatus,
+    server_name: parameter.server_name ?? parameter.sourceName,
   };
 }
 
@@ -817,7 +853,7 @@ function snapshotSaveStatus(data: unknown, messageCount: number, parameterCount:
   return parameterCount ? "saved" : "incomplete";
 }
 
-function snapshotEvidence(snapshot: {
+export function snapshotEvidence(snapshot: {
   id: number;
   topic: string;
   windowStartedAt: Date;
@@ -828,9 +864,22 @@ function snapshotEvidence(snapshot: {
   data: unknown;
 }): SavedSnapshotEvidence {
   const data = isRecord(snapshot.data) ? snapshot.data : {};
-  const parameters = Array.isArray(data.latestParameters)
-    ? data.latestParameters.filter(isRecord).map(applyTrn246TelemetryCalibration)
-    : [];
+  const savedParameters = Array.isArray(data.latestDiscoveredParameters)
+    ? data.latestDiscoveredParameters
+    : isRecord(data.latestDiscoveredParameters)
+      ? Object.values(data.latestDiscoveredParameters)
+      : Array.isArray(data.latestParameters)
+        ? data.latestParameters
+        : [];
+  const parameters = savedParameters
+    .filter(isRecord)
+    .map(normalizeSavedSnapshotParameter)
+    .map((parameter) => ({
+      ...applyTrn246TelemetryCalibration(parameter),
+      // The persisted discovered shape has already resolved this exact source
+      // identity; calibration annotations must not replace that provenance.
+      source_identity: parameter.source_identity,
+    }));
   const saveStatus = snapshotSaveStatus(data, snapshot.messageCount, snapshot.parameterCount);
   const scheduledFor = typeof data.scheduledFor === "string" ? data.scheduledFor : snapshot.windowEndedAt.toISOString();
 
@@ -2153,7 +2202,8 @@ function energyHistoryRange(period: EnergyHistoryPeriod, anchor: { year: number;
 
 function isElectricalParameter(parameter: Record<string, unknown>) {
   const name = typeof parameter.name === "string" ? parameter.name.toLowerCase() : "";
-  return /(voltage|current|amper|activepower|realpower|powerfactor|frequency|hz|(^|[^a-z])pf([^a-z]|$))/.test(name);
+  const normalizedName = name.replace(/[^a-z0-9]/g, "");
+  return /(voltage|current|amper|activepower|actpow|realpower|powerfactor|frequency|hz|pf)/.test(normalizedName);
 }
 
 router.get("/mqtt/electrical-history", async (req, res) => {
@@ -2190,10 +2240,33 @@ router.get("/mqtt/electrical-history", async (req, res) => {
 
     const samples: Array<Record<string, unknown>> = [];
     for (const snapshot of snapshots.filter((candidate) => snapshotBelongsToSite(candidate, siteName || undefined))) {
+      const savedEvidence = snapshotEvidence(snapshot);
+      const scheduledFor = savedEvidence.scheduledFor;
+      const saveStatus = savedEvidence.saveStatus;
+      const timezone = savedEvidence.timezone;
+      const discoveredElectrical = savedEvidence.parameters.filter(isElectricalParameter);
+      if (discoveredElectrical.length) {
+        for (const parameter of discoveredElectrical) {
+          const receivedAt = parameterObservationTime(parameter) ?? savedEvidence.capturedAt;
+          const receivedTime = new Date(receivedAt);
+          if (Number.isNaN(receivedTime.getTime()) || receivedTime < rangeStart || receivedTime > rangeEnd) continue;
+          samples.push({
+            ...parameter,
+            timestamp: receivedAt,
+            topic: snapshot.topic,
+            snapshotCapturedAt: snapshot.capturedAt.toISOString(),
+            snapshotScheduledFor: scheduledFor,
+            snapshotSaveStatus: saveStatus,
+            snapshotTimezone: timezone,
+          });
+        }
+        continue;
+      }
+
+      // Legacy snapshots predate persisted discovered-parameter evidence.
+      // Reparse their raw message payload only when the schema-v4 projection
+      // has no electrical parameters to preserve.
       if (!isRecord(snapshot.data) || !Array.isArray(snapshot.data.messages)) continue;
-      const scheduledFor = typeof snapshot.data.scheduledFor === "string" ? snapshot.data.scheduledFor : snapshot.windowEndedAt.toISOString();
-      const saveStatus = snapshot.data.saveStatus === "missing" ? "missing" : "saved";
-      const timezone = typeof snapshot.data.timezone === "string" ? snapshot.data.timezone : undefined;
       for (const message of snapshot.data.messages) {
         if (!isRecord(message) || typeof message.payload !== "string") continue;
         const parameter = parameterFromPayload(message.payload);

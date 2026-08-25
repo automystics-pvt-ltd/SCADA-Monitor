@@ -1,3 +1,5 @@
+import { sourceReportedTelemetryUnit, sourceReportedTelemetryValue } from "./source-reported-evidence.ts";
+
 export type TelemetryKpiRow = Record<string, unknown>;
 
 export type RawTelemetryMetric = {
@@ -54,6 +56,10 @@ export type SavedSnapshotMetric = {
   rawData: string;
   address: string;
   sourceTimestamp?: string;
+  sourceReportedValue?: string;
+  sourceReportedUnit?: string;
+  transportRawValue?: string;
+  sourceIdentity?: string;
 };
 
 export type SavedKpiSnapshot = {
@@ -157,6 +163,10 @@ function parseSavedMetric(value: unknown): SavedSnapshotMetric | null {
     address: value.address,
     rawData: value.rawData,
     sourceTimestamp: typeof value.sourceTimestamp === "string" ? value.sourceTimestamp : undefined,
+    sourceReportedValue: typeof value.sourceReportedValue === "string" ? value.sourceReportedValue : undefined,
+    sourceReportedUnit: typeof value.sourceReportedUnit === "string" ? value.sourceReportedUnit : undefined,
+    transportRawValue: typeof value.transportRawValue === "string" ? value.transportRawValue : undefined,
+    sourceIdentity: typeof value.sourceIdentity === "string" ? value.sourceIdentity : undefined,
   };
 }
 
@@ -295,20 +305,7 @@ function numericCandidate(value: unknown) {
 }
 
 function sourceReportedValue(row: TelemetryKpiRow) {
-  const mappingStatus = row.source_mapping_status ?? row.sourceMappingStatus;
-  if (mappingStatus !== undefined && mappingStatus !== null && mappingStatus !== "" && mappingStatus !== "source-reported") return null;
-  for (const candidate of [
-    row.reported_value,
-    row.reportedValue,
-    row.customer_value,
-    row.customerValue,
-    row.engineering_value,
-    row.engineeringValue,
-  ]) {
-    const value = numericCandidate(candidate);
-    if (value !== null) return value;
-  }
-  return null;
+  return numericCandidate(sourceReportedTelemetryValue(row));
 }
 
 function numericValue(row: TelemetryKpiRow) {
@@ -325,7 +322,7 @@ function normalizedKey(value: unknown) {
 function asRawMetric(row: TelemetryKpiRow): RawTelemetryMetric | null {
   const value = numericValue(row);
   if (value === null) return null;
-  const sourceUnit = [
+  const sourceUnit = sourceReportedTelemetryUnit(row) ?? [
     row.reported_unit,
     row.reportedUnit,
     row.customer_unit,

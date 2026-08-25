@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
-import { isSourceReportedEvidence, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
+import { isSourceReportedEvidence, sourceReportedTelemetryUnit, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
@@ -825,7 +825,7 @@ function Header({ toggleMobileNav, mobileNav, connected, connectionLabel, mode, 
         <button type="button" aria-label="Refresh telemetry" data-testid="button-refresh-telemetry-mobile" title="Refresh telemetry" onClick={onRefresh} className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all"><RefreshCw size={16} /></button>
         <button type="button" aria-label="Export live telemetry as CSV" data-testid="button-export-telemetry-compact" title="Export live telemetry as CSV" onClick={onExport} className="hidden h-10 w-10 items-center justify-center rounded-lg border border-[#1E293B] text-slate-400 bg-[#0F1322] hover:bg-[#1E293B] hover:text-slate-100 focus-ring transition-all md:flex"><Download size={16} /></button>
       </div>
-      <div className="order-3 flex w-full min-w-0 items-center gap-2 overflow-x-auto border-t border-[#1E293B]/70 pt-3 no-scrollbar 2xl:hidden" aria-label="Plant status summary">
+      <div className="order-3 flex w-full min-w-0 flex-wrap items-center gap-2 border-t border-[#1E293B]/70 pt-3 2xl:hidden" aria-label="Plant status summary">
         <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-[#1E293B] bg-[#0F1322] px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-slate-300"><CloudSun size={12} className="text-slate-400" />{temperature === null || temperature === undefined || !condition ? 'Weather unavailable' : `${temperature.toFixed(1)}°C ${condition}`}</span>
         <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-[#1E293B] bg-[#0F1322] px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-slate-300"><Zap size={12} className="text-slate-400" />{irradiance === null || irradiance === undefined ? 'Irradiance not reported' : `${irradiance.toFixed(0)} W/m²`}</span>
         <span className="scada-status-chip flex shrink-0 items-center gap-2 rounded-lg border border-[#1E293B] bg-[#0F1322] px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase text-slate-300"><MapPin size={12} className="text-slate-400" />{weatherProvenance}</span>
@@ -1231,7 +1231,7 @@ function electricalEvidence(row: ModbusRow, index: number): ElectricalEvidence |
     rawValue: reportedRaw === undefined || reportedRaw === null ? 'Data unavailable' : formatValue(reportedRaw),
     rawNumericValue: Number.isFinite(reported) ? reported : null,
     transportRawValue: transportRaw === undefined || transportRaw === null ? 'Data unavailable' : formatValue(transportRaw),
-    unit: typeof row.unit === 'string' && row.unit.trim() ? row.unit : telemetryUnit(row),
+    unit: sourceReportedTelemetryUnit(row) ?? (typeof row.unit === 'string' && row.unit.trim() ? row.unit : telemetryUnit(row)),
     timestamp,
     timestampLabel: dateTime.full,
     source: String(row.server_name || row.topic || 'Modbus'),
@@ -1371,7 +1371,9 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
 
   const Comparison = ({ title, data, unit, testId }: { title: string; data: ElectricalEvidence[]; unit: string; testId: string }) => {
     const hasOnlyValidatedValues = data.length > 0 && data.every((item) => item.status === 'Validated');
-    const chartUnit = hasOnlyValidatedValues ? unit : 'raw';
+    const hasOnlyReportedValues = data.length > 0 && data.every((item) => item.status !== 'Raw / Scaling Required' && item.status !== 'Data Unavailable');
+    const consistentSourceUnit = hasOnlyReportedValues && data.every((item) => item.unit === data[0]?.unit) ? data[0]?.unit : null;
+    const chartUnit = hasOnlyValidatedValues ? unit : consistentSourceUnit ?? 'raw';
     const isVoltage = title.toLowerCase().includes('voltage');
     const explanation = isVoltage ? 'Latest line-to-line voltage readings: AB, BC, and CA.' : 'Latest phase-current readings: A, B, and C.';
     return (
@@ -1383,18 +1385,20 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
           <p className="mt-1 text-[10px] leading-4 text-slate-500">{explanation}</p>
         </div>
         <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-semibold ${hasOnlyValidatedValues ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : data.length ? 'border-amber-500/20 bg-amber-500/10 text-amber-300' : 'border-slate-700 bg-slate-800 text-slate-400'}`}>
-          {hasOnlyValidatedValues ? 'Validated' : data.length ? 'Raw · scaling needed' : 'Awaiting data'}
+          {hasOnlyValidatedValues ? 'Validated' : consistentSourceUnit ? 'Source reported · scaling needed' : data.length ? 'Raw · scaling needed' : 'Awaiting data'}
         </span>
       </div>
       {data.length ? <div className="h-36"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.map((item) => ({ name: electricalDisplayLabel(item), value: item.value ?? item.rawNumericValue }))} layout="vertical" margin={{ left: 12, right: 12 }}><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={108} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} /><Tooltip cursor={{ fill: 'var(--scada-hover)' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString()} ${chartUnit}`, title]} /><Bar dataKey="value" fill={hasOnlyValidatedValues ? '#3b82f6' : '#f59e0b'} radius={[0, 4, 4, 0]} activeBar={{ fill: hasOnlyValidatedValues ? '#60a5fa' : '#fbbf24' }} isAnimationActive={false} /></BarChart></ResponsiveContainer></div> : <p className="flex h-36 items-center justify-center text-center text-xs text-slate-500"><span>No recent source values<span className="mt-1 block text-[10px]">This comparison will update when the broker or saved snapshot provides these parameters.</span></span></p>}
-      <p className="mt-2 text-[10px] leading-4 text-slate-500">{hasOnlyValidatedValues ? 'Engineering units are validated for this comparison.' : data.length ? 'Reported register values are shown as evidence; engineering V/A scaling is not yet confirmed.' : 'No broker or saved-snapshot readings are available for this comparison.'}</p>
+      <p className="mt-2 text-[10px] leading-4 text-slate-500">{hasOnlyValidatedValues ? 'Engineering units are validated for this comparison.' : consistentSourceUnit ? `Source-reported ${consistentSourceUnit} values are shown; engineering scaling is not yet confirmed.` : data.length ? 'Raw transport values are shown as evidence; engineering scaling is not yet confirmed.' : 'No broker or saved-snapshot readings are available for this comparison.'}</p>
     </div>
     );
   };
   const Trend = ({ title, kind, unit, color }: { title: string; kind: ElectricalKind; unit: string; color: string }) => {
     const data = trendData(kind);
     const hasOnlyValidatedValues = discoveries.filter((item) => item.kind === kind && item.rawNumericValue !== null).every((item) => item.status === 'Validated');
-    const chartUnit = hasOnlyValidatedValues ? unit : 'raw';
+    const trendEvidence = discoveries.filter((item) => item.kind === kind && item.rawNumericValue !== null);
+    const consistentSourceUnit = trendEvidence.length > 0 && trendEvidence.every((item) => item.status !== 'Raw / Scaling Required' && item.status !== 'Data Unavailable' && item.unit === trendEvidence[0]?.unit) ? trendEvidence[0]?.unit : null;
+    const chartUnit = hasOnlyValidatedValues ? unit : consistentSourceUnit ?? 'raw';
     const trendDescription: Record<ElectricalKind, string> = {
       vab: 'Line AB voltage · latest reported readings',
       vbc: 'Line BC voltage · latest reported readings',
@@ -1419,7 +1423,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
           <p className="mt-1 text-[10px] leading-4 text-slate-500">{trendDescription[kind]}</p>
         </div>
         <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-semibold ${hasOnlyValidatedValues && data.length ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : data.length ? 'border-amber-500/20 bg-amber-500/10 text-amber-300' : 'border-slate-700 bg-slate-800 text-slate-400'}`}>
-          {hasOnlyValidatedValues && data.length ? 'Validated' : data.length ? 'Raw · scaling needed' : 'Awaiting data'}
+          {hasOnlyValidatedValues && data.length ? 'Validated' : consistentSourceUnit && data.length ? 'Source reported · scaling needed' : data.length ? 'Raw · scaling needed' : 'Awaiting data'}
         </span>
       </div>
       {data.length > 1 ? <div className="h-28"><ResponsiveContainer width="100%" height="100%"><LineChart data={data}><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} /><YAxis hide /><Tooltip cursor={{ stroke: '#64748b', strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString()} ${chartUnit}`, title]} /><Line type="monotone" dataKey="value" stroke={hasOnlyValidatedValues ? color : '#f59e0b'} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#f8fafc' }} isAnimationActive={false} /></LineChart></ResponsiveContainer></div> : <p className="flex h-28 items-center justify-center text-center text-xs text-slate-500">{data.length ? 'One recent source reading received. The trend will extend with the next sample.' : 'No source readings are available for this signal in the selected window.'}</p>}

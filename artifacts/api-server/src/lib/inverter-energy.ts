@@ -137,7 +137,8 @@ function activePowerSemantic(parameter: Record<string, unknown>) {
 }
 
 function activePowerUnit(parameter: Record<string, unknown>) {
-  const sourceUnit = stringValue(parameter.engineering_unit)
+  const sourceUnit = sourceReportedUnit(parameter)
+    ?? stringValue(parameter.engineering_unit)
     ?? stringValue(parameter.engineeringUnit)
     ?? stringValue(parameter.unit)
     ?? stringValue(parameter.units);
@@ -150,16 +151,39 @@ function activePowerUnit(parameter: Record<string, unknown>) {
 }
 
 function sourceUnit(parameter: Record<string, unknown>) {
-  return stringValue(parameter.engineering_unit)
+  return sourceReportedUnit(parameter)
+    ?? stringValue(parameter.engineering_unit)
     ?? stringValue(parameter.engineeringUnit)
     ?? stringValue(parameter.unit)
     ?? stringValue(parameter.units)
     ?? "source units";
 }
 
+function sourceReportedValue(parameter: Record<string, unknown>) {
+  const mappingStatus = parameter.source_mapping_status ?? parameter.sourceMappingStatus;
+  if (mappingStatus !== undefined && mappingStatus !== null && mappingStatus !== "" && mappingStatus !== "source-reported") return undefined;
+  return parameter.reported_value ?? parameter.reportedValue ?? parameter.customer_value ?? parameter.customerValue ?? parameter.engineering_value ?? parameter.engineeringValue;
+}
+
+function sourceReportedUnit(parameter: Record<string, unknown>) {
+  if (sourceReportedValue(parameter) === undefined) return undefined;
+  return stringValue(parameter.reported_unit)
+    ?? stringValue(parameter.reportedUnit)
+    ?? stringValue(parameter.customer_unit)
+    ?? stringValue(parameter.customerUnit)
+    ?? stringValue(parameter.source_unit)
+    ?? stringValue(parameter.sourceUnit)
+    ?? stringValue(parameter.engineering_unit)
+    ?? stringValue(parameter.engineeringUnit);
+}
+
+function currentNumericValue(parameter: Record<string, unknown>) {
+  return numericValue(sourceReportedValue(parameter) ?? parameter.data ?? parameter.value ?? parameter.currentValue ?? parameter.current_value);
+}
+
 function sourceReportedMetadata(parameter: Record<string, unknown>) {
-  const reportedValue = parameter.reported_value ?? parameter.reportedValue ?? parameter.customer_value ?? parameter.customerValue;
-  const reportedUnit = parameter.reported_unit ?? parameter.reportedUnit ?? parameter.customer_unit ?? parameter.customerUnit ?? parameter.source_unit ?? parameter.sourceUnit;
+  const reportedValue = sourceReportedValue(parameter);
+  const reportedUnit = sourceReportedUnit(parameter);
   return {
     sourceReportedValue: reportedValue === undefined || reportedValue === null ? undefined : String(reportedValue),
     sourceReportedUnit: reportedUnit === undefined || reportedUnit === null ? undefined : String(reportedUnit),
@@ -224,7 +248,7 @@ export function inverterEnergyObservationFromParameter(parameter: Record<string,
   const sourceSite = siteNameFrom(parameter);
   if (sourceSite && sourceSite !== siteName) return undefined;
 
-  const value = numericValue(parameter.data ?? parameter.value ?? parameter.currentValue ?? parameter.current_value);
+  const value = currentNumericValue(parameter);
   const observedAt = observationTime(parameter);
   if (value === undefined || !observedAt) return undefined;
 
@@ -270,7 +294,7 @@ export function inverterMeasurementObservationFromParameter(parameter: Record<st
   const sourceSite = siteNameFrom(parameter);
   if (!parameterName || !inverterId || (sourceSite && sourceSite !== siteName)) return undefined;
 
-  const value = numericValue(parameter.data ?? parameter.value ?? parameter.currentValue ?? parameter.current_value);
+  const value = currentNumericValue(parameter);
   const observedAt = observationTime(parameter);
   if (value === undefined || !observedAt) return undefined;
 
@@ -323,7 +347,7 @@ export function inverterActivePowerObservationFromParameter(parameter: Record<st
   if (!parameterName || !inverterId || !semantic || !unit || !explicitScalingValidated(parameter)) return undefined;
   if (sourceSite && sourceSite !== siteName) return undefined;
 
-  const rawValue = numericValue(parameter.data ?? parameter.value ?? parameter.currentValue ?? parameter.current_value);
+  const rawValue = currentNumericValue(parameter);
   const observedAt = observationTime(parameter);
   if (rawValue === undefined || !observedAt) return undefined;
   if (Date.parse(observedAt) > Date.now()) return undefined;

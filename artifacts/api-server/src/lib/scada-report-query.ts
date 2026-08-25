@@ -80,6 +80,20 @@ function cte(args: QueryArgs) {
     when lower(${snapshotParameter}) ~ '(inverter|inv)' then 'inverter'
     else 'operations' end`;
   const snapshotValidated = sql`coalesce(p.value->>'scaling_validated', p.value->>'scalingValidated', p.value->>'engineering_value_validated', p.value->>'engineeringValueValidated', p.value->>'scaling_status', p.value->>'scalingStatus', p.value->>'validation_status', p.value->>'validationStatus', '')`;
+  const snapshotMappingStatus = sql`lower(coalesce(p.value->>'source_mapping_status', p.value->>'sourceMappingStatus', ''))`;
+  const snapshotReportedValue = sql`coalesce(
+    nullif(p.value->>'reported_value', ''), nullif(p.value->>'reportedValue', ''),
+    nullif(p.value->>'customer_value', ''), nullif(p.value->>'customerValue', ''),
+    nullif(p.value->>'engineering_value', ''), nullif(p.value->>'engineeringValue', '')
+  )`;
+  const snapshotReportedUnit = sql`coalesce(
+    nullif(p.value->>'reported_unit', ''), nullif(p.value->>'reportedUnit', ''),
+    nullif(p.value->>'customer_unit', ''), nullif(p.value->>'customerUnit', ''),
+    nullif(p.value->>'source_unit', ''), nullif(p.value->>'sourceUnit', ''),
+    nullif(p.value->>'engineering_unit', ''), nullif(p.value->>'engineeringUnit', ''),
+    tm.source_unit
+  )`;
+  const snapshotHasReportedEvidence = sql`(${snapshotMappingStatus} <> 'raw' and ${snapshotReportedValue} is not null)`;
   const snapshotSourceObserved = sql`coalesce(p.value->>'date_iso_8601', p.value->>'timestamp', p.value->>'date')`;
   const snapshotObserved = sql`case
     when ${snapshotSourceObserved} ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$'
@@ -160,10 +174,14 @@ function cte(args: QueryArgs) {
         coalesce(tm.destination, m.measurement_kind) as measurement_kind,
         m.value, coalesce(nullif(m.unit, ''), tm.source_unit) as unit, m.address, m.source_name, m.observed_at, m.received_at,
         'historical-saved'::text as provenance,
-        case when m.scaling_status = 'validated' then 'validated' else 'raw' end::text as quality,
+        case when m.scaling_status = 'validated' then 'validated'
+             when nullif(m.metadata->>'sourceReportedValue', '') is not null then 'source-reported'
+             else 'raw' end::text as quality,
         null::text as status, null::text as reason,
-        null::text as source_reported_value, null::text as source_reported_unit,
-        m.raw_value::text as transport_raw_value, tm.source_identity
+        m.metadata->>'sourceReportedValue' as source_reported_value,
+        m.metadata->>'sourceReportedUnit' as source_reported_unit,
+        coalesce(m.metadata->>'transportRawValue', m.raw_value::text) as transport_raw_value,
+        coalesce(m.metadata->>'sourceIdentity', tm.source_identity) as source_identity
       from ${mqttInverterMeasurementHistoryTable} m
       left join active_mappings tm on tm.site_name = m.site_name
         and tm.device_id = m.inverter_id
@@ -188,9 +206,12 @@ function cte(args: QueryArgs) {
         e.inverter_name, e.parameter, coalesce(nullif(tm.display_label, ''), e.parameter),
         coalesce(tm.destination, 'energy'), e.value, coalesce(nullif(e.unit, ''), tm.source_unit), e.address,
         e.source_name, e.observed_at, e.received_at, 'historical-saved',
-        case when e.scaling_status = 'validated' then 'validated' else 'raw' end,
+        case when e.scaling_status = 'validated' then 'validated'
+             when nullif(e.metadata->>'sourceReportedValue', '') is not null then 'source-reported'
+             else 'raw' end,
         null::text, null::text,
-        null::text, null::text, e.raw_value::text, tm.source_identity
+        e.metadata->>'sourceReportedValue', e.metadata->>'sourceReportedUnit',
+        coalesce(e.metadata->>'transportRawValue', e.raw_value::text), coalesce(e.metadata->>'sourceIdentity', tm.source_identity)
       from ${mqttInverterEnergyHistoryTable} e
       left join active_mappings tm on tm.site_name = e.site_name
         and tm.device_id = e.inverter_id
@@ -252,11 +273,15 @@ function cte(args: QueryArgs) {
         coalesce(nullif(tm.display_label, ''), nullif(p.value->>'display_name', ''), nullif(p.value->>'displayName', ''), nullif(p.value->>'label', ''), ${snapshotParameter}),
         coalesce(tm.destination, 'snapshot'),
         case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then null
-             when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved')
-                and coalesce(p.value->>'value', p.value->>'data', '') ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$' then coalesce(p.value->>'value', p.value->>'data')::double precision
+             when ${snapshotMappingStatus} = 'raw' then null
+             when (lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') or ${snapshotHasReportedEvidence})
+                 and coalesce(${snapshotReportedValue}, p.value->>'value', p.value->>'data', '') ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$'
+               then coalesce(${snapshotReportedValue}, p.value->>'value', p.value->>'data')::double precision
              else null end,
         case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then ''
-              when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then coalesce(p.value->>'engineering_unit', p.value->>'unit', p.value->>'sourceUnit', tm.source_unit, 'source units')
+              when ${snapshotMappingStatus} = 'raw' then ''
+              when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then coalesce(${snapshotReportedUnit}, p.value->>'unit', 'source units')
+              when ${snapshotHasReportedEvidence} then coalesce(${snapshotReportedUnit}, 'source units')
              else '' end,
         coalesce(p.value->>'full_addr', p.value->>'address', p.value->>'addr', '—'),
         coalesce(p.value->>'server_name', p.value->>'sourceName', p.value->>'source', 'Saved MQTT snapshot'),
@@ -264,15 +289,16 @@ function cte(args: QueryArgs) {
         s.captured_at,
         case when s.captured_at = s.latest_captured_at then 'latest-saved' else 'historical-saved' end,
         case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then 'source-reported'
+              when ${snapshotMappingStatus} = 'raw' then 'raw'
              when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then 'validated'
-              when p.value->>'source_mapping_status' = 'source-reported' then 'source-reported'
+              when ${snapshotHasReportedEvidence} then 'source-reported'
              else 'raw' end,
         coalesce(p.value->>'alarmStatus', p.value->>'alarm_status', p.value->>'status', p.value->>'state', p.value->>'severity'),
         case when ${snapshotCategory} = 'alarms'
              then coalesce(p.value->>'reason', p.value->>'description', p.value->>'message', p.value->>'cause', 'Source-reported alarm/fault evidence.')
               else null end,
-        coalesce(p.value->>'reported_value', p.value->>'reportedValue', p.value->>'customer_value', p.value->>'customerValue'),
-        coalesce(p.value->>'reported_unit', p.value->>'reportedUnit', p.value->>'customer_unit', p.value->>'customerUnit', p.value->>'source_unit', p.value->>'sourceUnit', tm.source_unit),
+        case when ${snapshotHasReportedEvidence} then ${snapshotReportedValue} else null end,
+        case when ${snapshotHasReportedEvidence} then ${snapshotReportedUnit} else null end,
         coalesce(p.value->>'raw_data', p.value->>'rawValue', p.value->>'raw_value', p.value->>'source_raw_value', p.value->>'sourceRawValue'),
         coalesce(p.value->>'source_identity', p.value->>'sourceIdentity', tm.source_identity)
       from snapshot_scope s
@@ -370,7 +396,7 @@ export async function queryBoundedScadaReport(args: QueryArgs) {
          source_reported_value as "sourceReportedValue", source_reported_unit as "sourceReportedUnit",
          transport_raw_value as "transportRawValue", source_identity as "sourceIdentity"
       from filtered_records
-      where quality = 'validated' and value is not null
+       where quality in ('validated', 'source-reported') and value is not null
       order by observed_at desc, received_at desc, record_type asc, id asc
       limit 480`),
   ]);

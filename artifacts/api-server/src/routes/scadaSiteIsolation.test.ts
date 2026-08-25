@@ -196,6 +196,71 @@ test("an assigned user cannot relabel another site's or unscoped legacy snapshot
   assert.equal(body.parameters.some((parameter) => parameter.deviceId === "legacy-isolation"), false);
 });
 
+test("electrical history preserves source-reported schema-v4 discovered snapshot evidence", async () => {
+  const observedAt = "2026-08-01T00:15:00.000Z";
+  const [snapshot] = await db.insert(mqttSnapshotsTable).values({
+    topic: `isolation-electrical-${fixtureId}`,
+    windowStartedAt: new Date("2026-08-01T00:00:00.000Z"),
+    windowEndedAt: new Date("2026-08-01T00:15:00.000Z"),
+    capturedAt: new Date(observedAt),
+    messageCount: 1,
+    parameterCount: 1,
+    data: {
+      schemaVersion: 4,
+      saveStatus: "saved",
+      scheduledFor: observedAt,
+      latestDiscoveredParameters: [{
+        observationId: `electrical-${fixtureId}`,
+        signalKey: "active_power",
+        siteName: assignedSite,
+        deviceId: "inv-01",
+        deviceName: "Inverter 01",
+        topic: `isolation-electrical-${fixtureId}`,
+        originalName: "active_power",
+        normalizedName: "activepower",
+        displayLabel: "Active Power",
+        category: "Electrical",
+        rawValue: "31393536383339343234",
+        reportedValue: "195",
+        reportedNumericValue: 195,
+        value: 195,
+        unit: null,
+        sourceUnit: "kW",
+        address: "305031",
+        sourceName: "ana",
+        sourceIdentity: `${assignedSite}|ana|activepower|305031`,
+        sourceMappingStatus: "source-reported",
+        observedAt,
+        receivedAt: observedAt,
+        provenance: "live",
+        dataQuality: "source-reported",
+        scalingStatus: "raw",
+      }],
+    },
+  }).returning({ id: mqttSnapshotsTable.id });
+  snapshotIds.push(snapshot.id);
+
+  const response = await requestEvidence(`/mqtt/electrical-history?siteName=${encodeURIComponent(assignedSite)}&${validHistoryQuery}`);
+  assert.equal(response.status, 200);
+  const body = await response.json() as { samples: Array<Record<string, unknown>> };
+  const sample = body.samples.find((entry) => entry.source_identity === `${assignedSite}|ana|activepower|305031`);
+  assert.deepEqual(sample && {
+    name: sample.name,
+    timestamp: sample.timestamp,
+    reportedValue: sample.reportedValue,
+    sourceUnit: sample.sourceUnit,
+    rawData: sample.raw_data,
+    sourceIdentity: sample.source_identity,
+  }, {
+    name: "active_power",
+    timestamp: observedAt,
+    reportedValue: "195",
+    sourceUnit: "kW",
+    rawData: "31393536383339343234",
+    sourceIdentity: `${assignedSite}|ana|activepower|305031`,
+  });
+});
+
 test("an archived site is removed from SCADA access and denied across every evidence route", async () => {
   await db.update(platformSitesTable).set({ status: "archived" }).where(eq(platformSitesTable.siteName, assignedSite));
   try {

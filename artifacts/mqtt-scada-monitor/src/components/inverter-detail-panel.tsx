@@ -9,6 +9,7 @@ import { buildPowerTrendSeries, countRawPowerSamples, getPowerTrendState, select
 import { inverterFlowState } from '../inverter-flow-state';
 import { deviceParameterPresentation, groupDeviceParameters, parseDeviceParameters, type DeviceParameter } from '../device-parameter-groups';
 import { deviceParameterQueryId } from '../device-discovery-identity';
+import { sourceReportedTelemetryUnit, sourceReportedTelemetryValue } from '../source-reported-evidence';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type DeviceStatus = 'online' | 'stale' | 'offline';
@@ -157,8 +158,9 @@ function extractMappedParameters(value: JsonValue, siteName: string, deviceId: s
       continue;
     }
     if (current.admin_mapping_destination && typeof current.admin_mapping_destination === 'string') {
-      const numeric = asNumber(current.data ?? current.value ?? current.reported_value ?? current.currentValue);
-      const sourceUnit = current.reported_unit ?? current.source_unit ?? current.unit;
+      const reportedValue = sourceReportedTelemetryValue(current as Record<string, unknown>) as JsonValue | undefined;
+      const numeric = asNumber(reportedValue ?? current.data ?? current.value ?? current.currentValue);
+      const sourceUnit = sourceReportedTelemetryUnit(current as Record<string, unknown>) ?? current.unit;
       params.push({
         observationId: String(current.admin_mapping_id || current.id || current.admin_mapping_destination),
         signalKey: String(current.name || current.admin_mapping_destination),
@@ -177,7 +179,7 @@ function extractMappedParameters(value: JsonValue, siteName: string, deviceId: s
         sourceName: String(current.server_name ?? current.source ?? 'MQTT source'),
         receivedAt: new Date().toISOString(),
         provenance: 'live',
-        dataQuality: 'source-reported',
+        dataQuality: reportedValue === undefined ? 'raw' : 'source-reported',
         scalingStatus: 'raw',
         freshness: 'live'
       });
@@ -190,13 +192,14 @@ function extractMappedParameters(value: JsonValue, siteName: string, deviceId: s
 function telemetryMetric(device: Device, mappedDests: string[], paths: string[][], keys: string[], unit: string, allowRawSource = false): Metric {
   const mappedRow = findMappedRow(device.telemetry, mappedDests);
   if (mappedRow) {
-    const val = asNumber(mappedRow.data ?? mappedRow.value ?? mappedRow.reported_value ?? mappedRow.currentValue);
+    const reportedValue = sourceReportedTelemetryValue(mappedRow as Record<string, unknown>) as JsonValue | undefined;
+    const val = asNumber(reportedValue ?? mappedRow.data ?? mappedRow.value ?? mappedRow.currentValue);
     if (val !== null) {
       return {
         value: val,
-        unit: (mappedRow.admin_mapping_injected_source_unit ? mappedRow.reported_unit : mappedRow.reported_unit ?? mappedRow.source_unit ?? mappedRow.unit ?? unit) as string,
+        unit: (reportedValue === undefined ? 'raw' : sourceReportedTelemetryUnit(mappedRow as Record<string, unknown>) ?? mappedRow.unit ?? unit) as string,
         source: `${mappedRow.admin_mapping_label || mappedRow.name} · ${mappedRow.full_addr || mappedRow.address || '—'}`,
-        quality: 'reported'
+        quality: reportedValue === undefined ? 'raw' : 'reported'
       };
     }
   }

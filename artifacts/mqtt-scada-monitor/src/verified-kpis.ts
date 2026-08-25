@@ -9,6 +9,7 @@ import {
   type VerifiedScadaKpis,
   SCADA_CALCULATION_PROFILE_VERSION,
 } from "./telemetry-kpis.ts";
+import { sourceReportedTelemetryValue } from "./source-reported-evidence.ts";
 
 type EngineeringUnit = "kW" | "kWh" | "kWh/kWp" | "V" | "A" | "ratio" | "kWp";
 type Semantic = "inverter-power" | "main-power" | "daily-energy" | "total-energy" | "installed-capacity" | "line-voltage" | "phase-current" | "power-factor";
@@ -99,7 +100,9 @@ function normalized(value: unknown) {
 }
 
 function numeric(row: TelemetryKpiRow) {
-  const value = typeof row.data === "number" ? row.data : typeof row.data === "string" ? Number(row.data) : NaN;
+  const reported = sourceReportedTelemetryValue(row);
+  const candidate = reported ?? row.data;
+  const value = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : NaN;
   return Number.isFinite(value) ? value : null;
 }
 

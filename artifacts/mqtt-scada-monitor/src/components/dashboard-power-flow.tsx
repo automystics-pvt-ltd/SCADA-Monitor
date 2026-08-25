@@ -41,13 +41,16 @@ export function DashboardPowerFlow({
       return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : observedAt;
     })()
     : 'Timestamp unavailable';
-  const powerInKw = value === null || value <= 0
+  const normalizedUnit = unit.trim().toLowerCase();
+  const powerInKw = value === null || value <= 0 || quality === 'raw'
     ? 0
-    : unit.toLowerCase() === 'w'
+    : normalizedUnit === 'w'
       ? value / 1000
-      : unit.toLowerCase() === 'mw'
+      : normalizedUnit === 'kw'
+        ? value
+        : normalizedUnit === 'mw'
         ? value * 1000
-        : value;
+        : 0;
   const flowIntensity = flow.streaming ? Math.min(1, Math.max(0.16, Math.log10(1 + powerInKw) / 4)) : 0;
   const flowStyle = {
     '--dashboard-flow-speed': `${Math.max(0.48, 1.65 - flowIntensity * 1.1)}s`,

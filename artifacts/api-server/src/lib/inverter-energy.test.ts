@@ -164,6 +164,22 @@ test("converts only validated explicit inverter active-power measurements to kW"
   assert.equal(measurement?.scalingStatus, "validated");
 });
 
+test("uses an explicit reported active-power value instead of conflicting transport raw data", () => {
+  const observation = inverterActivePowerObservationFromParameter(trn246InverterYield({
+    inverter_id: "inv-01",
+    semantic: "active_power",
+    engineering_unit: "kW",
+    scaling_validated: true,
+    data: "31393536383339343234",
+    raw_data: "31393536383339343234",
+    reported_value: "1956839424",
+    reported_unit: "kW",
+  }), sourceSite);
+
+  assert.equal(observation?.value, 1956839424);
+  assert.equal(observation?.rawValue, "31393536383339343234");
+});
+
 test("does not archive measurements without explicit inverter identity", () => {
   assert.equal(inverterMeasurementObservationFromParameter(trn246InverterYield({
     inverter_id: undefined,
