@@ -93,6 +93,7 @@ import {
 import { rolePermissions, type RolePermissionsConfig, type ScadaPermission } from "../middlewares/platformSiteAccessPolicy";
 import { hashScadaPassword, normalizeScadaUsername } from "../lib/auth";
 import { mappingWorkspaceRows, telemetryMappingIdentityKey } from "../lib/telemetry-mapping-workspace";
+import { telemetryMappingRequiresDisplayUnit } from "../lib/telemetry-mapping-policy";
 
 const router: IRouter = Router();
 
@@ -637,8 +638,8 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
     return;
   }
   const displayUnit = data.data.displayUnit?.trim() || sourceUnit || null;
-  if (data.data.displayUnit !== undefined && !displayUnit) {
-    res.status(400).json({ error: "Choose a display unit, or wait for the device to report its source unit." });
+  if (!displayUnit && telemetryMappingRequiresDisplayUnit(data.data.destination)) {
+    res.status(400).json({ error: "Choose a confirmed display unit for this numeric mapping, or wait for the device to report its source unit. Alarm, fault, communication, data-quality, and inverter identity mappings are explicitly unitless." });
     return;
   }
   if (["inverter-identity", "active-power"].includes(data.data.destination) && !data.data.inverterIdentity?.trim()) {
@@ -713,9 +714,11 @@ router.post("/platform-admin/telemetry/mappings/clear", async (req: Request, res
     res.status(400).json({ error: "Provide the complete saved mapping identity to clear it." });
     return;
   }
+  const now = new Date();
   const [mapping] = await db.update(platformTelemetryMappingsTable).set({
     status: "cleared",
-    clearedAt: new Date(),
+    clearedAt: now,
+    updatedAt: now,
     updatedBy: req.platformAdmin!.userId,
     version: sql`${platformTelemetryMappingsTable.version} + 1`,
   }).where(and(

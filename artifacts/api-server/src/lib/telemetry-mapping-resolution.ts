@@ -1,5 +1,6 @@
 import type { PlatformTelemetryMapping } from "@workspace/db";
 import type { DeviceParameterCategory, DiscoveredDeviceParameter } from "./device-parameter-discovery";
+import { telemetryMappingRequiresDisplayUnit } from "./telemetry-mapping-policy";
 
 type ActiveMapping = Pick<
   PlatformTelemetryMapping,
@@ -77,13 +78,16 @@ export function applyActiveTelemetryMappings<T extends DiscoveredDeviceParameter
     const multiplier = mapping.scalingMultiplier;
     const offset = mapping.scalingOffset;
     const reported = parameter.reportedNumericValue;
-    const transformed = reported === null || !Number.isFinite(reported)
+    const canDisplayEngineeringValue = telemetryMappingRequiresDisplayUnit(mapping.destination);
+    const transformed = !canDisplayEngineeringValue || reported === null || !Number.isFinite(reported)
       ? null
       : reported * multiplier + offset;
     const displayNumericValue = transformed !== null && Number.isFinite(transformed) ? transformed : null;
-    const validationStatus = reported === null
-      ? "not-numeric" as const
-      : displayNumericValue === null
+    const validationStatus = !canDisplayEngineeringValue
+      ? null
+      : reported === null
+        ? "not-numeric" as const
+        : displayNumericValue === null
         ? "non-finite" as const
         : "valid" as const;
     return {

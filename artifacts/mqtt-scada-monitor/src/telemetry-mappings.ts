@@ -10,10 +10,15 @@ export type ScadaTelemetryMapping = {
   category: string;
   inverterIdentity: string | null;
   sourceUnit: string | null;
+  displayUnit?: string | null;
+  scalingMultiplier?: number;
+  scalingOffset?: number;
+  scalingStatus?: string;
   version: number;
 };
 
 type TelemetryRow = Record<string, unknown>;
+const unitlessDestinations = new Set(["inverter-identity", "alarm", "fault", "communication", "data-quality"]);
 
 function normalized(value: unknown) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -37,10 +42,30 @@ function rowSourceIdentity(row: TelemetryRow) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function sourceReportedNumber(row: TelemetryRow) {
+  const sourceMappingStatus = row.source_mapping_status ?? row.sourceMappingStatus;
+  if (sourceMappingStatus !== undefined && sourceMappingStatus !== null && sourceMappingStatus !== "" && sourceMappingStatus !== "source-reported") return null;
+  const value = row.reported_value ?? row.reportedValue ?? row.customer_value ?? row.customerValue ?? row.engineering_value ?? row.engineeringValue;
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(number) ? number : null;
+}
+
+export function mappedTelemetryDisplayLabel(row: TelemetryRow) {
+  const label = row.admin_mapping_label ?? row.adminMappingLabel ?? row.displayLabel;
+  return typeof label === "string" && label.trim()
+    ? label.trim()
+    : String(row.name ?? row.parameter ?? row.tag ?? row.normalizedName ?? "—");
+}
+
+export function mappedTelemetryDestination(row: TelemetryRow) {
+  const destination = row.admin_mapping_destination ?? row.adminMappingDestination;
+  return typeof destination === "string" && destination.trim() ? destination.trim() : null;
+}
+
 /**
  * Adds only source-map presentation semantics. It never changes the transport
- * raw value, reported value, or any scaling/validation flags, so mapping cannot
- * create a verified engineering KPI.
+ * raw value or reported value. It may reproduce a server-approved customer
+ * display value only from explicit source-reported evidence.
  */
 export function applyTelemetryMappings<T extends TelemetryRow>(rows: T[], mappings: ScadaTelemetryMapping[]) {
   return rows.map((row) => {
@@ -50,13 +75,26 @@ export function applyTelemetryMappings<T extends TelemetryRow>(rows: T[], mappin
       admin_mapping_label: _mappingLabel,
       admin_mapping_category: _mappingCategory,
       admin_mapping_version: _mappingVersion,
+      admin_mapping_scaling_status: _mappingScalingStatus,
+      admin_mapping_validation_status: _mappingValidationStatus,
       admin_mapping_injected_inverter_id: injectedInverter,
       admin_mapping_injected_source_unit: injectedSourceUnit,
+      admin_mapping_injected_display_value: injectedDisplayValue,
+      admin_mapping_injected_display_unit: injectedDisplayUnit,
       ...withoutMapping
     } = row;
     const baseRow = { ...withoutMapping } as TelemetryRow;
+    const hadSavedMapping = Boolean(_mappingId || _mappingDestination);
     if (injectedInverter) delete baseRow.inverter_id;
     if (injectedSourceUnit) delete baseRow.reported_unit;
+    if (injectedDisplayValue || hadSavedMapping) {
+      delete baseRow.display_value;
+      delete baseRow.displayValue;
+    }
+    if (injectedDisplayUnit || hadSavedMapping) {
+      delete baseRow.display_unit;
+      delete baseRow.displayUnit;
+    }
 
     const name = normalized(baseRow.name ?? baseRow.parameter ?? baseRow.tag ?? baseRow.normalizedName ?? baseRow.originalName);
     const sourceName = rowSourceName(baseRow);
@@ -83,6 +121,17 @@ export function applyTelemetryMappings<T extends TelemetryRow>(rows: T[], mappin
       ?? baseRow.customer_unit
       ?? baseRow.customerUnit
     ) && Boolean(mapping.sourceUnit);
+    const reported = sourceReportedNumber(baseRow);
+    const multiplier = mapping.scalingMultiplier ?? 1;
+    const offset = mapping.scalingOffset ?? 0;
+    const canResolveDisplayValue = !unitlessDestinations.has(mapping.destination)
+      && mapping.scalingStatus === "approved"
+      && Boolean(mapping.displayUnit)
+      && reported !== null
+      && Number.isFinite(multiplier)
+      && Number.isFinite(offset);
+    const displayValue = canResolveDisplayValue ? reported * multiplier + offset : null;
+    const hasFiniteDisplayValue = displayValue !== null && Number.isFinite(displayValue);
     return {
       ...baseRow,
       admin_mapping_id: mapping.id,
@@ -92,6 +141,14 @@ export function applyTelemetryMappings<T extends TelemetryRow>(rows: T[], mappin
       admin_mapping_version: mapping.version,
       ...(shouldInjectInverter ? { inverter_id: mapping.inverterIdentity, admin_mapping_injected_inverter_id: true } : {}),
       ...(shouldInjectSourceUnit ? { reported_unit: mapping.sourceUnit, admin_mapping_injected_source_unit: true } : {}),
+      ...(hasFiniteDisplayValue ? {
+        display_value: displayValue,
+        display_unit: mapping.displayUnit,
+        admin_mapping_scaling_status: "approved",
+        admin_mapping_validation_status: "valid",
+        admin_mapping_injected_display_value: true,
+        admin_mapping_injected_display_unit: true,
+      } : {}),
     } as unknown as T;
   });
 }

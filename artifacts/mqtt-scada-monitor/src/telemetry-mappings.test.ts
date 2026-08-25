@@ -14,6 +14,10 @@ const mapping: ScadaTelemetryMapping = {
   category: "power",
   inverterIdentity: "inv1",
   sourceUnit: "kW",
+  displayUnit: "kW",
+  scalingMultiplier: 1,
+  scalingOffset: 0,
+  scalingStatus: "approved",
   version: 3,
 };
 
@@ -45,7 +49,7 @@ test("does not map device-less source evidence when the source/register match is
 });
 
 test("removes mapping-derived semantics immediately after a mapping is cleared", () => {
-  const rawRow = { name: "Act Pow", data: "120.5", server_name: "Solar gateway", full_addr: "305003", device_id: "INV-01" };
+  const rawRow = { name: "Act Pow", data: "120.5", reported_value: "120.5", source_mapping_status: "source-reported", server_name: "Solar gateway", full_addr: "305003", device_id: "INV-01" };
   const [mapped] = applyTelemetryMappings([rawRow], [mapping]);
   const [cleared] = applyTelemetryMappings([mapped!], []);
 
@@ -54,7 +58,33 @@ test("removes mapping-derived semantics immediately after a mapping is cleared",
   assert.equal(cleared?.admin_mapping_destination, undefined);
   assert.equal(cleared?.inverter_id, undefined);
   assert.equal(cleared?.reported_unit, undefined);
+  assert.equal(cleared?.display_value, undefined);
+  assert.equal(cleared?.admin_mapping_scaling_status, undefined);
   assert.equal(cleared?.data, "120.5");
+});
+
+test("clears a server-resolved display transform from already visible evidence", () => {
+  const serverResolvedRow = {
+    name: "Act Pow",
+    data: "120.5",
+    reported_value: "120.5",
+    source_mapping_status: "source-reported",
+    display_value: 120_500,
+    display_unit: "W",
+    admin_mapping_id: "map-1",
+    admin_mapping_destination: "active-power",
+    admin_mapping_scaling_status: "approved",
+    admin_mapping_validation_status: "valid",
+    server_name: "Solar gateway",
+    full_addr: "305003",
+    device_id: "INV-01",
+  };
+  const [cleared] = applyTelemetryMappings([serverResolvedRow], []);
+
+  assert.equal(cleared?.display_value, undefined);
+  assert.equal(cleared?.display_unit, undefined);
+  assert.equal(cleared?.admin_mapping_destination, undefined);
+  assert.equal(cleared?.reported_value, "120.5");
 });
 
 test("uses a mapping loaded after a long-lived consumer has already started", () => {
@@ -92,6 +122,24 @@ test("reapplies a saved mapping revision to rows already visible on the dashboar
   assert.equal(updated?.admin_mapping_label, "AC voltage review");
   assert.equal(updated?.admin_mapping_version, 4);
   assert.equal(updated?.inverter_id, undefined);
+});
+
+test("uses saved label, unit, and transform for source-reported evidence only", () => {
+  const [mapped] = applyTelemetryMappings([{
+    name: "Act Pow",
+    data: "12500",
+    reported_value: "12.5",
+    source_mapping_status: "source-reported",
+    server_name: "Solar gateway",
+    full_addr: "305003",
+    device_id: "INV-01",
+  }], [{ ...mapping, displayUnit: "W", scalingMultiplier: 1_000, scalingOffset: 5 }]);
+
+  assert.equal(mapped?.admin_mapping_label, "Inverter 1 AC output");
+  assert.equal(mapped?.display_value, 12_505);
+  assert.equal(mapped?.display_unit, "W");
+  assert.equal(mapped?.data, "12500");
+  assert.equal(mapped?.reported_value, "12.5");
 });
 
 test("maps retained discovered evidence by its camel-case source identity fields", () => {

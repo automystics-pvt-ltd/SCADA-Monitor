@@ -13,7 +13,7 @@ import { DashboardPowerFlow } from './components/dashboard-power-flow';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import { dashboardAccessState } from './scada-access';
 import { discoveryDeviceIdFromSourceRecord } from './device-discovery-identity';
-import { createTelemetryMappingStore, type ScadaTelemetryMapping } from './telemetry-mappings';
+import { createTelemetryMappingStore, mappedTelemetryDestination, mappedTelemetryDisplayLabel, type ScadaTelemetryMapping } from './telemetry-mappings';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
@@ -269,6 +269,18 @@ function hasSourceReportedValue(row: ModbusRow) {
 
 function modbusRowKey(row: ModbusRow) {
   return `${String(row.server_name ?? '')}|${String(row.name ?? '')}|${String(row.addr ?? '')}`;
+}
+
+function telemetryDisplayLabel(row: ModbusRow) {
+  return mappedTelemetryDisplayLabel(row);
+}
+
+function telemetrySourceParameter(row: ModbusRow) {
+  return String(row.name ?? row.parameter ?? row.tag ?? row.normalizedName ?? "—");
+}
+
+function isMappedAlarmOrFault(row: ModbusRow) {
+  return ["alarm", "fault"].includes(String(mappedTelemetryDestination(row) ?? "").toLowerCase());
 }
 
 function extractDevices(payload: JsonValue): Record<string, JsonValue>[] {
@@ -1232,7 +1244,7 @@ function electricalEvidence(row: ModbusRow, index: number): ElectricalEvidence |
   return {
     id: `${electricalRowIdentity(row)}-${index}`,
     kind,
-    label: String(row.name || electricalKindLabels[kind]),
+    label: telemetryDisplayLabel(row) || electricalKindLabels[kind],
     value: scaled ? reported : null,
     rawValue: reportedRaw === undefined || reportedRaw === null ? 'Data unavailable' : formatValue(reportedRaw),
     rawNumericValue: Number.isFinite(reported) ? reported : null,
@@ -1826,7 +1838,7 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
   if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Search, sort, filter, and export the latest Modbus telemetry while preserving raw values, timestamps, and source provenance." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
   if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={workspaceRawFallbacks.dailyEnergy} savedLabel={workspaceSavedLabel} liveState={liveState} streamSamples={energyStream} now={now} /><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><div className="xl:col-span-2"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} rawInverters={workspaceRawInverters} rawInverterIdentities={workspaceRawInverterIdentities} validatedFleet={validatedFleet} mode={mode} savedLabel={workspaceSavedLabel} onOpenInverter={(record) => onOpenInverter(sourceBackedInverterDevice(record, siteName))} /></div></div></div>;
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
-  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><InverterFaultBoard devices={devices} rows={rows} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => /alarm|fault|error|warning/i.test(String(row.name ?? '')))} persistence={persistence} /></div></div>;
+  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><InverterFaultBoard devices={devices} rows={rows} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => isMappedAlarmOrFault(row) || /alarm|fault|error|warning/i.test(telemetrySourceParameter(row)))} persistence={persistence} /></div></div>;
   if (section === 'raw-data') return <Suspense fallback={<div role="status" className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-[#334155] bg-[#090B13] text-sm text-slate-400">Loading Report Center…</div>}><ReportCenter siteName={siteName} sites={sites} devices={devices} parameters={Array.from(new Set([...rows, ...savedSnapshotRows].map((row) => String(row.name ?? row.parameter ?? '').trim()).filter(Boolean))).sort()} /></Suspense>;
   return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} siteName={siteName} /></div></div>;
 }
@@ -2324,11 +2336,11 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   const [sortKey, setSortKey] = useState<TelemetrySortKey>('parameter');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [exportMessage, setExportMessage] = useState('');
-  const categories = ['All categories', 'Electrical', 'Power', 'Environment', 'Alarms', 'Device'];
+  const categories = useMemo(() => ["All categories", ...Array.from(new Set(rows.map(telemetryCategory))).sort()], [rows]);
   const sources = useMemo(() => ['All sources', ...Array.from(new Set(rows.map((row) => String(row.server_name || 'Modbus'))).values()).sort()], [rows]);
   const filteredRows = useMemo(() => rows.filter((row) => {
     const dateTime = telemetryDateTime(row);
-       const searchable = `${row.name ?? ''} ${row.full_addr ?? row.addr ?? ''} ${row.server_name ?? ''} ${sourceReportedValue(row) ?? ''} ${sourceTransportValue(row) ?? ''} ${dateTime.date} ${dateTime.time}`.toLowerCase();
+       const searchable = `${telemetryDisplayLabel(row)} ${telemetrySourceParameter(row)} ${row.full_addr ?? row.addr ?? ''} ${row.server_name ?? ''} ${sourceReportedValue(row) ?? ''} ${sourceTransportValue(row) ?? ''} ${dateTime.date} ${dateTime.time}`.toLowerCase();
     return searchable.includes(filter.toLowerCase()) &&
       (filterCategory === 'All categories' || telemetryCategory(row) === filterCategory) &&
       (filterSource === 'All sources' || String(row.server_name || 'Modbus') === filterSource);
@@ -2338,7 +2350,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
     const dateB = telemetryDateTime(b);
     const values: Record<TelemetrySortKey, (row: ModbusRow) => string | number> = {
       category: telemetryCategory,
-      parameter: (row) => String(row.name || ''),
+      parameter: telemetryDisplayLabel,
        raw: (row) => String(sourceTransportValue(row) ?? ''),
        scaled: (row) => String(sourceReportedValue(row) ?? ''),
       unit: telemetryUnit,
@@ -2380,7 +2392,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
       ...sortedRows.map((row) => {
         const dateTime = telemetryDateTime(row);
         return `<Row>${[
-           telemetryCategory(row), row.name || '—', sourceTransportValue(row), sourceReportedValue(row), telemetryUnit(row),
+           telemetryCategory(row), telemetryDisplayLabel(row), sourceTransportValue(row), sourceReportedValue(row), telemetryUnit(row),
           row.full_addr ?? row.addr ?? '—', row.quality ?? 'Good', row.server_name || 'Modbus', dateTime.date, dateTime.time,
         ].map(cell).join('')}</Row>`;
       }),
@@ -2398,7 +2410,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
     const title = 'TRN246 Solar Plant — Detailed Live Telemetry';
     const htmlRows = sortedRows.map((row) => {
       const dateTime = telemetryDateTime(row);
-       return `<tr><td>${escapeHtml(telemetryCategory(row))}</td><td>${escapeHtml(row.name || '—')}</td><td>${escapeHtml(sourceTransportValue(row))}</td><td>${escapeHtml(sourceReportedValue(row))}</td><td>${escapeHtml(telemetryUnit(row))}</td><td>${escapeHtml(row.full_addr ?? row.addr ?? '—')}</td><td>${escapeHtml(row.quality ?? row.source_mapping_status ?? 'Good')}</td><td>${escapeHtml(row.server_name || 'Modbus')}</td><td>${escapeHtml(dateTime.date)}</td><td>${escapeHtml(dateTime.time)}</td></tr>`;
+        return `<tr><td>${escapeHtml(telemetryCategory(row))}</td><td>${escapeHtml(telemetryDisplayLabel(row))}</td><td>${escapeHtml(sourceTransportValue(row))}</td><td>${escapeHtml(sourceReportedValue(row))}</td><td>${escapeHtml(telemetryUnit(row))}</td><td>${escapeHtml(row.full_addr ?? row.addr ?? '—')}</td><td>${escapeHtml(row.quality ?? row.source_mapping_status ?? 'Good')}</td><td>${escapeHtml(row.server_name || 'Modbus')}</td><td>${escapeHtml(dateTime.date)}</td><td>${escapeHtml(dateTime.time)}</td></tr>`;
     }).join('');
     reportWindow.document.write(`<!doctype html><html><head><title>${escapeHtml(title)}</title><style>
       @page{size:landscape;margin:12mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}h1{font-size:18px;margin:0 0 4px}p{margin:3px 0;color:#5c6b80}.meta{border-bottom:2px solid #dbe3ef;padding-bottom:10px;margin-bottom:12px}table{width:100%;border-collapse:collapse}th{background:#e8eef7;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.05em}th,td{border:1px solid #dbe3ef;padding:6px 5px;vertical-align:top}td:nth-child(3),td:nth-child(4),td:nth-child(6),td:nth-child(10){font-family:monospace} .empty{text-align:center;padding:24px;color:#5c6b80}@media print{thead{display:table-header-group}tr{break-inside:avoid}}
@@ -2474,13 +2486,16 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
                const rawValue = formatValue(sourceTransportValue(row) ?? '');
                const scaledValue = formatValue(sourceReportedValue(row) ?? '');
                const dateTime = telemetryDateTime(row);
+               const displayLabel = telemetryDisplayLabel(row);
+               const sourceParameter = telemetrySourceParameter(row);
+               const destination = mappedTelemetryDestination(row);
                return (
-                    <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-live-data-${index}`} title={`${String(row.name || 'Parameter')}\nCustomer value: ${scaledValue} ${telemetryUnit(row)}\nTransport raw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || row.source_mapping_status || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-[#1e293b]/40 transition-colors">
+                    <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-live-data-${index}`} title={`${displayLabel}\nSource parameter: ${sourceParameter}\nCustomer value: ${scaledValue} ${telemetryUnit(row)}\nTransport raw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || row.source_mapping_status || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-[#1e293b]/40 transition-colors">
                    <td className="px-5 py-2.5 text-[11px] text-slate-300 flex items-center gap-2">
                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                      {telemetryCategory(row)}
+                       <span>{telemetryCategory(row)}</span>{destination && <span className="rounded border border-blue-500/20 bg-blue-500/10 px-1 py-0.5 font-mono text-[8px] text-blue-300">{destination}</span>}
                    </td>
-                   <td className="px-5 py-2.5 text-[11px] text-slate-300 font-medium">{String(row.name || '—')}</td>
+                    <td className="px-5 py-2.5 text-[11px] text-slate-300 font-medium"><div>{displayLabel}</div>{displayLabel !== sourceParameter && <div className="mt-0.5 font-mono text-[9px] font-normal text-slate-500">Source: {sourceParameter}</div>}</td>
                    <td className="px-5 py-2.5 text-[11px] text-slate-400 font-mono">{rawValue}</td>
                    <td className="px-5 py-2.5 text-[11px] text-slate-200 font-mono font-bold">{scaledValue}</td>
                     <td className="px-5 py-2.5 text-[11px] text-slate-400">{telemetryUnit(row)}</td>

@@ -30,6 +30,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from "@/hooks/use-toast"
 import { Activity, Radio, ShieldCheck, ShieldAlert, AlertTriangle, TerminalSquare, Search, RefreshCw, CheckCircle2, ChevronRight, Play, GitMerge, Save, Trash2 } from "lucide-react"
 import { inverterIdentityForMapping, requiresInverterIdentity } from "@/telemetry-mapping-form"
+import { telemetryMappingGuidance } from "@/telemetry-mapping-guidance"
 
 function ParameterMappingRow({ 
   parameter, 
@@ -72,6 +73,13 @@ function ParameterMappingRow({
   }, [parameter.mapping, parameter.displayLabel, parameter.category, parameter.displayUnit, parameter.sourceUnit, lastSyncedUpdatedAt]);
 
   const needsInverterIdentity = requiresInverterIdentity(destination);
+  const guidance = telemetryMappingGuidance(destination, parameter.normalizedName || parameter.displayLabel, parameter.sourceUnit);
+  const needsConfirmedUnit = !guidance.unitless && !displayUnit.trim() && !parameter.sourceUnit;
+  const applyGuidance = () => {
+    setDisplayLabel(guidance.recommendedLabel);
+    setCategory(guidance.recommendedCategory);
+    if (parameter.sourceUnit) setDisplayUnit(parameter.sourceUnit);
+  };
   const isDirty = 
     destination !== (m?.destination || PlatformTelemetryDestination['discovered-other']) ||
     displayLabel !== (m?.displayLabel || parameter.displayLabel || '') ||
@@ -226,6 +234,14 @@ function ParameterMappingRow({
               </Select>
             </div>
           )}
+          <div className="rounded-md border border-primary/15 bg-primary/[0.035] p-2 text-[10px] leading-4">
+            <p className="font-semibold text-primary">Suggested mapping: {guidance.recommendedLabel}</p>
+            <p className="mt-0.5 text-muted-foreground">{guidance.explanation}</p>
+            <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">SCADA display:</span> {guidance.frontEndDisplay}</p>
+            <button type="button" onClick={applyGuidance} className="mt-1.5 text-[9px] font-semibold text-primary hover:underline">
+              Use suggested label &amp; category
+            </button>
+          </div>
         </div>
       </TableCell>
 
@@ -257,13 +273,29 @@ function ParameterMappingRow({
                 Use reported unit: {parameter.sourceUnit}
               </button>
             ) : (
-              <span className="text-[9px] text-muted-foreground">Source unit unavailable</span>
+              <span className="text-[9px] text-muted-foreground">{guidance.unitless ? "Unitless event/state" : "Source unit unavailable"}</span>
             )}
           </div>
+          {!guidance.unitless && guidance.unitSuggestions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[9px] text-muted-foreground">Confirmed-unit choices:</span>
+              {guidance.unitSuggestions.map((unit) => (
+                <button
+                  type="button"
+                  key={unit}
+                  onClick={() => setDisplayUnit(unit)}
+                  className={`rounded border px-1.5 py-0.5 font-mono text-[9px] ${displayUnit === unit ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"}`}
+                  title={parameter.sourceUnit === unit ? "Unit reported by the device" : "Select only after confirming this unit against the source"}
+                >
+                  {unit}{parameter.sourceUnit === unit ? " · reported" : ""}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-1.5">
             <Input
-              className="h-8 text-xs bg-background"
-              placeholder={parameter.sourceUnit ? `Suggested: ${parameter.sourceUnit}` : "Enter confirmed unit"}
+              className={`h-8 text-xs bg-background ${needsConfirmedUnit ? "border-amber-500/50 bg-amber-500/5" : ""}`}
+              placeholder={guidance.unitless ? "Unitless" : parameter.sourceUnit ? `Suggested: ${parameter.sourceUnit}` : "Choose confirmed unit"}
               value={displayUnit}
               onChange={e => setDisplayUnit(e.target.value)}
               list={unitSuggestionId}
@@ -290,6 +322,11 @@ function ParameterMappingRow({
               title="Offset in Actual = reported × multiplier + offset"
             />
           </div>
+          {guidance.unitless ? (
+            <p className="text-[9px] text-muted-foreground">This mapping saves as a unitless event/state. Its source value remains visible as evidence.</p>
+          ) : needsConfirmedUnit ? (
+            <p className="text-[9px] text-amber-700 dark:text-amber-300">Choose a confirmed unit before saving. Suggestions are not applied automatically when the source did not report one.</p>
+          ) : null}
           <p className="text-[9px] text-muted-foreground font-mono">Actual = reported × {scalingMultiplier} + {scalingOffset}</p>
         </div>
       </TableCell>
@@ -301,11 +338,11 @@ function ParameterMappingRow({
             size="sm" 
             className={`h-8 w-28 text-xs font-semibold shadow-sm transition-all duration-300 ${canSave ? 'opacity-100 translate-x-0' : 'opacity-50 grayscale'}`}
             variant={canSave ? "default" : "secondary"}
-            disabled={!canSave || isSaving}
+            disabled={!canSave || isSaving || needsConfirmedUnit}
             onClick={handleSave}
           >
             {isSaving ? <RefreshCw className="w-3 h-3 animate-spin mr-1.5" /> : <Save className="w-3 h-3 mr-1.5" />}
-            {isSaving ? "Saving" : isDirty ? "Save edit" : isMapped ? "Saved" : "Save mapping"}
+            {isSaving ? "Saving" : needsConfirmedUnit ? "Choose unit" : isDirty ? "Save edit" : isMapped ? "Saved" : "Save mapping"}
           </Button>
 
           {isMapped && (
@@ -368,7 +405,7 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
   const handleSave = async (input: PlatformTelemetryMappingInput) => {
     try {
       await upsertMapping.mutateAsync({ data: input })
-      queryClient.invalidateQueries({ queryKey: getListPlatformTelemetryParametersQueryKey({ siteName, deviceId: deviceId || undefined }) })
+      await queryClient.invalidateQueries({ queryKey: getListPlatformTelemetryParametersQueryKey({ siteName, deviceId: deviceId || undefined }) })
       toast({ title: "Mapping saved", description: `Updated destination to ${input.destination}` })
     } catch (err) {
       toast({ 
@@ -383,7 +420,7 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
   const handleClear = async (identity: PlatformTelemetryMappingIdentity) => {
     try {
       await clearMapping.mutateAsync({ data: identity })
-      queryClient.invalidateQueries({ queryKey: getListPlatformTelemetryParametersQueryKey({ siteName, deviceId: deviceId || undefined }) })
+      await queryClient.invalidateQueries({ queryKey: getListPlatformTelemetryParametersQueryKey({ siteName, deviceId: deviceId || undefined }) })
       toast({ title: "Mapping cleared", description: `Removed mapping for ${identity.sourceIdentity}` })
     } catch (err) {
       toast({ 

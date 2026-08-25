@@ -111,6 +111,23 @@ test("uses the latest approved mapping for retained or reconnected evidence from
   assert.equal(afterRevision.provenance, "retained");
 });
 
+test("keeps unitless event mappings as source evidence instead of an engineering Actual value", () => {
+  const [resolved] = applyActiveTelemetryMappings([parameter], [mapping({
+    destination: "alarm",
+    displayLabel: "Alarm status",
+    category: "Alarms / Faults",
+    sourceUnit: null,
+    displayUnit: null,
+    inverterIdentity: null,
+  })]);
+
+  assert.equal(resolved.adminMappingDestination, "alarm");
+  assert.equal(resolved.displayValue, null);
+  assert.equal(resolved.displayUnit, null);
+  assert.equal(resolved.adminMappingValidationStatus, null);
+  assert.equal(resolved.reportedValue, "18.25");
+});
+
 test("refuses a mapping with a different source identity or device", () => {
   const [wrongSource] = applyActiveTelemetryMappings([parameter], [mapping({ sourceIdentity: "Plant A|Other|vendorpower|40001" })]);
   const [wrongDevice] = applyActiveTelemetryMappings([parameter], [mapping({ deviceId: "INV-02" })]);
