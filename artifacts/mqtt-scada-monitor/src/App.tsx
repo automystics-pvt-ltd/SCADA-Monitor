@@ -2197,16 +2197,16 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
   const qualityObserved = qualityTotal + qualityCounts.unreported;
   const qualityPercent = hasUsableEvidence && qualityObserved ? Math.round((qualityCounts.good / qualityObserved) * 100) : null;
   return (
-    <div className="flex flex-col gap-4 h-full">
-      <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-4 flex-1">
-        <div className="mb-3 flex items-center justify-between gap-3">
+    <div className="flex h-fit flex-col gap-3 self-start">
+      <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-3.5">
+        <div className="mb-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertTriangle size={14} className={reports.length ? 'text-rose-400' : 'text-slate-400'} />
             <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Alarms & Faults</h3>
           </div>
           {onOpenAlarms && <button type="button" onClick={onOpenAlarms} className="shrink-0 rounded-md px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-blue-300 hover:bg-blue-500/10 focus-ring">Review all</button>}
         </div>
-          <div className="space-y-2.5">
+          <div className="space-y-2">
           <div className="flex items-center justify-between text-[10px]">
             <span className="text-slate-400">Alarm evidence</span>
               <span className="font-bold text-slate-200">{hasAlarmFaultEvidence ? alarmReports.length : unavailableLabel}</span>
@@ -2227,12 +2227,12 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
         </div>
       </div>
       
-      <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-4 flex-1">
-        <div className="flex items-center gap-2 mb-3">
+      <div className="scada-interactive-card bg-[#090B13] border border-[#1E293B] rounded-xl p-3.5">
+        <div className="mb-2.5 flex items-center gap-2">
           <Check size={14} className="text-slate-400" />
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Data Quality</h3>
         </div>
-         <div className="flex items-center gap-4">
+         <div className="flex items-center gap-3">
            <div className="relative w-[52px] h-[52px] flex items-center justify-center">
              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
                 <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#1e293b" strokeWidth="3.5" />
@@ -2259,7 +2259,7 @@ function SidePanels({ devices, rows, liveState, savedRows = [], savedLabel, onOp
              </div>
            </div>
         </div>
-          <p className="mt-3 text-[9px] text-slate-500">{showingSavedData ? `Last Saved Data: ${savedLabel ?? 'timestamp unavailable'}. ${qualityObserved ? `${qualityCounts.good} of ${qualityObserved} saved parameters are source-confirmed good.` : 'No quality metadata was reported in the saved record.'}` : !hasFreshTelemetry ? 'Cached quality evidence remains traceable in Live Data until a fresh payload arrives.' : qualityObserved ? `${qualityCounts.good} of ${qualityObserved} observed parameter${qualityObserved === 1 ? '' : 's'} are source-confirmed good${qualityCounts.unreported ? ` · ${qualityCounts.unreported} unreported` : ''}.` : 'Data unavailable until telemetry parameters arrive.'}</p>
+           <p className="mt-2.5 text-[9px] text-slate-500">{showingSavedData ? `Last Saved Data: ${savedLabel ?? 'timestamp unavailable'}. ${qualityObserved ? `${qualityCounts.good} of ${qualityObserved} saved parameters are source-confirmed good.` : 'No quality metadata was reported in the saved record.'}` : !hasFreshTelemetry ? 'Cached quality evidence remains traceable in Live Data until a fresh payload arrives.' : qualityObserved ? `${qualityCounts.good} of ${qualityObserved} observed parameter${qualityObserved === 1 ? '' : 's'} are source-confirmed good${qualityCounts.unreported ? ` · ${qualityCounts.unreported} unreported` : ''}.` : 'Data unavailable until telemetry parameters arrive.'}</p>
       </div>
     </div>
   );

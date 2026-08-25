@@ -26,3 +26,4 @@ export * from "./plant-locations";
 export * from "./plant-calibration-profiles";
 export * from "./auth";
 export * from "./platform-admin";
+export * from "./platform-admin-otp";
