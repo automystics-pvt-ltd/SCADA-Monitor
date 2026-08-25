@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation } from "./verified-kpis.ts";
 
 test("selects the newest named raw register and keeps replay provenance", () => {
@@ -55,6 +55,25 @@ test("keeps distinct explicitly identified inverter tags sharing one source regi
 
   assert.equal(signals.length, 2);
   assert.deepEqual(signals.map((signal) => signal.inverterId).sort(), ["INV-A", "INV-B"]);
+});
+
+test("maps reviewed TRN246 inverter identities into separate detail signals without adding them to power aggregation", () => {
+  const rows = [1, 2, 3, 4, 5].map((number) => ({
+    name: `inv${number}`,
+    inverter_id: `inv${number}`,
+    measurement_type: "inverter_identity",
+    data: 2134,
+    full_addr: "305003",
+    server_name: "ana",
+    timestamp: 200,
+    provenance: "live",
+  }));
+  const identities = rawInverterIdentitySignals(rows);
+
+  assert.deepEqual(identities.map((signal) => signal.inverterId), ["inv1", "inv2", "inv3", "inv4", "inv5"]);
+  assert.ok(identities.every((signal) => signal.signalKind === "identity" && signal.address === "305003"));
+  assert.equal(rawInverterSignals(rows).length, 0);
+  assert.equal(calculateScadaAggregates(rows).acPower.value, null);
 });
 
 test("excludes explicitly identified non-power and non-inverter source rows from raw inverter evidence", () => {

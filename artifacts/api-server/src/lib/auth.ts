@@ -23,7 +23,10 @@ export type SessionData = {
 export const SESSION_COOKIE = "sid";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const SCADA_SESSION_COOKIE = "scada_sid";
-export const SCADA_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+// SCADA is a separate operator session, but returning operators should not
+// need to re-enter credentials every workday. Account status, password
+// changes, logout, and administrator revocation still invalidate the session.
+export const SCADA_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const issuerUrl = process.env.ISSUER_URL ?? "https://replit.com/oidc";
 let oidcConfig: client.Configuration | null = null;
 
@@ -126,7 +129,10 @@ export async function getScadaSessionUserId(sid: string) {
     await db.delete(scadaSessionsTable).where(eq(scadaSessionsTable.sid, sid));
     return null;
   }
-  await db.update(scadaSessionsTable).set({ lastSeenAt: new Date() }).where(eq(scadaSessionsTable.sid, sid));
+  await db.update(scadaSessionsTable).set({
+    lastSeenAt: new Date(),
+    expire: new Date(Date.now() + SCADA_SESSION_TTL_MS),
+  }).where(eq(scadaSessionsTable.sid, sid));
   return session.userId;
 }
 

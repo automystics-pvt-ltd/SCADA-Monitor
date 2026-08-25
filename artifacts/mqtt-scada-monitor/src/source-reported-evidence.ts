@@ -18,11 +18,11 @@ export function isSourceReportedEvidence(row: TelemetryEvidence) {
     || row.engineeringValue !== undefined;
 }
 
-export function sourceReportedTelemetryValue(row: TelemetryEvidence) {
+export function sourceReportedTelemetryValue(row: TelemetryEvidence): unknown {
   if (!isSourceReportedEvidence(row)) return undefined;
   return row.reported_value ?? row.reportedValue ?? row.customer_value ?? row.customerValue ?? row.engineering_value ?? row.engineeringValue;
 }
 
-export function transportRawTelemetryValue(row: TelemetryEvidence) {
+export function transportRawTelemetryValue(row: TelemetryEvidence): unknown {
   return row.raw_data ?? row.rawValue ?? row.raw_value ?? row.source_raw_value ?? row.sourceRawValue ?? row.data;
 }

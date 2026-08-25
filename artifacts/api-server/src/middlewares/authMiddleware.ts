@@ -10,6 +10,7 @@ import {
   getScadaSessionUserId,
   getSession,
   getSessionId,
+  setScadaSessionCookie,
   updateSession,
   type AuthUser,
   type SessionData,
@@ -70,6 +71,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       : [];
     if (currentUser?.accountStatus === "active") {
       req.user = currentUser;
+      // Keep the persistent operator session alive while the app is actively
+      // being used, without sharing or extending the Platform Admin session.
+      setScadaSessionCookie(res, scadaSid);
       next();
       return;
     }

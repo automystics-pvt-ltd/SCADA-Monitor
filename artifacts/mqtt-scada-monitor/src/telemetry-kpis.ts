@@ -11,6 +11,7 @@ export type RawInverterSignal = RawTelemetryMetric & {
   inverterId?: string;
   sourceName: string;
   observedAt?: string;
+  signalKind?: "identity";
 };
 
 export type CalibrationRole = "acPower" | "dailyEnergy" | "totalEnergy";
@@ -341,6 +342,37 @@ export function rawInverterSignals(rows: TelemetryKpiRow[]): RawInverterSignal[]
         inverterId,
         sourceName: sourceName(row),
         observedAt: observed ? new Date(observed).toISOString() : undefined,
+      };
+    });
+}
+
+/**
+ * A reviewed inverter-identity signal identifies a physical inverter and may
+ * populate its source-detail card. It is intentionally separate from
+ * rawInverterSignals: these rows are not active-power evidence and must never
+ * be summed into plant power or used for fleet contribution.
+ */
+export function rawInverterIdentitySignals(rows: TelemetryKpiRow[]): RawInverterSignal[] {
+  const newest = new Map<string, { row: TelemetryKpiRow; metric: RawTelemetryMetric; inverterId: string }>();
+  for (const row of rows) {
+    if (normalizedKey(row.measurement_type ?? row.measurementType ?? row.semantic) !== "inverteridentity") continue;
+    const inverterId = declaredInverterIdentity(row);
+    const metric = asRawMetric(row);
+    if (!inverterId || !metric) continue;
+    const identity = `${sourceName(row)}|${metric.address}|${inverterId}`;
+    const current = newest.get(identity);
+    if (!current || rowTimestamp(row) >= rowTimestamp(current.row)) newest.set(identity, { row, metric, inverterId });
+  }
+  return [...newest.values()]
+    .sort((left, right) => left.inverterId.localeCompare(right.inverterId))
+    .map(({ row, metric, inverterId }) => {
+      const observed = rowTimestamp(row);
+      return {
+        ...metric,
+        inverterId,
+        sourceName: sourceName(row),
+        observedAt: observed ? new Date(observed).toISOString() : undefined,
+        signalKind: "identity" as const,
       };
     });
 }
