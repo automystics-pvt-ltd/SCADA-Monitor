@@ -882,6 +882,67 @@ button:not(:disabled):active,
   opacity: 0.5;
 }
 
+/* Electrical analytics prioritizes operational readings; raw transport detail
+   is intentionally disclosed on demand rather than consuming the primary view. */
+.scada-electrical-section {
+  background:
+    radial-gradient(circle at 0 0, color-mix(in srgb, #2563EB 10%, transparent), transparent 26%),
+    var(--scada-surface);
+}
+.scada-electrical-section [data-testid="electrical-time-filter"],
+.scada-electrical-section [data-testid="electrical-parameter-filters"] {
+  box-shadow: inset 0 1px 0 var(--scada-highlight);
+}
+.scada-electrical-section [data-testid^="card-electrical-"] {
+  --electrical-accent: #3B82F6;
+  min-height: 5.85rem;
+  padding: .62rem .72rem;
+  border-color: color-mix(in srgb, var(--electrical-accent) 18%, var(--scada-border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--electrical-accent) 8%, var(--scada-surface-raised)), var(--scada-surface-raised));
+  box-shadow: inset 0 1px 0 var(--scada-highlight);
+}
+.scada-electrical-section [data-testid="card-electrical-power-factor"] { --electrical-accent: #A855F7; }
+.scada-electrical-section [data-testid="card-electrical-frequency"] { --electrical-accent: #10B981; }
+.scada-electrical-section [data-testid="card-electrical-phase-balance"] { --electrical-accent: #F59E0B; }
+.scada-electrical-section [data-testid^="card-electrical-"] > p:first-child {
+  color: color-mix(in srgb, var(--electrical-accent) 56%, var(--scada-muted));
+}
+.scada-electrical-section [data-testid^="card-electrical-"] > p:nth-child(2) {
+  margin-top: .35rem;
+  color: color-mix(in srgb, var(--electrical-accent) 65%, var(--scada-text));
+  font-size: clamp(.9rem, 1.2vw, 1.1rem);
+  line-height: 1.2;
+}
+.scada-electrical-section [data-testid^="card-electrical-"] > p:last-child {
+  margin-top: .32rem;
+  font-size: .58rem;
+  line-height: 1.3;
+}
+.scada-electrical-chart {
+  min-height: 11.3rem;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--scada-surface) 97%, #2563EB), var(--scada-surface));
+  box-shadow: inset 0 1px 0 var(--scada-highlight), var(--scada-control-shadow);
+}
+.scada-electrical-trace > summary::-webkit-details-marker { display: none; }
+.scada-electrical-trace > summary::after {
+  content: "⌄";
+  color: var(--scada-muted);
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 180ms ease;
+}
+.scada-electrical-trace[open] > summary::after { transform: rotate(180deg); }
+.scada-electrical-trace > summary:hover {
+  background: color-mix(in srgb, var(--scada-hover) 74%, transparent);
+}
+@media (max-width: 639px) {
+  .scada-electrical-section [data-testid^="card-electrical-"] { min-height: 5.35rem; }
+  .scada-electrical-chart { min-height: 10.8rem; }
+  .scada-electrical-trace > summary > span:first-child > span:last-child { display: none; }
+}
+
 .scada-icon,
 .scada-nav-arrow,
 .scada-kpi-value,
