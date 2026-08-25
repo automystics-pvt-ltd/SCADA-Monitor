@@ -968,22 +968,62 @@ function rawKpiFallbacks(rows: TelemetryKpiRow[]): Record<'acPower' | 'dailyEner
   };
 }
 
-function KpiCard({ title, value, unit, subtext, icon: Icon, colorClass, borderClass, onClick, help }: any) {
+function KpiCard({
+  title,
+  value,
+  unit,
+  subtext,
+  icon: Icon,
+  footerIcon: FooterIcon = Activity,
+  tone = 'blue',
+  variant = 'metric',
+  availability,
+  onClick,
+  help,
+}: any) {
   return (
-    <button type="button" onClick={onClick} title={help} aria-label={`${title}: ${value}${unit ? ` ${unit}` : ''}. ${help || 'Open related monitoring view.'}`} data-testid={`kpi-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} className={`scada-interactive-card scada-kpi-card group text-left w-full min-h-[154px] bg-[#090B13] border ${borderClass || 'border-[#1E293B]'} rounded-xl p-4 flex flex-col justify-between hover:border-slate-500 transition-all focus-ring overflow-hidden relative`}>
-      <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-      <div className="flex items-start justify-between relative z-10">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{title}</h3>
-        <div className={`scada-icon p-1.5 rounded-lg text-[16px] bg-[#0F1322] border border-[#1E293B] ${colorClass}`}>
-          <Icon className="scada-icon" size={16} />
+    <button
+      type="button"
+      onClick={onClick}
+      title={help}
+      aria-label={`${title}: ${value}${unit ? ` ${unit}` : ''}. ${help || 'Open related monitoring view.'}`}
+      aria-description={help}
+      data-testid={`kpi-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+      className={`scada-interactive-card scada-kpi-card scada-kpi-card--${tone} scada-kpi-card--${variant} group text-left w-full focus-ring overflow-hidden relative`}
+    >
+      <span className="scada-kpi-card-glow" aria-hidden="true" />
+      <div className="scada-kpi-card-header relative z-10">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="scada-kpi-icon scada-icon">
+            <Icon className="scada-icon" size={16} aria-hidden="true" />
+          </div>
+          <h3>{title}</h3>
         </div>
+        <span className="scada-kpi-info" aria-hidden="true">i</span>
       </div>
-      <div className="mt-5 relative z-10">
-        <div className="flex items-baseline gap-2">
-          <span className="scada-kpi-value text-[clamp(1.8rem,3vw,2.35rem)] font-bold tracking-tight text-slate-100 mono">{value}</span>
-          {unit && <span className="text-[12px] font-bold text-slate-500">{unit}</span>}
+      {variant === 'inverter' ? (
+        <div className="scada-kpi-inverter-content relative z-10">
+          <div className="scada-kpi-availability-ring" aria-hidden="true"><span>{availability ?? '—'}</span></div>
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-2">
+              <span className="scada-kpi-value">{value}</span>
+              {unit && <span className="scada-kpi-unit">{unit}</span>}
+            </div>
+            <p className="scada-kpi-status-caption">Online / Total</p>
+          </div>
         </div>
-        {subtext && <p className="mt-2 text-[11px] font-medium text-slate-500">{subtext}</p>}
+      ) : (
+        <div className="scada-kpi-metric-content relative z-10">
+          <div className="flex items-baseline gap-2">
+            <span className="scada-kpi-value">{value}</span>
+            {unit && <span className="scada-kpi-unit">{unit}</span>}
+          </div>
+          {subtext && <p className="scada-kpi-status-caption">{subtext}</p>}
+        </div>
+      )}
+      <div className="scada-kpi-footer relative z-10">
+        <span className="scada-kpi-footer-icon"><FooterIcon size={15} aria-hidden="true" /></span>
+        <span>{variant === 'inverter' ? subtext : variant === 'alarm' ? subtext : subtext}</span>
       </div>
     </button>
   );
@@ -3739,7 +3779,28 @@ function AppShell() {
   const discoveredInverterTotal = rawKpis.inverters.length;
   const onlineInverterCount = electricalLiveState === 'fresh' ? validatedInverterFleet.records.length : 0;
   const inverterCardValue = discoveredInverterTotal ? `${onlineInverterCount} / ${discoveredInverterTotal}` : '0 / Total';
+  const inverterAvailability = discoveredInverterTotal ? `${Math.round((onlineInverterCount / discoveredInverterTotal) * 100)}%` : '—';
   const displayedActiveAlarmCount = rawKpis.alarms?.value === 0 ? 0 : activeAlarms;
+  const activeAlarmCardCount = mode === 'demo' ? activeAlarms : displayedActiveAlarmCount;
+  const inverterCard = mode === 'demo'
+    ? {
+      value: totalInverters ? `${onlineInverters} / ${totalInverters}` : '0 / Total',
+      availability: totalInverters ? `${Math.round((onlineInverters / totalInverters) * 100)}%` : '—',
+      status: totalInverters ? 'Demo fleet status' : 'Demo fleet total unavailable',
+      help: totalInverters
+        ? `Inverters Online. ${onlineInverters} demo inverter${onlineInverters === 1 ? '' : 's'} out of ${totalInverters}.`
+        : 'Inverters Online. The demo fleet total is unavailable.',
+      tone: onlineInverters ? 'green' : totalInverters ? 'amber' : 'slate',
+    }
+    : {
+      value: inverterCardValue,
+      availability: inverterAvailability,
+      status: discoveredInverterTotal ? 'Source-backed inverter status' : 'Awaiting inverter mapping',
+      help: discoveredInverterTotal
+        ? `Inverters Online. ${onlineInverterCount} verified live inverter${onlineInverterCount === 1 ? '' : 's'} out of ${discoveredInverterTotal} discovered source record${discoveredInverterTotal === 1 ? '' : 's'}.`
+        : 'No approved inverter status mapping has reported a total yet.',
+      tone: onlineInverterCount ? 'green' : discoveredInverterTotal ? 'amber' : 'slate',
+    };
   const latestApprovedPlantPower = useMemo(() => dashboardEvidenceRows
     .filter((row) => {
       const parameter = String(row.name ?? row.parameter ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -4092,13 +4153,13 @@ function AppShell() {
                 <div className="scada-dashboard-system-metric" title={persistence.savingActive ? `Historical snapshots save every ${persistence.intervalMinutes} minutes.` : dashboardPersistenceResumeMessage ?? 'Historical saving is paused.'}><span><Database size={15} aria-hidden="true" /></span><div><p>Persistence</p><strong>{persistence.savingActive ? `Auto every ${persistence.intervalMinutes} min` : 'Saving paused'}</strong></div></div>
               </section>}
             <DashboardPowerFlow {...dashboardFlowReading} mode={mode} monitoringStatus={deviceCommunication} />
-              <div className="scada-dashboard-kpis grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Plant output' : acPowerCard.value === 'Not reported' ? 'Output unavailable' : 'Plant output'} onClick={() => navigateTo('power')} help={`Total AC Power. ${acPowerCard.details}`} />
-              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Energy generated today' : dailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : 'Energy generated today'} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${dailyEnergyCard.details}`} />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Lifetime generation' : totalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : 'Lifetime generation'} onClick={() => navigateTo('energy')} help={`Total Energy. ${totalEnergyCard.details}`} />
-              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Plant performance' : specificYieldCard.value === 'Not reported' ? 'Performance unavailable' : 'Plant performance'} onClick={() => navigateTo('power')} help={`Specific Yield. ${specificYieldCard.details}`} />
-              <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters} / ${totalInverters || 'Total'}` : inverterCardValue} icon={Check} colorClass={mode === 'demo' || onlineInverterCount ? 'bg-emerald-500/10 text-emerald-400' : discoveredInverterTotal ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? 'Live inverter status' : discoveredInverterTotal ? 'Live inverter status' : 'Inverter status unavailable'} onClick={() => navigateTo('inverters')} help={`Inverters Online. ${discoveredInverterTotal ? `${onlineInverterCount} verified live inverter${onlineInverterCount === 1 ? '' : 's'} out of ${discoveredInverterTotal} discovered source record${discoveredInverterTotal === 1 ? '' : 's'}.` : 'No approved inverter status mapping has reported a total yet.'}`} />
-              <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : displayedActiveAlarmCount.toString()} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : displayedActiveAlarmCount ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'} subtext={displayedActiveAlarmCount ? 'Requires attention' : 'No active alarms'} onClick={() => navigateTo('alarms')} help={rawKpis.alarms ? `Active Alarms. Latest source alarm value: ${rawKpis.alarms.value}${rawKpis.alarms.sourceUnit ? ` ${rawKpis.alarms.sourceUnit}` : ''}.` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
+              <div className="scada-dashboard-kpis grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4">
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} footerIcon={Activity} tone="blue" subtext={mode === 'demo' ? 'Live plant output' : acPowerCard.value === 'Not reported' ? 'Output unavailable' : 'Live plant output'} onClick={() => navigateTo('power')} help={`Total AC Power. ${acPowerCard.details}`} />
+              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} footerIcon={Sun} tone="amber" subtext={mode === 'demo' ? 'Day total' : dailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : 'Day total'} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${dailyEnergyCard.details}`} />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} footerIcon={Database} tone="violet" subtext={mode === 'demo' ? 'Lifetime generation' : totalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : 'Lifetime'} onClick={() => navigateTo('energy')} help={`Total Energy. ${totalEnergyCard.details}`} />
+              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} footerIcon={Activity} tone="green" subtext={mode === 'demo' ? 'Today' : specificYieldCard.value === 'Not reported' ? 'Performance unavailable' : 'Today'} onClick={() => navigateTo('power')} help={`Specific Yield. ${specificYieldCard.details}`} />
+              <KpiCard title="Inverters Online" value={inverterCard.value} icon={Check} footerIcon={Check} tone={inverterCard.tone} variant="inverter" availability={inverterCard.availability} subtext={inverterCard.status} onClick={() => navigateTo('inverters')} help={inverterCard.help} />
+              <KpiCard title="Active Alarms" value={activeAlarmCardCount.toString()} icon={AlertTriangle} footerIcon={activeAlarmCardCount ? AlertTriangle : Check} tone={activeAlarmCardCount ? 'red' : 'green'} variant="alarm" subtext={activeAlarmCardCount ? 'Requires attention' : 'No active alarms'} onClick={() => navigateTo('alarms')} help={rawKpis.alarms ? `Active Alarms. Latest source alarm value: ${rawKpis.alarms.value}${rawKpis.alarms.sourceUnit ? ` ${rawKpis.alarms.sourceUnit}` : ''}.` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
             </div>
           </section>
           
