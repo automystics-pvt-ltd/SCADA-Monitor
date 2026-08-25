@@ -2189,16 +2189,20 @@ function windDirection(value: number | null | undefined) {
   return `${directions[Math.round(value / 45) % directions.length]} ${Math.round(value)}°`;
 }
 
-function EnvironmentMetric({ icon: Icon, label, value, tone, detail }: { icon: typeof Thermometer; label: string; value: string; tone: string; detail: string }) {
+function EnvironmentMetric({ icon: Icon, label, value, tone, detail, observationAt, source }: { icon: typeof Thermometer; label: string; value: string; tone: string; detail: string; observationAt: string; source: string }) {
+  const unavailable = value === 'Data unavailable' || value === 'Not reported by provider';
   return (
-    <div className="scada-interactive-card min-w-0 rounded-xl border border-scada-border bg-scada-surface p-3 flex flex-col justify-between" title={detail}>
-      <div className="mb-4 flex items-center gap-3">
-        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border bg-opacity-10 ${tone.includes('rose') ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' : tone.includes('amber') ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : tone.includes('blue') ? 'bg-blue-500/10 border-blue-500/20 text-blue-500' : tone.includes('emerald') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-scada-hover/60 text-scada-muted'}`}><Icon size={16} /></span>
-        <span className="break-words text-[11px] font-bold uppercase tracking-widest text-scada-muted">{label}</span>
+    <article className={`environment-metric-card environment-metric-card--${tone} scada-interactive-card min-w-0`} title={detail}>
+      <div className="environment-metric-card__header">
+        <span className="environment-metric-card__icon"><Icon size={17} strokeWidth={1.8} /></span>
+        <span className="environment-metric-card__label">{label}</span>
       </div>
-      <p className={`break-words text-2xl font-bold mono tracking-tighter ${value === 'Data unavailable' ? 'text-scada-muted text-sm' : 'text-scada-text'}`} title={value}>{value}</p>
-      <p className="mt-2 pt-2 border-t border-scada-border/50 break-words text-[10px] text-scada-muted font-bold uppercase tracking-widest">{detail}</p>
-    </div>
+      <p className={`environment-metric-card__value ${unavailable ? 'environment-metric-card__value--unavailable' : ''}`} title={value}>{value}</p>
+      <div className="environment-metric-card__meta">
+        <span><Activity size={12} /> {observationAt}</span>
+        <span>Source: {source}</span>
+      </div>
+    </article>
   );
 }
 
@@ -2217,7 +2221,9 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
   const locationLabel = resolvedLocation?.locationName ?? (configuredCoordinates ? 'Resolving configured coordinates…' : 'Location not configured');
   const observationAt = weather.data?.freshness.observationTime?.replace('T', ' ') ?? 'Data unavailable';
   const receivedAt = weather.data?.freshness.retrievedAt ? new Date(weather.data.freshness.retrievedAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC') : 'Data unavailable';
-  const sourceLabel = weather.data ? `${weather.data.source} · ${resolvedLocation?.coordinateSource ?? 'Location data unavailable'}` : configuredCoordinates?.source ?? 'Location data unavailable';
+  const providerSource = weather.data?.source ?? 'Data unavailable';
+  const coordinateSource = resolvedLocation?.coordinateSource ?? configuredCoordinates?.source ?? 'Location data unavailable';
+  const sourceLabel = `Weather source: ${providerSource} · Coordinate source: ${coordinateSource}`;
   const siteOptions = sites.length ? sites : [siteName];
   const freshnessLabel = weather.data?.freshness.cacheStatus === 'cached' ? 'Cached response' : weather.data ? 'Fresh response' : 'Data unavailable';
   const weatherIcon = current?.weatherCondition?.toLowerCase().includes('rain') || current?.weatherCondition?.toLowerCase().includes('drizzle') ? CloudRain : current?.weatherCondition?.toLowerCase().includes('clear') ? Sun : CloudSun;
@@ -2236,70 +2242,100 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
     ? new Date(configuredCoordinates.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
     : 'Not available';
 
+  const statusClass = weather.status === 'ready' ? 'environment-status--live' : weather.status === 'stale' ? 'environment-status--stale' : 'environment-status--unavailable';
   return (
-    <section id="environment" data-section="environment" className="scada-interactive-card scroll-mt-6 overflow-hidden rounded-xl border border-scada-border bg-scada-surface">
-      <div className="border-b border-scada-border bg-gradient-to-r from-orange-500/[0.08] via-transparent to-blue-500/[0.06] p-3 sm:p-5">
-        <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
-          <div className="min-w-0">
+    <section id="environment" data-section="environment" className="scada-environment-shell scada-interactive-card scroll-mt-6 overflow-hidden">
+      <header className="environment-toolbar">
+        <div className="environment-toolbar__title">
+          <span className="environment-toolbar__icon"><CloudSun size={18} /></span>
+          <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="grid h-8 w-8 place-items-center rounded-lg border border-orange-500/20 bg-orange-500/10 text-orange-400"><CloudSun size={17} /></span>
-              <h2 className="text-sm font-bold text-scada-text">Environment Details</h2>
-              <span data-testid="status-weather" className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${weather.status === 'ready' ? 'bg-emerald-500/10 text-emerald-400' : weather.status === 'stale' ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-500/10 text-amber-400'}`}><span className={`h-1.5 w-1.5 rounded-full ${weather.status === 'ready' ? 'bg-emerald-400 pulse-soft' : 'bg-amber-400'}`} />{weather.status === 'ready' ? 'Live weather' : weather.status === 'stale' ? 'Stale data' : isLoading ? 'Refreshing' : 'Data unavailable'}</span>
+              <h2>Environment</h2>
+              <span data-testid="status-weather" className={`environment-status ${statusClass}`}><span />{weather.status === 'ready' ? 'Live weather' : weather.status === 'stale' ? 'Stale data' : isLoading ? 'Refreshing' : 'Data unavailable'}</span>
             </div>
-              <div className="mt-3 flex flex-col items-start gap-2 text-xs text-scada-muted sm:flex-row sm:items-center">
-               <label className="flex w-full min-w-0 items-center gap-2 sm:w-auto"><MapPin size={13} className="shrink-0 text-orange-400" /><span className="shrink-0 font-semibold text-scada-muted">Plant/site</span><select value={siteName} onChange={(event) => onSiteChange(event.target.value)} data-testid="select-environment-site" className="min-w-0 flex-1 rounded-md border border-scada-border bg-scada-surface px-2 py-1.5 text-xs font-semibold text-scada-text focus-ring sm:w-[210px] sm:flex-none">{siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
-               <span className="hidden h-4 w-px bg-scada-hover sm:block" />
-                  <span className="max-w-full break-words" title={locationLabel}><LocateFixed size={13} className="mr-1 inline text-scada-muted" />{locationLabel}</span>
-            </div>
-          </div>
-           <div className="grid w-full min-w-0 grid-cols-1 gap-2 text-[10px] min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:w-auto">
-              <span data-testid="weather-location-source" className="min-w-0 break-words rounded-lg border border-scada-border bg-scada-surface px-2.5 py-1.5 text-scada-muted" title={`Configured site/device weather provenance: ${sourceLabel}`}>Location source: {sourceLabel}</span>
-             <span className="min-w-0 break-words rounded-lg border border-scada-border bg-scada-surface px-2.5 py-1.5 text-scada-muted" title={`Weather provider observation timestamp: ${observationAt}`}>Observed: {observationAt}</span>
-              <span data-testid="weather-location-updated" className="min-w-0 break-words rounded-lg border border-scada-border bg-scada-surface px-2.5 py-1.5 text-scada-muted" title="Last time the configured plant coordinates were saved">Location updated: {locationUpdatedAt}</span>
-             <span className={`min-w-0 break-words rounded-lg border border-scada-border px-2.5 py-1.5 ${weather.data?.freshness.cacheStatus === 'cached' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`} title="Data freshness state">{freshnessLabel}</span>
-            <button type="button" onClick={onRefresh} data-testid="button-refresh-weather" title="Refresh weather for the selected configured site" className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-scada-border px-2.5 py-1.5 font-semibold text-scada-text hover:bg-scada-hover focus-ring"><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} /> Refresh</button>
+            <p>Verified conditions for {siteName}</p>
           </div>
         </div>
-      </div>
-      {weather.status === 'unavailable' && <div role="status" data-testid="status-weather-unavailable" className="mx-4 mt-4 flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-xs text-amber-300 sm:mx-5"><AlertCircle size={15} className="mt-0.5 shrink-0" /><div><p className="font-semibold">Weather data unavailable for this site</p><p className="mt-1 text-amber-200/70">{weather.message ?? 'No verified configured plant location is available.'}</p></div></div>}
+        <div className="environment-toolbar__actions">
+          <label className="environment-site-selector"><MapPin size={14} /><span>Plant/site</span><select value={siteName} onChange={(event) => onSiteChange(event.target.value)} data-testid="select-environment-site" className="focus-ring">{siteOptions.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
+          <button type="button" onClick={onRefresh} data-testid="button-refresh-weather" title="Refresh weather for the selected configured site" className="environment-refresh-button focus-ring"><RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh</button>
+        </div>
+      </header>
 
-      <div className="grid gap-4 p-3 sm:p-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="grid gap-3 sm:grid-cols-2">
-             <div className="rounded-xl border border-scada-border bg-scada-surface p-3 sm:col-span-2">
-               <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-wider text-scada-muted">Configured coordinate identity</p><p className="mt-1 text-base font-bold text-scada-text">{locationLabel}</p><p className="mt-1 text-xs text-scada-muted">Plant/site: {siteName} · Coordinate source: {configuredCoordinates?.source ?? 'Location data unavailable'}</p><p className="mt-1 text-[10px] text-scada-muted">Last updated: {locationUpdatedAt}</p></div><MapPin size={18} className="text-orange-400" /></div>
-            <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
-              <div className="rounded-lg bg-scada-surface p-2.5"><span className="block text-[9px] uppercase tracking-wider text-scada-muted">Latitude</span><span data-testid="weather-location-latitude" className="mt-1 block font-mono font-semibold text-scada-text">{coordinateLatitude === undefined ? 'Location data unavailable' : coordinateLatitude.toFixed(6)}</span></div>
-              <div className="rounded-lg bg-scada-surface p-2.5"><span className="block text-[9px] uppercase tracking-wider text-scada-muted">Longitude</span><span data-testid="weather-location-longitude" className="mt-1 block font-mono font-semibold text-scada-text">{coordinateLongitude === undefined ? 'Location data unavailable' : coordinateLongitude.toFixed(6)}</span></div>
-              <div className="rounded-lg bg-scada-surface p-2.5 sm:col-span-2"><span className="block text-[9px] uppercase tracking-wider text-scada-muted">City / District / State / Country</span><span data-testid="weather-location-address" className="mt-1 block font-semibold text-scada-text">{addressSummary}</span></div>
-              <div className="rounded-lg bg-scada-surface p-2.5"><span className="block text-[9px] uppercase tracking-wider text-scada-muted">Weather timezone</span><span data-testid="weather-location-timezone" className="mt-1 block font-mono font-semibold text-scada-text">{timezoneLabel}</span></div>
-              <div className="rounded-lg bg-scada-surface p-2.5"><span className="block text-[9px] uppercase tracking-wider text-scada-muted">Timezone UTC offset</span><span data-testid="weather-location-offset" className="mt-1 block font-mono font-semibold text-scada-text">{utcOffsetLabel}</span></div>
-              <div className="rounded-lg bg-scada-surface p-2.5 sm:col-span-2"><span className="block text-[9px] uppercase tracking-wider text-scada-muted">Current local date &amp; time</span><span data-testid="weather-location-local-time" className="mt-1 block font-mono font-semibold text-scada-text">{localDateTime}</span></div>
+      <div className="environment-provenance-strip">
+        <span data-testid="weather-location-source" title={`Weather provider provenance: ${providerSource}`}><Database size={12} /> Weather source: {providerSource}</span>
+        <span title={`Configured coordinate provenance: ${coordinateSource}`}><LocateFixed size={12} /> Coordinates: {coordinateSource}</span>
+        <span title={`Weather provider observation timestamp: ${observationAt}`}><Activity size={12} /> Observed: {observationAt}</span>
+        <span data-testid="weather-location-updated" title="Last time the configured plant coordinates were saved"><MapPin size={12} /> Location updated: {locationUpdatedAt}</span>
+        <span className={weather.data?.freshness.cacheStatus === 'cached' ? 'environment-provenance--warning' : weather.data ? 'environment-provenance--good' : 'environment-provenance--muted'} title="Data freshness state">{freshnessLabel}</span>
+      </div>
+
+      {weather.status === 'unavailable' && <div role="status" data-testid="status-weather-unavailable" className="environment-unavailable"><AlertCircle size={16} /><div><p>Weather data unavailable for this site</p><span>{weather.message ?? 'No verified configured plant location is available.'}</span></div></div>}
+
+      <div className="environment-overview-grid">
+        <article className="environment-overview-card environment-condition-card" title={metricDetail('Weather condition')}>
+          <div className="environment-overview-card__eyebrow">Live condition</div>
+          <div className="environment-condition-card__body">
+            <span className="environment-condition-card__icon"><WeatherIcon size={42} strokeWidth={1.45} /></span>
+            <div className="min-w-0">
+              <h3>{current?.weatherCondition ?? 'Data unavailable'}</h3>
+              <p><MapPin size={13} /> {locationLabel}</p>
+              <p><Activity size={13} /> {observationAt}</p>
             </div>
-              <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-500/15 bg-blue-500/5 px-3 py-2 text-[10px] text-blue-200/80"><LocateFixed size={13} className="text-blue-400" /> Weather, address, timezone, and environmental analytics use only these configured coordinates.</div>
           </div>
-          <div className="rounded-xl border border-scada-border bg-scada-surface p-3"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-scada-muted">Live condition</p><p className="mt-2 text-lg font-bold text-scada-text">{current?.weatherCondition ?? 'Data unavailable'}</p></div><span className="grid h-11 w-11 place-items-center rounded-full border border-orange-500/20 bg-orange-500/10 text-orange-300"><WeatherIcon size={24} /></span></div><p className="mt-3 text-[10px] text-scada-muted">{metricDetail('Weather condition')}</p></div>
-          <div className="rounded-xl border border-scada-border bg-scada-surface p-3"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-scada-muted">Wind compass</p><p className="mt-2 text-lg font-bold text-scada-text">{weatherMetricValue(current?.windSpeedMs, 'm/s')}</p></div><div className="relative grid h-12 w-12 place-items-center rounded-full border border-scada-border bg-scada-surface text-[8px] text-scada-muted"><span className="absolute top-1">N</span><span className="absolute bottom-1">S</span><span className="absolute left-1">W</span><span className="absolute right-1">E</span><span className="h-0.5 w-7 origin-center bg-blue-400" style={{ transform: `rotate(${windDegrees ?? 0}deg)` }} /><span className="absolute h-2 w-2 rounded-full bg-blue-400" /></div></div><p className="mt-3 text-[10px] text-scada-muted">{windDirection(windDegrees) ?? 'Direction unavailable'} · {metricDetail('Wind')}</p></div>
-        </div>
+          <div className="environment-overview-card__footer">Weather source: {providerSource}<span>·</span>Coordinates: {coordinateSource}</div>
+        </article>
 
-        <div className="rounded-xl border border-scada-border bg-scada-surface p-3">
-          <div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-scada-muted">Temperature trend</p><p className="mt-1 text-xs text-scada-muted">Provider observations in {weather.data?.location.timezone ?? 'site timezone'}</p></div><Thermometer size={17} className="text-rose-400" /></div>
-          {temperatureTrend.length > 1 ? <div className="mt-3 h-40"><ResponsiveContainer width="100%" height="100%"><AreaChart data={temperatureTrend} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => String(value).slice(11, 16)} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => `${value}°`} width={32} /><Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toFixed(1)} °C`, 'Temperature']} /><Area type="monotone" dataKey="temperatureC" stroke="#fb7185" strokeWidth={2} fill="#fb7185" fillOpacity={0.16} isAnimationActive={false} /></AreaChart></ResponsiveContainer></div> : <div className="mt-3 flex h-40 items-center justify-center rounded-lg border border-dashed border-scada-border text-center text-xs text-scada-muted">Data unavailable<br /><span className="text-[10px]">No provider temperature trend returned.</span></div>}
-          <p className="mt-2 text-[10px] text-scada-muted">{metricDetail('Temperature trend')} · Last updated {receivedAt}</p>
-        </div>
+        <article className="environment-overview-card environment-wind-card" title={metricDetail('Wind')}>
+          <div className="environment-overview-card__eyebrow">Wind compass</div>
+          <div className="environment-wind-card__body">
+            <div>
+              <strong>{weatherMetricValue(current?.windSpeedMs, 'm/s')}</strong>
+              <p>{windDirection(windDegrees) ?? 'Direction unavailable'}</p>
+            </div>
+            <div className="environment-compass" role="img" aria-label={`Wind direction ${windDirection(windDegrees) ?? 'unavailable'}`}>
+              <span className="environment-compass__north">N</span><span className="environment-compass__south">S</span><span className="environment-compass__west">W</span><span className="environment-compass__east">E</span>
+              <span className="environment-compass__needle" style={{ transform: `rotate(${windDegrees ?? 0}deg)` }} /><span className="environment-compass__hub" />
+            </div>
+          </div>
+          <div className="environment-overview-card__footer"><span><Activity size={12} /> {observationAt}</span><span>Source: {providerSource}</span></div>
+        </article>
+
+        <article className="environment-overview-card environment-location-card">
+          <div className="environment-overview-card__heading"><div><div className="environment-overview-card__eyebrow">Configured plant location</div><h3>{locationLabel}</h3></div><span className="environment-location-card__icon"><MapPin size={18} /></span></div>
+          <p className="environment-location-card__address" data-testid="weather-location-address">{addressSummary}</p>
+          <p className="environment-location-card__source">Coordinate source: {coordinateSource}</p>
+          <div className="environment-location-card__facts">
+            <div><span>Coordinates</span><strong>{coordinateLatitude === undefined || coordinateLongitude === undefined ? 'Location data unavailable' : `${coordinateLatitude.toFixed(4)}, ${coordinateLongitude.toFixed(4)}`}</strong></div>
+            <div><span>Timezone</span><strong data-testid="weather-location-timezone">{timezoneLabel}</strong></div>
+            <div><span>Local time</span><strong data-testid="weather-location-local-time">{localDateTime}</strong></div>
+            <div><span>UTC offset</span><strong data-testid="weather-location-offset">{utcOffsetLabel}</strong></div>
+          </div>
+          <div className="environment-location-card__coordinates"><span>Latitude <strong data-testid="weather-location-latitude">{coordinateLatitude === undefined ? 'Location data unavailable' : coordinateLatitude.toFixed(6)}</strong></span><span>Longitude <strong data-testid="weather-location-longitude">{coordinateLongitude === undefined ? 'Location data unavailable' : coordinateLongitude.toFixed(6)}</strong></span></div>
+        </article>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 border-t border-scada-border p-3 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
-        <EnvironmentMetric icon={Thermometer} label="Temperature" value={weatherMetricValue(current?.temperatureC, '°C')} tone="text-rose-400" detail={metricDetail('Temperature')} />
-        <EnvironmentMetric icon={Wind} label="Wind speed" value={weatherMetricValue(current?.windSpeedMs, 'm/s')} tone="text-blue-400" detail={metricDetail('Wind speed')} />
-        <EnvironmentMetric icon={LocateFixed} label="Wind direction" value={windDirection(current?.windDirectionDeg) ?? 'Data unavailable'} tone="text-indigo-400" detail={metricDetail('Wind direction')} />
-        <EnvironmentMetric icon={Droplets} label="Humidity" value={weatherMetricValue(current?.humidityPct, '%', 0)} tone="text-cyan-400" detail={metricDetail('Humidity')} />
-        <EnvironmentMetric icon={Sun} label="Solar irradiance" value={current?.irradianceWm2 === null || current?.irradianceWm2 === undefined ? 'Not reported by provider' : weatherMetricValue(current.irradianceWm2, 'W/m²', 0)} tone="text-orange-400" detail={metricDetail('Solar irradiance')} />
-        <EnvironmentMetric icon={CloudSun} label="Cloud cover" value={weatherMetricValue(current?.cloudCoverPct, '%', 0)} tone="text-scada-muted" detail={metricDetail('Cloud cover')} />
-        <EnvironmentMetric icon={CloudRain} label="Precipitation" value={weatherMetricValue(current?.precipitationMm, 'mm')} tone="text-sky-400" detail={metricDetail('Precipitation')} />
-        <EnvironmentMetric icon={MapPin} label="Weather timezone" value={timezoneLabel} tone="text-emerald-400" detail={metricDetail('Weather timezone')} />
+      <div className="environment-metric-grid">
+        <EnvironmentMetric icon={Thermometer} label="Temperature" value={weatherMetricValue(current?.temperatureC, '°C')} tone="temperature" observationAt={observationAt} source={providerSource} detail={metricDetail('Temperature')} />
+        <EnvironmentMetric icon={Wind} label="Wind speed" value={weatherMetricValue(current?.windSpeedMs, 'm/s')} tone="wind" observationAt={observationAt} source={providerSource} detail={metricDetail('Wind speed')} />
+        <EnvironmentMetric icon={LocateFixed} label="Wind direction" value={windDirection(current?.windDirectionDeg) ?? 'Data unavailable'} tone="direction" observationAt={observationAt} source={providerSource} detail={metricDetail('Wind direction')} />
+        <EnvironmentMetric icon={Droplets} label="Humidity" value={weatherMetricValue(current?.humidityPct, '%', 0)} tone="humidity" observationAt={observationAt} source={providerSource} detail={metricDetail('Humidity')} />
+        <EnvironmentMetric icon={Sun} label="Solar irradiance" value={current?.irradianceWm2 === null || current?.irradianceWm2 === undefined ? 'Not reported by provider' : weatherMetricValue(current.irradianceWm2, 'W/m²', 0)} tone="irradiance" observationAt={observationAt} source={providerSource} detail={metricDetail('Solar irradiance')} />
+        <EnvironmentMetric icon={CloudSun} label="Cloud cover" value={weatherMetricValue(current?.cloudCoverPct, '%', 0)} tone="cloud" observationAt={observationAt} source={providerSource} detail={metricDetail('Cloud cover')} />
+        <EnvironmentMetric icon={CloudRain} label="Precipitation" value={weatherMetricValue(current?.precipitationMm, 'mm')} tone="precipitation" observationAt={observationAt} source={providerSource} detail={metricDetail('Precipitation')} />
+        <EnvironmentMetric icon={MapPin} label="Weather timezone" value={timezoneLabel} tone="timezone" observationAt={observationAt} source={providerSource} detail={metricDetail('Weather timezone')} />
       </div>
-      {current && <div className="grid gap-3 border-t border-scada-border bg-scada-surface-raised p-3 sm:grid-cols-3 sm:p-5"><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-scada-muted">Humidity indicator</span><span className="font-mono text-scada-text">{weatherMetricValue(current.humidityPct, '%', 0)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-scada-hover"><div className="h-full rounded-full bg-cyan-400" style={{ width: `${percentWidth(current.humidityPct)}%` }} /></div></div><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-scada-muted">Cloud cover</span><span className="font-mono text-scada-text">{weatherMetricValue(current.cloudCoverPct, '%', 0)}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-scada-hover"><div className="h-full rounded-full bg-slate-400" style={{ width: `${percentWidth(current.cloudCoverPct)}%` }} /></div></div><div><div className="mb-1 flex justify-between text-[10px]"><span className="font-semibold text-scada-muted">Precipitation</span><span className="font-mono text-scada-text">{weatherMetricValue(current.precipitationMm, 'mm')}</span></div><div className="h-1.5 overflow-hidden rounded-full bg-scada-hover"><div className="h-full rounded-full bg-sky-400" style={{ width: `${percentWidth(current.precipitationMm === null ? null : Math.min(100, current.precipitationMm * 10))}%` }} /></div></div></div>}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-scada-border px-4 py-3 text-[10px] text-scada-muted sm:px-5"><span>Weather data source: <strong className="font-semibold text-scada-text">{weather.data?.source ?? 'Data unavailable'}</strong></span><span>Last updated: <strong className="font-semibold text-scada-text">{receivedAt}</strong></span><span>Site: <strong className="font-semibold text-scada-text">{siteName}</strong></span></div>
+
+      <div className="environment-analysis-grid">
+        <article className="environment-analysis-card environment-trend-card">
+          <div className="environment-analysis-card__heading"><div><span className="environment-overview-card__eyebrow">Temperature trend</span><p>Provider observations in {weather.data?.location.timezone ?? 'site timezone'}</p></div><Thermometer size={17} /></div>
+          {temperatureTrend.length > 1 ? <div className="environment-trend-chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={temperatureTrend} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => String(value).slice(11, 16)} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => `${value}°`} width={32} /><Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toFixed(1)} °C`, 'Temperature']} /><Area type="monotone" dataKey="temperatureC" stroke="var(--scada-accent)" strokeWidth={2} fill="var(--scada-accent)" fillOpacity={0.12} isAnimationActive={false} /></AreaChart></ResponsiveContainer></div> : <div className="environment-trend-empty">Data unavailable<span>No provider temperature trend returned.</span></div>}
+          <p className="environment-analysis-card__detail">{metricDetail('Temperature trend')} · Last updated {receivedAt}</p>
+        </article>
+        {current ? <article className="environment-analysis-card environment-indicator-card"><div className="environment-analysis-card__heading"><div><span className="environment-overview-card__eyebrow">Environmental indicators</span><p>Relative conditions from the provider</p></div><Gauge size={17} /></div><div className="environment-indicator-list"><div><span>Humidity</span><strong>{weatherMetricValue(current.humidityPct, '%', 0)}</strong><i><b style={{ width: `${percentWidth(current.humidityPct)}%` }} /></i></div><div><span>Cloud cover</span><strong>{weatherMetricValue(current.cloudCoverPct, '%', 0)}</strong><i><b style={{ width: `${percentWidth(current.cloudCoverPct)}%` }} /></i></div><div><span>Precipitation</span><strong>{weatherMetricValue(current.precipitationMm, 'mm')}</strong><i><b style={{ width: `${percentWidth(current.precipitationMm === null ? null : Math.min(100, current.precipitationMm * 10))}%` }} /></i></div></div><p className="environment-analysis-card__detail">Indicators remain tied to the same observed source and timestamp as the cards above.</p></article> : <article className="environment-analysis-card environment-indicator-card environment-indicator-card--empty"><Gauge size={17} /><p>Indicators unavailable until a verified weather response is received.</p></article>}
+      </div>
+
+      <div className="environment-footer"><span>Weather data source: <strong>{providerSource}</strong></span><span>Coordinate source: <strong>{coordinateSource}</strong></span><span>Last updated: <strong>{receivedAt}</strong></span><span>Site: <strong>{siteName}</strong></span><span className="environment-footer__note"><LocateFixed size={12} /> Weather uses only the configured plant coordinates.</span></div>
     </section>
   );
 }
