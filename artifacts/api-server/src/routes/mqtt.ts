@@ -23,6 +23,7 @@ import { inverterActivePowerObservationFromParameter, inverterEnergyObservationF
 import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
 import { deviceParameterFreshness, discoverDeviceParameters, discoverDeviceParametersFromRawPayload, latestDeviceParameterWins, type DiscoveredDeviceParameter } from "../lib/device-parameter-discovery";
 import { applyActiveTelemetryMappings } from "../lib/telemetry-mapping-resolution";
+import { managedSourceIdentity, telemetryCaptureSite } from "../lib/telemetry-capture-site";
 import {
   keepReportRecord,
   reportCategoryForParameter,
@@ -1599,12 +1600,31 @@ export async function listLatestDeviceParameters(siteName: string, deviceId?: st
     if (latestDeviceParameterWins(existing, parameter)) latest.set(parameter.signalKey, parameter);
   };
 
-  const discoveryConditions = [eq(platformTelemetryDiscoveriesTable.siteName, siteName)];
+  const fallbackManagedSite = await soleManagedSiteForConfiguredFallback();
+  const canAdoptLegacyConfiguredSource = fallbackManagedSite === siteName && configuredMqttPlantSite !== siteName;
+  const discoveryConditions = [canAdoptLegacyConfiguredSource
+    ? or(
+      eq(platformTelemetryDiscoveriesTable.siteName, siteName),
+      eq(platformTelemetryDiscoveriesTable.siteName, configuredMqttPlantSite),
+    )
+    : eq(platformTelemetryDiscoveriesTable.siteName, siteName)];
   if (deviceId) discoveryConditions.push(eq(platformTelemetryDiscoveriesTable.deviceId, deviceId));
   const catalogDiscoveries = await db.select().from(platformTelemetryDiscoveriesTable)
     .where(and(...discoveryConditions))
     .orderBy(desc(platformTelemetryDiscoveriesTable.lastSeenAt));
-  for (const discovery of catalogDiscoveries) add(discoveryCatalogParameter(discovery));
+  for (const discovery of catalogDiscoveries) {
+    const parameter = discoveryCatalogParameter(discovery);
+    add(
+      canAdoptLegacyConfiguredSource && discovery.siteName === configuredMqttPlantSite
+        ? {
+          ...parameter,
+          siteName,
+          sourceIdentity: managedSourceIdentity(siteName, parameter.sourceName, parameter.normalizedName, parameter.address),
+          signalKey: [siteName, parameter.deviceId, parameter.normalizedName, parameter.address ?? "—"].join("|"),
+        }
+        : parameter,
+    );
+  }
 
   for (const message of messageHistory) {
     for (const parameter of message.discoveredParameters ?? []) add(parameter);
@@ -1832,25 +1852,30 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
   const rawPayload = payload.toString("utf8");
   const parameter = parameterFromPayload(rawPayload);
   const receivedAt = new Date().toISOString();
+  const captureSiteName = telemetryCaptureSite(
+    payloadSiteName(parameter),
+    await soleManagedSiteForConfiguredFallback(),
+    configuredMqttPlantSite,
+  );
   const rawDiscoveredParameters = discoverDeviceParametersFromRawPayload(rawPayload, {
-    siteName: configuredMqttPlantSite,
+    siteName: captureSiteName,
     topic,
     receivedAt,
     provenance: retained ? "retained" : "live",
   });
   let discoveredParameters = rawDiscoveredParameters;
   try {
-    const mappings = await activeTelemetryMappingsForSite(configuredMqttPlantSite);
+    const mappings = await activeTelemetryMappingsForSite(captureSiteName);
     discoveredParameters = applyActiveTelemetryMappings(rawDiscoveredParameters, mappings);
     await persistDiscoveredParameterCatalog(discoveredParameters);
   } catch (error) {
     // A database migration or mapping-service failure must not discard a raw
     // MQTT delivery. The error is logged explicitly; the next delivery retries
     // the durable catalog and authoritative mapping overlay.
-    logger.error({ err: error, siteName: configuredMqttPlantSite }, "Unable to persist or resolve centralized telemetry mapping");
+    logger.error({ err: error, siteName: captureSiteName }, "Unable to persist or resolve centralized telemetry mapping");
   }
   const inverterRecord = parameter
-    ? inverterActivePowerObservationFromParameter(parameter, configuredMqttPlantSite)
+    ? inverterActivePowerObservationFromParameter(parameter, captureSiteName)
     : undefined;
   const message: StoredMessage = {
     topic,
@@ -1889,7 +1914,7 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
   broadcast("message", message, message.sequence);
   broadcast("status", status());
 
-  const energy = parameter ? inverterEnergyObservationFromParameter(parameter, configuredMqttPlantSite) : undefined;
+  const energy = parameter ? inverterEnergyObservationFromParameter(parameter, captureSiteName) : undefined;
   if (energy) {
     void db.insert(mqttInverterEnergyHistoryTable).values({
         topic,
@@ -1921,7 +1946,7 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
       });
   }
 
-  const measurement = parameter ? inverterMeasurementObservationFromParameter(parameter, configuredMqttPlantSite) : undefined;
+  const measurement = parameter ? inverterMeasurementObservationFromParameter(parameter, captureSiteName) : undefined;
   if (measurement) {
     void db.insert(mqttInverterMeasurementHistoryTable).values({
       topic,

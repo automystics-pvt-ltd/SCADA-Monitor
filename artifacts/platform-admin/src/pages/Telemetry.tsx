@@ -427,7 +427,9 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                  No parameters found matching your criteria.
+                  {parameters.length === 0
+                    ? "No source parameters have been received for this managed site yet. Confirm the broker is connected and the site is active, then refresh."
+                    : "No parameters found matching your criteria."}
                 </TableCell>
               </TableRow>
             ) : (

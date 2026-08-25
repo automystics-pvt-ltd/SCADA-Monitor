@@ -31,8 +31,6 @@ CREATE TABLE "platform_telemetry_discoveries" (
   "last_seen_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "platform_telemetry_discoveries" ADD CONSTRAINT "platform_telemetry_discoveries_site_name_platform_sites_site_name_fk" FOREIGN KEY ("site_name") REFERENCES "public"."platform_sites"("site_name") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
 CREATE UNIQUE INDEX "platform_telemetry_discovery_identity_unique" ON "platform_telemetry_discoveries" USING btree ("site_name","device_id","source_identity","normalized_name","address");
 --> statement-breakpoint
 CREATE INDEX "platform_telemetry_discovery_site_device_index" ON "platform_telemetry_discoveries" USING btree ("site_name","device_id");

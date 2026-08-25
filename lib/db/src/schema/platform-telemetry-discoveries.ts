@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import { doublePrecision, index, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
-import { platformSitesTable } from "./platform-admin";
 
 /**
  * Durable latest evidence for every source signal the platform has observed.
@@ -11,7 +10,10 @@ export const platformTelemetryDiscoveriesTable = pgTable(
   "platform_telemetry_discoveries",
   {
     id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-    siteName: varchar("site_name", { length: 160 }).notNull().references(() => platformSitesTable.siteName, { onDelete: "cascade" }),
+    // Evidence can arrive before it has an unambiguous managed-site assignment.
+    // Keep that source identity catalogued rather than dropping it at ingestion;
+    // access-controlled mapping reads still select only managed site names.
+    siteName: varchar("site_name", { length: 160 }).notNull(),
     deviceId: varchar("device_id", { length: 160 }).notNull(),
     deviceName: varchar("device_name", { length: 240 }).notNull(),
     topic: text("topic").notNull(),

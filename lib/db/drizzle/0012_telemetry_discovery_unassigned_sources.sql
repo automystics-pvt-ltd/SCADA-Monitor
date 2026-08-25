@@ -1,0 +1,1 @@
+ALTER TABLE "platform_telemetry_discoveries" DROP CONSTRAINT IF EXISTS "platform_telemetry_discoveries_site_name_platform_sites_site_name_fk";
