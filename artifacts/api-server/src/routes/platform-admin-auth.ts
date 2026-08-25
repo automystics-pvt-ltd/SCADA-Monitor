@@ -14,6 +14,7 @@ import {
   clearPlatformAdminSessionCookie,
   setPlatformAdminSessionCookie,
 } from "../middlewares/platformAdminAuthorization";
+import { isAllowedPlatformAdminEmail, safeReturnTo, sessionIdForLogout } from "./platform-admin-auth-policy";
 
 const router: IRouter = Router();
 const OIDC_COOKIE_TTL_MS = 10 * 60 * 1000;
@@ -24,23 +25,8 @@ function requestOrigin(req: Request) {
   return `${proto}://${host}`;
 }
 
-function safeReturnTo(value: unknown) {
-  return typeof value === "string" && value.startsWith("/platform-admin/") && !value.startsWith("//")
-    ? value
-    : "/platform-admin/";
-}
-
 function setTemporaryCookie(res: Response, name: string, value: string) {
   res.cookie(name, value, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: OIDC_COOKIE_TTL_MS });
-}
-
-function adminAllowlist() {
-  return new Set(
-    (process.env.PLATFORM_ADMIN_EMAILS ?? "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  );
 }
 
 async function upsertIdentity(claims: Record<string, unknown>) {
@@ -51,7 +37,7 @@ async function upsertIdentity(claims: Record<string, unknown>) {
     lastName: typeof claims.last_name === "string" ? claims.last_name : null,
     profileImageUrl: typeof (claims.profile_image_url ?? claims.picture) === "string" ? String(claims.profile_image_url ?? claims.picture) : null,
   };
-  if (!user.email || !adminAllowlist().has(user.email.toLowerCase())) return null;
+  if (!isAllowedPlatformAdminEmail(user.email)) return null;
   const [savedUser] = await db.insert(usersTable).values(user).onConflictDoUpdate({
     target: usersTable.id,
     set: { ...user, updatedAt: new Date() },
@@ -131,8 +117,9 @@ router.get("/platform-admin/callback", async (req: Request, res: Response): Prom
 
 router.get("/platform-admin/logout", async (req: Request, res: Response): Promise<void> => {
   const sid = req.cookies?.platform_admin_sid;
-  if (typeof sid === "string") {
-    await db.delete(platformAdminSessionsTable).where(eq(platformAdminSessionsTable.sid, sid));
+  const sessionId = sessionIdForLogout(sid);
+  if (sessionId) {
+    await db.delete(platformAdminSessionsTable).where(eq(platformAdminSessionsTable.sid, sessionId));
   }
   clearPlatformAdminSessionCookie(res);
   res.redirect(safeReturnTo(req.query.returnTo));

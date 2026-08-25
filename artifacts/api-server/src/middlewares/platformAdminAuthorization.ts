@@ -6,6 +6,7 @@ import {
   platformAdminSessionsTable,
   usersTable,
 } from "@workspace/db";
+import { isPlatformAdmin } from "./platformAuthorizationPolicy";
 
 export const PLATFORM_ADMIN_SESSION_COOKIE = "platform_admin_sid";
 export const PLATFORM_ADMIN_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -75,7 +76,7 @@ export async function platformAdminSessionMiddleware(req: Request, res: Response
 }
 
 export function requirePlatformAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.platformAdmin) {
+  if (!isPlatformAdmin(req.platformAdmin)) {
     res.status(401).json({ error: "Platform administrator sign-in is required." });
     return;
   }

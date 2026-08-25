@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canUpdatePlantLocation, isPlantLocationAdministrator } from "./plantLocationAuthorization";
+import { canUpdatePlantLocation, isPlantLocationAdministrator } from "./plantLocationAuthorization.ts";
 
 const operator = {
   id: "operator-subject",
