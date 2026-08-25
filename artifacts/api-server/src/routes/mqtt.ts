@@ -72,6 +72,7 @@ let brokerUrl = runtimeConfiguration.brokerUrl;
 let subscriptionTopic = runtimeConfiguration.topic;
 let configuredMqttPlantSite = runtimeConfiguration.plantSite;
 let plantTimezone = validTimezone(runtimeConfiguration.timezone);
+let configuredManagedSiteFallback: string | undefined;
 
 function payloadSiteName(payload: unknown) {
   return isRecord(payload) ? parseSiteName(payload.site_name ?? payload.siteName ?? payload.plant_name ?? payload.plantName) : "";
@@ -79,7 +80,10 @@ function payloadSiteName(payload: unknown) {
 
 function messageBelongsToSite(message: StoredMessage, siteName?: string) {
   if (!siteName) return true;
-  return payloadSiteName(message.parameter) === siteName || payloadSiteName(parameterFromPayload(message.payload)) === siteName;
+  const parameter = message.parameter ?? parameterFromPayload(message.payload);
+  const explicitSiteName = payloadSiteName(parameter);
+  if (explicitSiteName) return explicitSiteName === siteName;
+  return configuredManagedSiteFallback === siteName;
 }
 
 function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
@@ -1243,14 +1247,17 @@ async function loadRuntimeConfiguration() {
 
 function requestMqttConsumer() {
   if (process.env.NODE_ENV === "test") return;
-  void loadRuntimeConfiguration().then(() => {
-  startSnapshotTimer();
-  startCommunicationTimer();
-  void renewConsumerLease();
-  if (!consumerLeaseTimer) {
-    consumerLeaseTimer = setInterval(() => void renewConsumerLease(), MQTT_CONSUMER_LEASE_RENEWAL_MS);
-  }
-  });
+  void loadRuntimeConfiguration()
+    .then(() => soleManagedSiteForConfiguredFallback())
+    .then(() => {
+      startSnapshotTimer();
+      startCommunicationTimer();
+      void renewConsumerLease();
+      if (!consumerLeaseTimer) {
+        consumerLeaseTimer = setInterval(() => void renewConsumerLease(), MQTT_CONSUMER_LEASE_RENEWAL_MS);
+      }
+    })
+    .catch((error) => logger.warn({ err: error }, "MQTT runtime configuration or managed-site attribution could not be loaded"));
 }
 
 function status() {
@@ -1351,7 +1358,8 @@ async function soleManagedSiteForConfiguredFallback() {
     .from(platformSitesTable)
     .where(eq(platformSitesTable.status, "active"))
     .limit(2);
-  return sites.length === 1 ? sites[0]?.siteName : undefined;
+  configuredManagedSiteFallback = sites.length === 1 ? sites[0]?.siteName : undefined;
+  return configuredManagedSiteFallback;
 }
 
 function testMessageMatches(message: StoredMessage, siteName: string, deviceId: string, acceptsConfiguredSiteFallback = false) {
@@ -2900,6 +2908,7 @@ router.get("/mqtt/stream", async (req, res) => {
     return;
   }
   if (!await allowGrantedSite(req, res, siteName)) return;
+  await soleManagedSiteForConfiguredFallback();
   requestMqttConsumer();
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
