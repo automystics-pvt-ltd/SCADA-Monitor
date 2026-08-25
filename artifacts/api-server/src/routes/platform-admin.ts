@@ -275,26 +275,42 @@ router.post("/platform-admin/sites", async (req: Request, res): Promise<void> =>
     return;
   }
   try {
-    const [site] = await db.insert(platformSitesTable).values({
-      siteName,
-      organizationId: data.organizationId,
-      timezone,
-      // Legacy sites remain active from the database default. Newly provisioned
-      // sites require a successful live test followed by explicit activation.
-      activationStatus: "inactive",
-      activationUpdatedBy: req.platformAdmin!.userId,
-    }).returning();
-    if (typeof data.latitude === "number" && typeof data.longitude === "number") {
-      await db.insert(plantLocationsTable).values({
-        siteName: site.siteName,
-        latitude: data.latitude,
-        longitude: data.longitude,
+    const site = await db.transaction(async (tx) => {
+      const [createdSite] = await tx.insert(platformSitesTable).values({
+        siteName,
+        organizationId: data.organizationId,
+        timezone,
+        // Legacy sites remain active from the database default. Newly provisioned
+        // sites require a successful live test followed by explicit activation.
+        activationStatus: "inactive",
+        activationUpdatedBy: req.platformAdmin!.userId,
+      }).returning();
+      if (typeof data.latitude === "number" && typeof data.longitude === "number") {
+        await tx.insert(plantLocationsTable).values({
+          siteName: createdSite.siteName,
+          latitude: data.latitude,
+          longitude: data.longitude,
+        }).onConflictDoUpdate({
+          target: plantLocationsTable.siteName,
+          set: { latitude: data.latitude, longitude: data.longitude, updatedAt: new Date() },
+        });
+      }
+      await tx.insert(platformSiteAccessTable).values({
+        userId: req.platformAdmin!.userId,
+        siteName: createdSite.siteName,
+        role: "site-admin",
       }).onConflictDoUpdate({
-        target: plantLocationsTable.siteName,
-        set: { latitude: data.latitude, longitude: data.longitude, updatedAt: new Date() },
+        target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
+        set: { role: "site-admin", status: "active", updatedAt: new Date() },
       });
-    }
-    await audit(req.platformAdmin!, "site.created", "site", site.siteName, { organizationId: site.organizationId, timezone: site.timezone });
+      return createdSite;
+    });
+    await audit(req.platformAdmin!, "site.created", "site", site.siteName, {
+      organizationId: site.organizationId,
+      timezone: site.timezone,
+      creatorAccess: "site-admin",
+      activationStatus: site.activationStatus,
+    });
     res.status(201).json(CreatePlatformSiteResponse.parse(platformSiteResponse(
       site,
       organization.name,
@@ -408,11 +424,22 @@ router.post("/platform-admin/sites/activation", async (req: Request, res): Promi
     return;
   }
   const now = new Date();
-  const [updated] = await db.update(platformSitesTable).set({
-    activationStatus: data.activationStatus,
-    activationUpdatedAt: now,
-    activationUpdatedBy: req.platformAdmin!.userId,
-  }).where(eq(platformSitesTable.siteName, site.siteName)).returning();
+  const updated = await db.transaction(async (tx) => {
+    const [activatedSite] = await tx.update(platformSitesTable).set({
+      activationStatus: data.activationStatus,
+      activationUpdatedAt: now,
+      activationUpdatedBy: req.platformAdmin!.userId,
+    }).where(eq(platformSitesTable.siteName, site.siteName)).returning();
+    await tx.insert(platformSiteAccessTable).values({
+      userId: req.platformAdmin!.userId,
+      siteName: activatedSite.siteName,
+      role: "site-admin",
+    }).onConflictDoUpdate({
+      target: [platformSiteAccessTable.userId, platformSiteAccessTable.siteName],
+      set: { role: "site-admin", status: "active", updatedAt: now },
+    });
+    return activatedSite;
+  });
   await audit(req.platformAdmin!, data.activationStatus === "active" ? "site.activated" : "site.deactivated", "site", updated.siteName, {
     previousActivationStatus: site.activationStatus,
     activationStatus: updated.activationStatus,

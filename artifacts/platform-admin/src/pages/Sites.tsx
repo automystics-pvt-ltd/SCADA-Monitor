@@ -75,7 +75,10 @@ export default function Sites() {
       { data: values },
       {
         onSuccess: () => {
-          toast({ title: "Site created" })
+          toast({
+            title: "Site created and access assigned",
+            description: "You have site-admin access. Verify live telemetry and activate the site before SCADA data becomes available.",
+          })
           void Promise.all([
             queryClient.invalidateQueries({ queryKey: getListPlatformSitesQueryKey() }),
             queryClient.invalidateQueries({ queryKey: getListPlatformOrganizationsQueryKey() }),
@@ -247,8 +250,8 @@ export default function Sites() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{site.timezone}</TableCell>
                     <TableCell>
-                      <Badge variant={site.status === 'active' ? 'success' : 'secondary'}>
-                        {site.status}
+                      <Badge variant={site.activationStatus === 'active' ? 'success' : 'secondary'}>
+                        {site.activationStatus === 'active' ? 'SCADA active' : 'Awaiting activation'}
                       </Badge>
                     </TableCell>
                   </TableRow>

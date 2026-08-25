@@ -8,6 +8,7 @@
 - [Plant location administration](plant-location-administration.md) — Coordinate writes are a global administrator action; site data remains centrally stored and generic.
 - [Versioned SCADA snapshot identity](versioned-scada-snapshot-identity.md) — Keep new 15-minute snapshots idempotent without deleting legacy records.
 - [Live MQTT delivery ordering](live-mqtt-delivery-ordering.md) — Keep SSE identities contiguous and replay both durable and in-memory evidence during asynchronous archival.
+- [MQTT consumer handoff](mqtt-consumer-handoff.md) — After an API restart, wait for the previous consumer lease to expire before diagnosing broker delivery.
 - [Fault guidance provenance](fault-guidance-provenance.md) — Scope code mappings to evidence, preserve raw faults, and never invent unknown-code reasons.
 - [Complete report evidence presentation](complete-report-evidence-presentation.md) — Page dense evidence in the UI, but keep selected-period payloads and all exports complete.
 - [Bounded report evidence queries](bounded-report-evidence-queries.md) — Preview pages, totals, and charts must derive from one filtered database relation; exports use a deliberate complete path.

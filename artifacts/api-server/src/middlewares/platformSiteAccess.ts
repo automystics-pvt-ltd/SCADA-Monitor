@@ -20,8 +20,10 @@ export async function siteAccess(req: Request): Promise<ScadaSiteAccess> {
       eq(platformSiteAccessTable.userId, req.user.id),
       eq(platformSiteAccessTable.status, "active"),
     ));
+  // Assignment and activation are intentionally separate: return an assigned
+  // inactive site so the client can explain its state, while allowGrantedSite
+  // remains the single activation-aware gate for all telemetry/evidence routes.
   return resolveSiteAccess(true, grants
-    .filter((grant) => grant.activationStatus === "active")
     .map(({ siteName, role, status }) => ({ siteName, role, status })), globalAccessEnabled());
 }
 
