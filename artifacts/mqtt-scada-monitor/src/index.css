@@ -1165,7 +1165,7 @@ button:not(:disabled):active,
   box-shadow: var(--scada-shadow);
 }
 .scada-inverter-fleet-tiles {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
   grid-auto-rows: minmax(11.75rem, auto);
   align-items: stretch;
 }
@@ -1313,12 +1313,12 @@ button:not(:disabled):active,
 }
 @container (min-width: 480px) {
   .scada-inverter-fleet-tiles {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @container (min-width: 780px) {
   .scada-inverter-fleet-tiles {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
