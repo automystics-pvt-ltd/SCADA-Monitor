@@ -466,6 +466,13 @@
 .scada-dashboard-site-bar {
   background: color-mix(in srgb, var(--scada-accent) 5%, var(--scada-surface));
 }
+.scada-dashboard-compact-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--scada-accent);
+}
 .scada-dashboard-site-status {
   border-color: color-mix(in srgb, #10B981 28%, var(--scada-border));
   background: color-mix(in srgb, #10B981 10%, var(--scada-surface));

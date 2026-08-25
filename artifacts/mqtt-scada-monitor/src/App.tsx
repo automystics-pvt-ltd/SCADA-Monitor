@@ -3957,14 +3957,15 @@ function AppShell() {
               </div>
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex flex-col items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400 sm:flex-row"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div className="min-w-0 flex-1"><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 break-words text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="shrink-0 text-xs font-semibold underline focus-ring">Retry connection</button></div>}
-             {mode === 'live' && <section role="status" data-testid="status-dashboard-data-source" className={`scada-dashboard-data-banner mb-3 flex min-w-0 flex-col gap-1.5 rounded-xl border px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between ${dashboardDataStatus.tone}`}>
-               <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.18em] opacity-75">Data source</p><p className="mt-0.5 text-[13px] font-bold leading-5">{dashboardDataStatus.title}</p><p className="mt-0.5 break-words text-[10px] leading-4 opacity-85">{dashboardDataStatus.detail}</p></div>
-               {hasValidSavedSnapshot && <span className="shrink-0 self-start rounded-md border border-current/20 bg-black/10 px-2 py-1 text-[10px] font-semibold sm:self-center">Saved {lastSavedLabel}</span>}
-            </section>}
-             {mode === 'live' && <section data-testid="panel-saved-data" aria-label="Saved backend data" className="scada-dashboard-compact-panel mb-3 rounded-xl border p-3">
+              {mode === 'live' && <div className="mb-3 grid gap-2 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+                <section role="status" data-testid="status-dashboard-data-source" className={`scada-dashboard-data-banner flex min-w-0 flex-col gap-1.5 rounded-xl border px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between ${dashboardDataStatus.tone}`}>
+                  <div className="min-w-0"><div className="flex items-center gap-1.5"><span className="scada-dashboard-compact-icon"><Radio size={11} aria-hidden="true" /></span><p className="text-[9px] font-bold uppercase tracking-[0.18em] opacity-75">Data source</p></div><p className="mt-0.5 text-[13px] font-bold leading-5">{dashboardDataStatus.title}</p><p className="mt-0.5 break-words text-[10px] leading-4 opacity-85">{dashboardDataStatus.detail}</p></div>
+                  {hasValidSavedSnapshot && <span className="shrink-0 self-start rounded-md border border-current/20 bg-black/10 px-2 py-1 text-[10px] font-semibold sm:self-center">Saved {lastSavedLabel}</span>}
+                </section>
+                <section data-testid="panel-saved-data" aria-label="Saved backend data" className="scada-dashboard-compact-panel rounded-xl border p-3">
                <div className="flex min-w-0 items-center justify-between gap-3">
                <div data-testid="saved-data-status">
-                   <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Saved data</p>
+                    <div className="flex items-center gap-1.5"><span className="scada-dashboard-compact-icon"><Database size={11} aria-hidden="true" /></span><p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Saved data</p></div>
                    <h2 className="mt-0.5 text-[13px] font-bold leading-5 text-slate-100">Latest confirmed backend record</h2>
                    <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{savedKpiSnapshot
                     ? `Persisted for ${formatInPlantTimezone(savedKpiSnapshot.scheduledFor || savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone ?? persistence.timezone)} · ${savedKpiSnapshot.parameterCount} source parameter${savedKpiSnapshot.parameterCount === 1 ? '' : 's'}.`
@@ -3977,42 +3978,43 @@ function AppShell() {
                  {savedKpiSnapshot && <span className={`shrink-0 rounded-md border px-2 py-1 text-[9px] font-semibold ${hasValidSavedSnapshot ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300' : 'border-slate-600 bg-slate-800 text-slate-300'}`}>{hasValidSavedSnapshot ? 'Eligible fallback' : 'Historical'}</span>}
               </div>
                {persistence.offlineQueuedSnapshots ? <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-[10px] leading-4 text-amber-200">Queued sync: {persistence.offlineQueuedSnapshots} window{persistence.offlineQueuedSnapshots === 1 ? '' : 's'} · {persistence.offlineQueuedMessages ?? 0} message{persistence.offlineQueuedMessages === 1 ? '' : 's'}.</p> : <p className="mt-2 text-[10px] leading-4 text-slate-500">Backend-confirmed records only. Queued or retrying data is not shown as saved.</p>}
-            </section>}
-             <section data-testid="panel-live-communication" aria-label="Live communication health" className="scada-dashboard-compact-panel mb-3 rounded-xl border p-3">
+                </section>
+              </div>}
+              <section data-testid="panel-live-communication" aria-label="Live communication health" className="scada-dashboard-compact-panel mb-3 rounded-xl border p-3">
                <div className="flex min-w-0 items-center justify-between gap-3">
                 <div>
-                   <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Live communication</p>
+                    <div className="flex items-center gap-1.5"><span className="scada-dashboard-compact-icon"><Wifi size={11} aria-hidden="true" /></span><p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Live communication</p></div>
                    <h2 className="mt-0.5 text-[13px] font-bold leading-5 text-slate-100">Telemetry heartbeat & delivery</h2>
                 </div>
                  <CustomBadge tone={communicationTone(deviceCommunication)}>{communicationLabel(deviceCommunication)}</CustomBadge>
               </div>
                <div className="mt-2 grid grid-cols-2 gap-2 min-[560px]:grid-cols-3 lg:grid-cols-7">
-                 <div className="scada-dashboard-compact-metric">
+                  <div className="scada-dashboard-compact-metric" title={`Broker: ${brokerTransportLabel}. Subscription: ${communication?.subscriptionState ?? 'unknown'}.`}>
                    <p className="scada-dashboard-compact-label">Broker</p>
                    <p className={`scada-dashboard-compact-value ${communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}`}>{brokerTransportLabel}</p>
                 </div>
-                 <div className="scada-dashboard-compact-metric">
+                  <div className="scada-dashboard-compact-metric" title={`Device communication: ${communicationLabel(deviceCommunication)}.`}>
                    <p className="scada-dashboard-compact-label">Device</p>
                    <p className={`scada-dashboard-compact-value ${deviceCommunication === 'live' ? 'text-emerald-400' : deviceCommunication === 'interrupted' ? 'text-rose-400' : 'text-amber-400'}`}>{communicationLabel(deviceCommunication)}</p>
                 </div>
-                 <div className="scada-dashboard-compact-metric">
+                  <div className="scada-dashboard-compact-metric" title={`Last received: ${formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}.`}>
                    <p className="scada-dashboard-compact-label">Last received</p>
                    <p className="scada-dashboard-compact-value truncate text-slate-200" title={formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}>{formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}</p>
                 </div>
-                 <div className="scada-dashboard-compact-metric">
+                  <div className="scada-dashboard-compact-metric" title="Median time between received telemetry messages.">
                    <p className="scada-dashboard-compact-label">Frequency</p>
                    <p className="scada-dashboard-compact-value text-slate-200">{communication?.dataFrequencySeconds === undefined ? 'Learning' : communication.dataFrequencySeconds < 0.01 ? '<0.01s' : `${communication.dataFrequencySeconds}s`}</p>
                 </div>
-                 <div className="scada-dashboard-compact-metric">
+                  <div className="scada-dashboard-compact-metric" title="Age of the most recent received telemetry message.">
                    <p className="scada-dashboard-compact-label">Freshness</p>
                    <p className="scada-dashboard-compact-value text-slate-200">{formatElapsed(communication?.freshnessAgeMs ?? telemetryAge ?? undefined)}</p>
                 </div>
-                 <div className="scada-dashboard-compact-metric">
+                  <div className="scada-dashboard-compact-metric" title={`Source clock age: ${formatElapsed(communication?.sourceAgeMs)}. Last source timestamp: ${communication?.lastSourceTimestamp ?? 'unavailable'}.`}>
                    <p className="scada-dashboard-compact-label">Source age</p>
                    <p className="scada-dashboard-compact-value text-slate-200">{formatElapsed(communication?.sourceAgeMs)}</p>
                    <p className="mt-0.5 truncate text-[9px] text-slate-500" title={communication?.lastSourceTimestamp}>source clock</p>
                 </div>
-                 <div className="scada-dashboard-compact-metric">
+                  <div className="scada-dashboard-compact-metric" title={`Received messages: ${communication?.receivedMessageCount?.toLocaleString() ?? '0'}. Last sequence: ${communication?.lastReceivedSequence ?? 'unavailable'}.`}>
                    <p className="scada-dashboard-compact-label">Messages</p>
                    <p className="scada-dashboard-compact-value text-slate-200">{communication?.receivedMessageCount?.toLocaleString() ?? '0'}</p>
                    {communication?.lastReceivedSequence !== undefined && <p className="mt-0.5 truncate text-[9px] text-slate-500" title={`Sequence ${communication.lastReceivedSequence}`}>seq {communication.lastReceivedSequence}</p>}
