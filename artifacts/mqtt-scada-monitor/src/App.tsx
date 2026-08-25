@@ -14,6 +14,7 @@ import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultG
 import { dashboardAccessState } from './scada-access';
 import { discoveryDeviceIdFromSourceRecord } from './device-discovery-identity';
 import { createTelemetryMappingStore, mappedTelemetryDestination, mappedTelemetryDisplayLabel, type ScadaTelemetryMapping } from './telemetry-mappings';
+import { clearConfirmedSnapshotCache, readConfirmedSnapshotCache, writeConfirmedSnapshotCache } from './confirmed-snapshot-cache';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
@@ -64,6 +65,8 @@ type PersistenceStatus = {
   currentWindow?: string;
   nextScheduledAt?: string;
   pendingMessages: number;
+  offlineQueuedSnapshots?: number;
+  offlineQueuedMessages?: number;
   lastSnapshotAt?: string;
   lastSnapshotScheduledFor?: string;
   lastSnapshotStatus?: 'saved' | 'missing' | 'incomplete';
@@ -2966,6 +2969,12 @@ function AppShell() {
     ...snapshot,
     parameters: telemetryMappingStoreRef.current.apply((snapshot.parameters ?? []) as ModbusRow[]) as typeof snapshot.parameters,
   }), []);
+  const acceptConfirmedSnapshot = useCallback((snapshot: SavedKpiSnapshot, siteName: string) => {
+    if (snapshot.saveStatus !== 'saved' || !siteName) return;
+    const mappedSnapshot = applySnapshotMappings(snapshot);
+    writeConfirmedSnapshotCache(localStorage, siteName, mappedSnapshot);
+    setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(mappedSnapshot, current) ? mappedSnapshot : current);
+  }, [applySnapshotMappings]);
   const refreshTelemetryMappings = useCallback(async (siteName: string, signal?: AbortSignal) => {
     const response = await fetch(`/api/mqtt/telemetry-mappings?siteName=${encodeURIComponent(siteName)}`, {
       signal,
@@ -3038,19 +3047,25 @@ function AppShell() {
   }, []);
   useEffect(() => {
     if (mode !== 'live') return;
-    setSavedKpiSnapshot(null);
+    if (!scadaSession.authenticated || !activeSite) {
+      if (activeSite) clearConfirmedSnapshotCache(localStorage, activeSite);
+      setSavedKpiSnapshot(null);
+      return;
+    }
+    const cachedSnapshot = readConfirmedSnapshotCache(localStorage, activeSite);
+    setSavedKpiSnapshot(cachedSnapshot ? applySnapshotMappings(cachedSnapshot) : null);
     const controller = new AbortController();
     const loadSavedKpiSnapshot = async () => {
       try {
-        if (!activeSite) return;
         const response = await fetch(`/api/mqtt/snapshots/latest?siteName=${encodeURIComponent(activeSite)}`, { signal: controller.signal, cache: 'no-store' });
         const payload = await response.json() as { snapshot?: unknown };
         if (!response.ok || controller.signal.aborted) return;
         const parsedSnapshot = parseSavedKpiSnapshot(payload.snapshot);
-        const snapshot = parsedSnapshot ? applySnapshotMappings(parsedSnapshot) : null;
+        const snapshot = parsedSnapshot;
         if (snapshot?.saveStatus === 'saved') {
-          setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
+          acceptConfirmedSnapshot(snapshot, activeSite);
         } else {
+          clearConfirmedSnapshotCache(localStorage, activeSite);
           setSavedKpiSnapshot(null);
         }
       } catch {
@@ -3063,7 +3078,7 @@ function AppShell() {
       controller.abort();
       window.clearInterval(refreshTimer);
     };
-  }, [activeSite, applySnapshotMappings, mode]);
+  }, [acceptConfirmedSnapshot, activeSite, applySnapshotMappings, mode, scadaSession.authenticated]);
   useEffect(() => {
     const controller = new AbortController();
     const loadLocationPermissions = async () => {
@@ -3317,9 +3332,9 @@ function AppShell() {
       if (generation !== streamGenerationRef.current) return;
       try {
         const parsedSnapshot = parseSavedKpiSnapshot(JSON.parse((event as MessageEvent).data));
-        const snapshot = parsedSnapshot ? applySnapshotMappings(parsedSnapshot) : null;
+        const snapshot = parsedSnapshot;
         if (!snapshot || snapshot.saveStatus !== 'saved') return;
-        setSavedKpiSnapshot((current) => isNewerSavedKpiSnapshot(snapshot, current) ? snapshot : current);
+        acceptConfirmedSnapshot(snapshot, plantSiteName);
       } catch {
         setError('The saved snapshot stream sent an unreadable update. Existing KPI evidence is retained.');
       }
@@ -3380,7 +3395,7 @@ function AppShell() {
       streamRef.current = null;
       setStreamPhase('closed');
     };
-  }, [mode, plantSiteName]);
+  }, [acceptConfirmedSnapshot, mode, plantSiteName]);
 
   const disconnect = () => {
     streamGenerationRef.current += 1;
@@ -3487,8 +3502,9 @@ function AppShell() {
   const eligibleSavedSnapshot = savedEvidence.snapshot;
   const hasValidSavedSnapshot = eligibleSavedSnapshot !== null;
   const savedSnapshotRows = useMemo(() => (savedKpiSnapshot?.parameters ?? []) as ModbusRow[], [savedKpiSnapshot]);
+  const currentLiveRows = useMemo(() => modbusRows.filter((row) => row.provenance === 'live'), [modbusRows]);
   const showingSavedRecord = mode === 'live' && savedEvidence.source === 'saved';
-  const dashboardEvidenceRows = showingSavedRecord ? savedSnapshotRows : modbusRows;
+  const dashboardEvidenceRows = showingSavedRecord ? savedSnapshotRows : currentLiveRows;
   const lastSavedLabel = hasValidSavedSnapshot
     ? formatInPlantTimezone(savedKpiSnapshot!.scheduledFor || savedKpiSnapshot!.capturedAt, savedKpiSnapshot!.timezone ?? persistence.timezone)
     : 'not available';
@@ -3879,7 +3895,7 @@ function AppShell() {
           {scadaSession.authenticated && scadaAccessState === 'unavailable' && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-rose-500/30 bg-rose-500/[.04] p-8 text-center"><div className="max-w-md"><AlertCircle size={28} className="mx-auto mb-4 text-rose-400" /><h1 className="text-lg font-bold text-slate-100">SCADA access unavailable</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error}</p></div></section>}
           {scadaSession.authenticated && (scadaAccessState === 'denied' || (scadaAccessState === 'ready' && !plantSiteName)) && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-amber-400" /><h1 className="text-lg font-bold text-slate-100">{inactiveAssignedSites.length ? 'Assigned site awaiting activation' : 'No SCADA site assigned'}</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error || (inactiveAssignedSites.length ? `${inactiveAssignedSites.join(', ')} is assigned to you, but live SCADA access remains blocked until a platform administrator completes a successful telemetry test and activates the site.` : 'Your account does not have an active site assignment. Ask a platform administrator to grant access before viewing live telemetry.')}</p></div></section>}
           {scadaSession.authenticated && scadaAccessState === 'ready' && plantSiteName && <><div className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-500/20 bg-blue-500/[.04] px-3 py-2 text-xs text-slate-400"><span>Viewing assigned site</span><strong className="text-blue-300">{plantSiteName}</strong><span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">Site active</span>{siteAccessState.roles[plantSiteName] && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>
-          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={modbusRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} energyStream={energyStream} /></div>}
+          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={currentLiveRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} energyStream={energyStream} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -3897,6 +3913,19 @@ function AppShell() {
             {mode === 'live' && <section role="status" data-testid="status-dashboard-data-source" className={`mb-4 flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${dashboardDataStatus.tone}`}>
               <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] opacity-75">Dashboard data source</p><p className="mt-1 text-sm font-bold">{dashboardDataStatus.title}</p><p className="mt-1 text-[11px] leading-5 opacity-85">{dashboardDataStatus.detail}</p></div>
               {hasValidSavedSnapshot && <span className="shrink-0 rounded-md border border-current/20 bg-black/10 px-2.5 py-1.5 text-[10px] font-semibold">Last Saved: {lastSavedLabel}</span>}
+            </section>}
+            {mode === 'live' && <section data-testid="panel-saved-data" aria-label="Saved backend data" className="mb-4 rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Saved Data</p>
+                  <h2 className="mt-1 text-sm font-bold text-slate-100">Latest confirmed backend record</h2>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-400">{savedKpiSnapshot
+                    ? `Persisted for ${formatInPlantTimezone(savedKpiSnapshot.scheduledFor || savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone ?? persistence.timezone)} · ${savedKpiSnapshot.parameterCount} source parameter${savedKpiSnapshot.parameterCount === 1 ? '' : 's'}.`
+                    : 'No successfully persisted backend record is available for this site yet.'}</p>
+                </div>
+                {savedKpiSnapshot && <span className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[10px] font-semibold ${hasValidSavedSnapshot ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300' : 'border-slate-600 bg-slate-800 text-slate-300'}`}>{hasValidSavedSnapshot ? 'Eligible saved fallback' : 'Historical saved record'}</span>}
+              </div>
+              {persistence.offlineQueuedSnapshots ? <p className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-200">A completed snapshot is securely queued for backend sync ({persistence.offlineQueuedSnapshots} window{persistence.offlineQueuedSnapshots === 1 ? '' : 's'} / {persistence.offlineQueuedMessages ?? 0} source message{persistence.offlineQueuedMessages === 1 ? '' : 's'}). This panel continues to show the last confirmed backend record.</p> : <p className="mt-3 text-[11px] leading-5 text-slate-500">Only backend-confirmed records appear here. Queued, loading, and retrying data is never presented as saved.</p>}
             </section>}
             <section data-testid="panel-live-communication" aria-label="Live communication health" className="mb-4 rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3961,15 +3990,15 @@ function AppShell() {
           </section>
           
           <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
-            <ElectricalParametersChart rows={modbusRows} mode={mode} liveState={electricalLiveState} savedSnapshot={eligibleSavedSnapshot} siteName={plantSiteName} />
+            <ElectricalParametersChart rows={currentLiveRows} mode={mode} liveState={electricalLiveState} savedSnapshot={eligibleSavedSnapshot} siteName={plantSiteName} />
           </div>
 
               <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,1.2fr)_minmax(0,1.8fr)]">
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
-              <InverterOverviewTable devices={inverterDisplayDevices} rows={modbusRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
+              <InverterOverviewTable devices={inverterDisplayDevices} rows={currentLiveRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
             <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6">
-              <SidePanels devices={operationalDevices} rows={modbusRows} liveState={electricalLiveState} savedRows={showingSavedRecord ? savedSnapshotRows : []} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} onOpenAlarms={() => navigateTo('alarms')} />
+              <SidePanels devices={operationalDevices} rows={currentLiveRows} liveState={electricalLiveState} savedRows={showingSavedRecord ? savedSnapshotRows : []} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} onOpenAlarms={() => navigateTo('alarms')} />
             </div>
           </div>
           
@@ -3987,7 +4016,7 @@ function AppShell() {
 
            <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} onRefresh={refreshWeather} onSiteChange={changeActiveSite} />
 
-          <DetailedLiveDataTable rows={modbusRows} persistence={persistence} />
+          <DetailedLiveDataTable rows={currentLiveRows} persistence={persistence} />
 
           <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={handleCopy} />
           

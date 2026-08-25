@@ -1,0 +1,44 @@
+### Enhanced Prompt — Reliable 15-Minute SCADA Data Saving & Offline Sync
+
+Implement the following **reliable SCADA data-saving architecture** without affecting existing live monitoring or functionality:
+
+* Save **validated real-time SCADA data every 15 minutes from 6:00 AM to 6:00 PM every day**, using the configured Plant/Site timezone.
+* If there is any **network, MQTT, backend, database, or temporary connectivity issue** at the scheduled save time, do **not lose the record**.
+* Temporarily store the validated record in a secure **local/offline cache/queue** with its original timestamp.
+* Once connectivity is restored, automatically **sync the cached records to the backend in the correct chronological order**.
+* Prevent duplicate records during retry/sync operations using a unique record ID/timestamp/device combination.
+* **Only validated, genuine device telemetry should ever be persisted** in the backend. Never save placeholders, stale values, estimated values, or incorrect data.
+* If data is invalid or unavailable at the scheduled time, mark the snapshot appropriately rather than creating a false record.
+
+### Frontend Data Separation
+
+Maintain a strict separation between **Saved Data** and **Live Data**:
+
+**Saved Data Section**
+
+* Display **only successfully persisted backend records**.
+* During network/retry/loading periods, continue showing the **latest successfully saved record**.
+* Do not replace it with blank, zero, “No Data,” or unverified values.
+* Clearly show the saved record timestamp.
+
+**Live Data Section**
+
+* Display **only current live device telemetry**.
+* Do not mix cached, historical, or previously saved values into the Live Data section.
+* Clearly indicate live status and last-received timestamp.
+
+### Required Flow
+
+**Live Device Data → Validate → 15-Minute Snapshot → Save Backend**
+
+If saving fails:
+
+**Validate → Offline Cache → Network Restored → Automatic Sync → Backend Confirmation → Saved Data Updated**
+
+For the UI:
+
+**Saved Section → Latest Confirmed Backend Record**
+
+**Live Section → Current Live Telemetry Only**
+
+This separation is critical for a **production-grade Solar SCADA system** so users can clearly distinguish what is **currently live** from what has been **successfully saved and persisted**.

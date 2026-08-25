@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Response } from "express";
 import { and, asc, desc, eq, gt, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import mqtt, { type MqttClient } from "mqtt";
+import { resolve } from "node:path";
 import {
   db,
   mqttCommunicationEventsTable,
@@ -36,6 +37,7 @@ import {
   type ScadaReportType,
 } from "../lib/scada-reporting";
 import { queryBoundedScadaReport } from "../lib/scada-report-query";
+import { SnapshotOfflineQueue, type SnapshotOfflineQueueEntry } from "../lib/snapshot-offline-queue";
 
 const router: IRouter = Router();
 const defaultBrokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
@@ -188,9 +190,22 @@ type CommunicationEventDraft = {
 type SnapshotBuffer = {
   startedAt: Date;
   slotKey: string;
+  topic: string;
+  timezone: string;
   messages: StoredMessage[];
   latestParameters: Record<string, Record<string, unknown>>;
   latestDiscoveredParameters: Record<string, DiscoveredDeviceParameter>;
+};
+type SnapshotOfflinePayload = {
+  topic: string;
+  timezone: string;
+  buffer: {
+    startedAt: string;
+    slotKey: string;
+    messages: StoredMessage[];
+    latestParameters: Record<string, Record<string, unknown>>;
+    latestDiscoveredParameters: Record<string, DiscoveredDeviceParameter>;
+  };
 };
 type SnapshotSaveStatus = "saved" | "missing" | "incomplete";
 type SavedKpiMetric = {
@@ -300,7 +315,12 @@ let lastSnapshotStatus: SnapshotSaveStatus | undefined;
 let snapshotError: string | undefined;
 let reconciledScheduleDate: string | undefined;
 let scheduleRun: Promise<void> | undefined;
-const failedSnapshotQueue: Array<{ buffer: SnapshotBuffer; scheduledFor: Date }> = [];
+const snapshotOfflineQueue = new SnapshotOfflineQueue<SnapshotOfflinePayload>(
+  process.env.SCADA_SNAPSHOT_QUEUE_PATH
+    ?? resolve(process.cwd(), ".runtime", "mqtt-snapshot-offline-queue.json"),
+);
+let offlineQueuedSnapshotCount = 0;
+let offlineQueuedMessageCount = 0;
 
 function parseSiteName(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -701,8 +721,86 @@ function slotKey(parts: ZonedParts) {
   return `${dateKey(parts)}T${parts.hour.toString().padStart(2, "0")}:${parts.minute.toString().padStart(2, "0")}`;
 }
 
-function emptySnapshotBuffer(startedAt: Date, key: string): SnapshotBuffer {
-  return { startedAt, slotKey: key, messages: [], latestParameters: {}, latestDiscoveredParameters: {} };
+function emptySnapshotBuffer(startedAt: Date, key: string, topic = subscriptionTopic, timezone = plantTimezone): SnapshotBuffer {
+  return {
+    startedAt,
+    slotKey: key,
+    topic,
+    timezone,
+    messages: [],
+    latestParameters: {},
+    latestDiscoveredParameters: {},
+  };
+}
+
+function snapshotRetryId(topic: string, scheduledFor: Date) {
+  return `scheduled:${Buffer.from(`${topic}\u0000${scheduledFor.toISOString()}`).toString("base64url")}`;
+}
+
+function snapshotOfflinePayload(buffer: SnapshotBuffer): SnapshotOfflinePayload {
+  return {
+    topic: buffer.topic,
+    timezone: buffer.timezone,
+    buffer: {
+      startedAt: buffer.startedAt.toISOString(),
+      slotKey: buffer.slotKey,
+      messages: buffer.messages,
+      latestParameters: buffer.latestParameters,
+      latestDiscoveredParameters: buffer.latestDiscoveredParameters,
+    },
+  };
+}
+
+function snapshotBufferFromOfflinePayload(payload: SnapshotOfflinePayload): SnapshotBuffer | undefined {
+  if (!isRecord(payload) || typeof payload.topic !== "string" || !payload.topic || typeof payload.timezone !== "string" || !isRecord(payload.buffer)) return undefined;
+  const startedAt = new Date(String(payload.buffer.startedAt ?? ""));
+  if (!Number.isFinite(startedAt.getTime()) || typeof payload.buffer.slotKey !== "string") return undefined;
+  if (!Array.isArray(payload.buffer.messages) || !isRecord(payload.buffer.latestParameters) || !isRecord(payload.buffer.latestDiscoveredParameters)) return undefined;
+  return {
+    startedAt,
+    slotKey: payload.buffer.slotKey,
+    topic: payload.topic,
+    timezone: validTimezone(payload.timezone),
+    messages: payload.buffer.messages as StoredMessage[],
+    latestParameters: payload.buffer.latestParameters as Record<string, Record<string, unknown>>,
+    latestDiscoveredParameters: payload.buffer.latestDiscoveredParameters as Record<string, DiscoveredDeviceParameter>,
+  };
+}
+
+function queuedSnapshotMessageCount(entries: SnapshotOfflineQueueEntry<SnapshotOfflinePayload>[]) {
+  return entries.reduce((total, entry) => total + (Array.isArray(entry.payload.buffer?.messages) ? entry.payload.buffer.messages.length : 0), 0);
+}
+
+function setOfflineQueueMetrics(entries: SnapshotOfflineQueueEntry<SnapshotOfflinePayload>[]) {
+  offlineQueuedSnapshotCount = entries.length;
+  offlineQueuedMessageCount = queuedSnapshotMessageCount(entries);
+}
+
+async function stageSnapshotForRetry(buffer: SnapshotBuffer, scheduledFor: Date) {
+  const entry: SnapshotOfflineQueueEntry<SnapshotOfflinePayload> = {
+    id: snapshotRetryId(buffer.topic, scheduledFor),
+    scheduledFor: scheduledFor.toISOString(),
+    queuedAt: new Date().toISOString(),
+    payload: snapshotOfflinePayload(buffer),
+  };
+  const entries = await snapshotOfflineQueue.upsert(entry);
+  setOfflineQueueMetrics(entries);
+  return { entry, entries };
+}
+
+async function removeStagedSnapshot(entryId: string) {
+  const entries = await snapshotOfflineQueue.remove(entryId);
+  setOfflineQueueMetrics(entries);
+}
+
+async function clearStagedSnapshotAfterConfirmation(entryId: string, scheduledFor: string) {
+  try {
+    await removeStagedSnapshot(entryId);
+  } catch (error) {
+    snapshotError = "Snapshot is saved, but local retry-queue cleanup is pending.";
+    logger.warn({ err: error, scheduledFor }, "MQTT snapshot retry queue cleanup failed");
+    broadcast("status", status());
+  }
 }
 
 function numericParameterValue(parameter: Record<string, unknown>) {
@@ -1073,8 +1171,36 @@ function snapshotOutcome(buffer: SnapshotBuffer) {
   return { saveStatus: "saved" as const, missingReason: undefined };
 }
 
-async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, savedAt = new Date()) {
+async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, savedAt = new Date(), existingQueueEntry?: SnapshotOfflineQueueEntry<SnapshotOfflinePayload>) {
   const scheduledForIso = scheduledFor.toISOString();
+  let queuedEntry = existingQueueEntry;
+  let queuedEntries: SnapshotOfflineQueueEntry<SnapshotOfflinePayload>[];
+  try {
+    if (queuedEntry) {
+      queuedEntries = await snapshotOfflineQueue.list();
+      setOfflineQueueMetrics(queuedEntries);
+    } else {
+      const staged = await stageSnapshotForRetry(buffer, scheduledFor);
+      queuedEntry = staged.entry;
+      queuedEntries = staged.entries;
+    }
+  } catch (error) {
+    snapshotError = "Snapshot could not be placed in the local retry queue.";
+    logger.error({ err: error, scheduledFor: scheduledForIso }, "MQTT snapshot retry queue write failed");
+    broadcast("status", status());
+    return false;
+  }
+
+  const olderQueuedSnapshot = queuedEntries.find((candidate) =>
+    candidate.id !== queuedEntry!.id
+    && candidate.payload.topic === buffer.topic
+    && Date.parse(candidate.scheduledFor) < scheduledFor.getTime());
+  if (olderQueuedSnapshot) {
+    snapshotError = "A prior scheduled snapshot is awaiting backend confirmation; queued snapshots will sync in chronological order.";
+    broadcast("status", status());
+    return false;
+  }
+
   try {
     const outcome = snapshotOutcome(buffer);
     const calibrationProfile = await currentPlantCalibrationProfile();
@@ -1082,7 +1208,7 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
       windowStartedAt: buffer.startedAt,
       windowEndedAt: scheduledFor,
       capturedAt: savedAt,
-      topic: subscriptionTopic,
+      topic: buffer.topic,
       messageCount: buffer.messages.length,
       parameterCount: Math.max(Object.keys(buffer.latestParameters).length, Object.keys(buffer.latestDiscoveredParameters).length),
       data: {
@@ -1092,7 +1218,7 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
         missingReason: outcome.missingReason,
         scheduledFor: scheduledForIso,
         capturedAt: savedAt.toISOString(),
-        timezone: plantTimezone,
+        timezone: buffer.timezone,
         messages: buffer.messages,
         latestParameters: Object.values(buffer.latestParameters),
         latestDiscoveredParameters: Object.values(buffer.latestDiscoveredParameters),
@@ -1107,14 +1233,16 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
       const existingCandidates = await db
         .select()
         .from(mqttSnapshotsTable)
-        .where(and(eq(mqttSnapshotsTable.topic, subscriptionTopic), eq(mqttSnapshotsTable.windowEndedAt, scheduledFor)))
+        .where(and(eq(mqttSnapshotsTable.topic, buffer.topic), eq(mqttSnapshotsTable.windowEndedAt, scheduledFor)))
         .limit(10);
       const existing = existingCandidates.find((candidate) => isRecord(candidate.data) && candidate.data.schemaVersion === 4);
       if (existing) {
         const evidence = snapshotEvidence(existing);
         setLastSnapshot(evidence);
+        snapshotError = undefined;
         broadcast("snapshot", evidence);
         broadcast("status", status());
+        await clearStagedSnapshotAfterConfirmation(queuedEntry.id, scheduledForIso);
       }
       return true;
     }
@@ -1124,13 +1252,12 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
     snapshotError = undefined;
     broadcast("snapshot", evidence);
     broadcast("status", status());
+    await clearStagedSnapshotAfterConfirmation(queuedEntry.id, scheduledForIso);
     logger.info({ scheduledFor: scheduledForIso, saveStatus: outcome.saveStatus, messageCount: buffer.messages.length, parameterCount: Math.max(Object.keys(buffer.latestParameters).length, Object.keys(buffer.latestDiscoveredParameters).length) }, "MQTT snapshot stored");
     return true;
   } catch (error) {
-    const alreadyQueued = failedSnapshotQueue.some((pending) => pending.scheduledFor.getTime() === scheduledFor.getTime());
-    if (!alreadyQueued) failedSnapshotQueue.push({ buffer, scheduledFor });
     snapshotError = error instanceof Error ? error.message : "Snapshot write failed";
-    logger.error({ err: error }, "MQTT snapshot write failed");
+    logger.error({ err: error, scheduledFor: scheduledForIso }, "MQTT snapshot write failed; staged retry remains available");
     broadcast("status", status());
     return false;
   }
@@ -1160,10 +1287,26 @@ async function reconcileCompletedWindows(now = new Date()) {
 }
 
 async function retryFailedSnapshots() {
-  while (failedSnapshotQueue.length) {
-    const pending = failedSnapshotQueue.shift();
-    if (!pending) return;
-    const stored = await persistSnapshot(pending.buffer, pending.scheduledFor);
+  while (true) {
+    let entry: SnapshotOfflineQueueEntry<SnapshotOfflinePayload> | undefined;
+    try {
+      const entries = await snapshotOfflineQueue.list();
+      setOfflineQueueMetrics(entries);
+      entry = entries[0];
+    } catch (error) {
+      snapshotError = "Snapshot retry queue could not be read.";
+      logger.error({ err: error }, "MQTT snapshot retry queue read failed");
+      return;
+    }
+    if (!entry) return;
+    const buffer = snapshotBufferFromOfflinePayload(entry.payload);
+    const scheduledFor = new Date(entry.scheduledFor);
+    if (!buffer || !Number.isFinite(scheduledFor.getTime())) {
+      snapshotError = "A corrupt snapshot retry entry needs operator review.";
+      logger.error({ entryId: entry.id }, "MQTT snapshot retry entry could not be restored");
+      return;
+    }
+    const stored = await persistSnapshot(buffer, scheduledFor, new Date(), entry);
     if (!stored) return;
   }
 }
@@ -1414,7 +1557,9 @@ function status() {
       savingActive: schedule.collecting,
       currentWindow: snapshotBuffer?.slotKey,
       nextScheduledAt: schedule.nextScheduledAt.toISOString(),
-      pendingMessages: (snapshotBuffer?.messages.length ?? 0) + failedSnapshotQueue.reduce((total, pending) => total + pending.buffer.messages.length, 0),
+      pendingMessages: (snapshotBuffer?.messages.length ?? 0) + offlineQueuedMessageCount,
+      offlineQueuedSnapshots: offlineQueuedSnapshotCount,
+      offlineQueuedMessages: offlineQueuedMessageCount,
       lastSnapshotAt,
       lastSnapshotScheduledFor,
       lastSnapshotStatus,
