@@ -3941,7 +3941,7 @@ function AppShell() {
           {!scadaSession.loading && !scadaSession.authenticated && <ScadaCredentialLogin onSignedIn={() => setAuthRefreshToken((current) => current + 1)} />}
           {scadaSession.authenticated && scadaAccessState === 'unavailable' && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-rose-500/30 bg-rose-500/[.04] p-8 text-center"><div className="max-w-md"><AlertCircle size={28} className="mx-auto mb-4 text-rose-400" /><h1 className="text-lg font-bold text-slate-100">SCADA access unavailable</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error}</p></div></section>}
           {scadaSession.authenticated && (scadaAccessState === 'denied' || (scadaAccessState === 'ready' && !plantSiteName)) && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-amber-400" /><h1 className="text-lg font-bold text-slate-100">{inactiveAssignedSites.length ? 'Assigned site awaiting activation' : 'No SCADA site assigned'}</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error || (inactiveAssignedSites.length ? `${inactiveAssignedSites.join(', ')} is assigned to you, but live SCADA access remains blocked until a platform administrator completes a successful telemetry test and activates the site.` : 'Your account does not have an active site assignment. Ask a platform administrator to grant access before viewing live telemetry.')}</p></div></section>}
-          {scadaSession.authenticated && scadaAccessState === 'ready' && plantSiteName && <><div className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-500/20 bg-blue-500/[.04] px-3 py-2 text-xs text-slate-400"><span>Viewing assigned site</span><strong className="text-blue-300">{plantSiteName}</strong><span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">Site active</span>{siteAccessState.roles[plantSiteName] && <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>
+          {scadaSession.authenticated && scadaAccessState === 'ready' && plantSiteName && <><div className="scada-dashboard-site-bar mb-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-1.5 text-[10px]"><span className="font-medium text-slate-500">Assigned site</span><strong className="min-w-0 max-w-[min(42vw,18rem)] truncate text-blue-300">{plantSiteName}</strong><span className="scada-dashboard-site-status rounded-full border px-2 py-0.5 font-bold uppercase tracking-[0.12em]">Active</span>{siteAccessState.roles[plantSiteName] && <span className="truncate rounded-full border border-slate-700 px-2 py-0.5 uppercase tracking-[0.1em] text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>
           {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={currentLiveRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} energyStream={energyStream} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
@@ -3957,75 +3957,75 @@ function AppShell() {
               </div>
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex flex-col items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-4 text-sm text-rose-400 sm:flex-row"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div className="min-w-0 flex-1"><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 break-words text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="shrink-0 text-xs font-semibold underline focus-ring">Retry connection</button></div>}
-            {mode === 'live' && <section role="status" data-testid="status-dashboard-data-source" className={`mb-4 flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${dashboardDataStatus.tone}`}>
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] opacity-75">Dashboard data source</p><p className="mt-1 text-sm font-bold">{dashboardDataStatus.title}</p><p className="mt-1 text-[11px] leading-5 opacity-85">{dashboardDataStatus.detail}</p></div>
-              {hasValidSavedSnapshot && <span className="shrink-0 rounded-md border border-current/20 bg-black/10 px-2.5 py-1.5 text-[10px] font-semibold">Last Saved: {lastSavedLabel}</span>}
+             {mode === 'live' && <section role="status" data-testid="status-dashboard-data-source" className={`scada-dashboard-data-banner mb-3 flex min-w-0 flex-col gap-1.5 rounded-xl border px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between ${dashboardDataStatus.tone}`}>
+               <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.18em] opacity-75">Data source</p><p className="mt-0.5 text-[13px] font-bold leading-5">{dashboardDataStatus.title}</p><p className="mt-0.5 break-words text-[10px] leading-4 opacity-85">{dashboardDataStatus.detail}</p></div>
+               {hasValidSavedSnapshot && <span className="shrink-0 self-start rounded-md border border-current/20 bg-black/10 px-2 py-1 text-[10px] font-semibold sm:self-center">Saved {lastSavedLabel}</span>}
             </section>}
-            {mode === 'live' && <section data-testid="panel-saved-data" aria-label="Saved backend data" className="mb-4 rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+             {mode === 'live' && <section data-testid="panel-saved-data" aria-label="Saved backend data" className="scada-dashboard-compact-panel mb-3 rounded-xl border p-3">
+               <div className="flex min-w-0 items-center justify-between gap-3">
                <div data-testid="saved-data-status">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Saved Data</p>
-                  <h2 className="mt-1 text-sm font-bold text-slate-100">Latest confirmed backend record</h2>
-                  <p className="mt-1 text-[11px] leading-5 text-slate-400">{savedKpiSnapshot
+                   <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Saved data</p>
+                   <h2 className="mt-0.5 text-[13px] font-bold leading-5 text-slate-100">Latest confirmed backend record</h2>
+                   <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{savedKpiSnapshot
                     ? `Persisted for ${formatInPlantTimezone(savedKpiSnapshot.scheduledFor || savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone ?? persistence.timezone)} · ${savedKpiSnapshot.parameterCount} source parameter${savedKpiSnapshot.parameterCount === 1 ? '' : 's'}.`
                      : savedSnapshotLoadState === 'loading'
-                       ? 'Loading the latest successfully saved backend record independently of live telemetry…'
+                       ? 'Loading latest confirmed record…'
                        : savedSnapshotLoadState === 'error'
-                         ? 'The saved backend record could not be refreshed. Any previously confirmed saved record remains protected.'
-                         : 'No successfully persisted backend record is available for this site yet.'}</p>
+                         ? 'Refresh failed; the last confirmed record is protected.'
+                         : 'No confirmed backend record is available for this site.'}</p>
                 </div>
-                {savedKpiSnapshot && <span className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[10px] font-semibold ${hasValidSavedSnapshot ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300' : 'border-slate-600 bg-slate-800 text-slate-300'}`}>{hasValidSavedSnapshot ? 'Eligible saved fallback' : 'Historical saved record'}</span>}
+                 {savedKpiSnapshot && <span className={`shrink-0 rounded-md border px-2 py-1 text-[9px] font-semibold ${hasValidSavedSnapshot ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300' : 'border-slate-600 bg-slate-800 text-slate-300'}`}>{hasValidSavedSnapshot ? 'Eligible fallback' : 'Historical'}</span>}
               </div>
-              {persistence.offlineQueuedSnapshots ? <p className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-200">A completed snapshot is securely queued for backend sync ({persistence.offlineQueuedSnapshots} window{persistence.offlineQueuedSnapshots === 1 ? '' : 's'} / {persistence.offlineQueuedMessages ?? 0} source message{persistence.offlineQueuedMessages === 1 ? '' : 's'}). This panel continues to show the last confirmed backend record.</p> : <p className="mt-3 text-[11px] leading-5 text-slate-500">Only backend-confirmed records appear here. Queued, loading, and retrying data is never presented as saved.</p>}
+               {persistence.offlineQueuedSnapshots ? <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-[10px] leading-4 text-amber-200">Queued sync: {persistence.offlineQueuedSnapshots} window{persistence.offlineQueuedSnapshots === 1 ? '' : 's'} · {persistence.offlineQueuedMessages ?? 0} message{persistence.offlineQueuedMessages === 1 ? '' : 's'}.</p> : <p className="mt-2 text-[10px] leading-4 text-slate-500">Backend-confirmed records only. Queued or retrying data is not shown as saved.</p>}
             </section>}
-            <section data-testid="panel-live-communication" aria-label="Live communication health" className="mb-4 rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+             <section data-testid="panel-live-communication" aria-label="Live communication health" className="scada-dashboard-compact-panel mb-3 rounded-xl border p-3">
+               <div className="flex min-w-0 items-center justify-between gap-3">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Live communication</p>
-                  <h2 className="mt-1 text-sm font-bold text-slate-100">Telemetry heartbeat & delivery evidence</h2>
+                   <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Live communication</p>
+                   <h2 className="mt-0.5 text-[13px] font-bold leading-5 text-slate-100">Telemetry heartbeat & delivery</h2>
                 </div>
-                <CustomBadge tone={communicationTone(deviceCommunication)}>{communicationLabel(deviceCommunication)}</CustomBadge>
+                 <CustomBadge tone={communicationTone(deviceCommunication)}>{communicationLabel(deviceCommunication)}</CustomBadge>
               </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
-                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Broker transport</p>
-                  <p className={`mt-1 text-xs font-bold ${communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}`}>{brokerTransportLabel}</p>
+               <div className="mt-2 grid grid-cols-2 gap-2 min-[560px]:grid-cols-3 lg:grid-cols-7">
+                 <div className="scada-dashboard-compact-metric">
+                   <p className="scada-dashboard-compact-label">Broker</p>
+                   <p className={`scada-dashboard-compact-value ${communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}`}>{brokerTransportLabel}</p>
                 </div>
-                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Device communication</p>
-                  <p className={`mt-1 text-xs font-bold ${deviceCommunication === 'live' ? 'text-emerald-400' : deviceCommunication === 'interrupted' ? 'text-rose-400' : 'text-amber-400'}`}>{communicationLabel(deviceCommunication)}</p>
+                 <div className="scada-dashboard-compact-metric">
+                   <p className="scada-dashboard-compact-label">Device</p>
+                   <p className={`scada-dashboard-compact-value ${deviceCommunication === 'live' ? 'text-emerald-400' : deviceCommunication === 'interrupted' ? 'text-rose-400' : 'text-amber-400'}`}>{communicationLabel(deviceCommunication)}</p>
                 </div>
-                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last received</p>
-                  <p className="mt-1 text-xs font-bold text-slate-200">{formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}</p>
+                 <div className="scada-dashboard-compact-metric">
+                   <p className="scada-dashboard-compact-label">Last received</p>
+                   <p className="scada-dashboard-compact-value truncate text-slate-200" title={formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}>{formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}</p>
                 </div>
-                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Data frequency</p>
-                  <p className="mt-1 text-xs font-bold text-slate-200">{communication?.dataFrequencySeconds === undefined ? 'Learning cadence' : communication.dataFrequencySeconds < 0.01 ? '<0.01s median' : `${communication.dataFrequencySeconds}s median`}</p>
+                 <div className="scada-dashboard-compact-metric">
+                   <p className="scada-dashboard-compact-label">Frequency</p>
+                   <p className="scada-dashboard-compact-value text-slate-200">{communication?.dataFrequencySeconds === undefined ? 'Learning' : communication.dataFrequencySeconds < 0.01 ? '<0.01s' : `${communication.dataFrequencySeconds}s`}</p>
                 </div>
-                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Data freshness</p>
-                  <p className="mt-1 text-xs font-bold text-slate-200">{formatElapsed(communication?.freshnessAgeMs ?? telemetryAge ?? undefined)}</p>
+                 <div className="scada-dashboard-compact-metric">
+                   <p className="scada-dashboard-compact-label">Freshness</p>
+                   <p className="scada-dashboard-compact-value text-slate-200">{formatElapsed(communication?.freshnessAgeMs ?? telemetryAge ?? undefined)}</p>
                 </div>
-                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Source age</p>
-                  <p className="mt-1 text-xs font-bold text-slate-200">{formatElapsed(communication?.sourceAgeMs)}</p>
-                  <p className="mt-0.5 truncate text-[10px] text-slate-500" title={communication?.lastSourceTimestamp}>source clock</p>
+                 <div className="scada-dashboard-compact-metric">
+                   <p className="scada-dashboard-compact-label">Source age</p>
+                   <p className="scada-dashboard-compact-value text-slate-200">{formatElapsed(communication?.sourceAgeMs)}</p>
+                   <p className="mt-0.5 truncate text-[9px] text-slate-500" title={communication?.lastSourceTimestamp}>source clock</p>
                 </div>
-                <div className="rounded-lg border border-[#1E293B] bg-[#0b0f19]/60 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Received messages</p>
-                  <p className="mt-1 text-xs font-bold text-slate-200">{communication?.receivedMessageCount?.toLocaleString() ?? '0'}</p>
-                  {communication?.lastReceivedSequence !== undefined && <p className="mt-0.5 text-[10px] text-slate-500">seq {communication.lastReceivedSequence}</p>}
+                 <div className="scada-dashboard-compact-metric">
+                   <p className="scada-dashboard-compact-label">Messages</p>
+                   <p className="scada-dashboard-compact-value text-slate-200">{communication?.receivedMessageCount?.toLocaleString() ?? '0'}</p>
+                   {communication?.lastReceivedSequence !== undefined && <p className="mt-0.5 truncate text-[9px] text-slate-500" title={`Sequence ${communication.lastReceivedSequence}`}>seq {communication.lastReceivedSequence}</p>}
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <span className="rounded-md border border-[#1E293B] bg-[#0b0f19]/60 px-2 py-1 text-slate-400">SSE: <strong className="text-slate-200">{streamPhase}</strong></span>
-                {recoveredEventCount > 0 && <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-blue-300">Recovered {recoveredEventCount} delivery event{recoveredEventCount === 1 ? '' : 's'}</span>}
-                {duplicateEventCount > 0 && <span className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">Suppressed {duplicateEventCount} duplicate{duplicateEventCount === 1 ? '' : 's'}</span>}
-                {communication?.confirmedDeliveryGap && <span role="status" className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">Confirmed {communication.confirmedDeliveryGap.source} gap · {communication.confirmedDeliveryGap.reason}</span>}
-                {communication?.activeInterruption && <span role="status" className="rounded-md border border-rose-500/25 bg-rose-500/10 px-2 py-1 text-rose-300">Interruption since {formatInPlantTimezone(communication.activeInterruption.startedAt, persistence.timezone)} · {communication.activeInterruption.reason}</span>}
-                {communication?.lastInterruption && !communication.activeInterruption && <span className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-slate-300">Last recovery: {formatElapsed(communication.lastInterruption.durationMs)} interruption</span>}
-                {resyncNotice && <span role="status" className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-amber-300">{resyncNotice}</span>}
+               <div className="mt-2 flex min-w-0 flex-wrap gap-1.5 text-[10px]">
+                 <span className="scada-dashboard-compact-chip">SSE <strong>{streamPhase}</strong></span>
+                 {recoveredEventCount > 0 && <span className="scada-dashboard-compact-chip scada-dashboard-compact-chip--blue">Recovered {recoveredEventCount}</span>}
+                 {duplicateEventCount > 0 && <span className="scada-dashboard-compact-chip">Suppressed {duplicateEventCount}</span>}
+                 {communication?.confirmedDeliveryGap && <span role="status" className="scada-dashboard-compact-chip scada-dashboard-compact-chip--amber">Gap · {communication.confirmedDeliveryGap.reason}</span>}
+                 {communication?.activeInterruption && <span role="status" className="scada-dashboard-compact-chip scada-dashboard-compact-chip--rose">Interrupted · {communication.activeInterruption.reason}</span>}
+                 {communication?.lastInterruption && !communication.activeInterruption && <span className="scada-dashboard-compact-chip">Last recovery · {formatElapsed(communication.lastInterruption.durationMs)}</span>}
+                 {resyncNotice && <span role="status" className="scada-dashboard-compact-chip scada-dashboard-compact-chip--amber">{resyncNotice}</span>}
               </div>
             </section>
             <DashboardPowerFlow {...dashboardFlowReading} mode={mode} monitoringStatus={deviceCommunication} />

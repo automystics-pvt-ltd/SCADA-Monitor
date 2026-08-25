@@ -455,6 +455,83 @@
   background-color: var(--scada-hover);
 }
 
+/* Compact operational context panels. These keep the evidence visible while
+   avoiding large empty surfaces on the Dashboard. */
+.scada-dashboard-site-bar,
+.scada-dashboard-compact-panel {
+  border-color: var(--scada-border);
+  background: var(--scada-surface);
+  box-shadow: var(--scada-control-shadow);
+}
+.scada-dashboard-site-bar {
+  background: color-mix(in srgb, var(--scada-accent) 5%, var(--scada-surface));
+}
+.scada-dashboard-site-status {
+  border-color: color-mix(in srgb, #10B981 28%, var(--scada-border));
+  background: color-mix(in srgb, #10B981 10%, var(--scada-surface));
+  color: #10B981;
+}
+.scada-dashboard-compact-metric {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--scada-border);
+  border-radius: .6rem;
+  background: color-mix(in srgb, var(--scada-surface-raised) 72%, transparent);
+  padding: .55rem .65rem;
+}
+.scada-dashboard-compact-label {
+  overflow: hidden;
+  color: var(--scada-muted);
+  font-size: .56rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.scada-dashboard-compact-value {
+  display: block;
+  margin-top: .24rem;
+  overflow: hidden;
+  font-family: var(--app-font-mono);
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-dashboard-compact-chip {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--scada-border);
+  border-radius: .45rem;
+  background: color-mix(in srgb, var(--scada-surface-raised) 72%, transparent);
+  color: var(--scada-muted);
+  padding: .27rem .5rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-dashboard-compact-chip strong {
+  color: var(--scada-text);
+}
+.scada-dashboard-compact-chip--blue {
+  border-color: color-mix(in srgb, #3B82F6 25%, var(--scada-border));
+  background: color-mix(in srgb, #3B82F6 10%, var(--scada-surface));
+  color: #60A5FA;
+}
+.scada-dashboard-compact-chip--amber {
+  border-color: color-mix(in srgb, #F59E0B 25%, var(--scada-border));
+  background: color-mix(in srgb, #F59E0B 10%, var(--scada-surface));
+  color: #FBBF24;
+}
+.scada-dashboard-compact-chip--rose {
+  border-color: color-mix(in srgb, #F43F5E 25%, var(--scada-border));
+  background: color-mix(in srgb, #F43F5E 10%, var(--scada-surface));
+  color: #FB7185;
+}
+
 /* Premium interactions */
 button:not(:disabled),
 [role="button"],
