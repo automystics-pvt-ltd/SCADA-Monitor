@@ -9,6 +9,12 @@ Build the SCADA interface from neutral graphite or slate surfaces with a single 
 
 **How to apply:** Use neutral cards, subtle elevation, concise typography, and low-contrast structural dividers by default. Apply the solar accent to selected navigation, primary actions, and focused data. Do not add gradients, glows, or per-card colours unless they communicate a specific state.
 
+For dashboard overviews, order the scan path as site and operational health, concise primary KPIs, then the power-flow and diagnostic surfaces. Keep the status bands compact so the main readings fit in the initial workspace without suppressing provenance.
+
+**Why:** Operators should confirm scope and evidence quality before acting on the values, while avoiding a tall stack of decorative chrome ahead of the plant's key performance readings.
+
+**How to apply:** At laptop and tablet widths, favor full-width fleet and diagnostic surfaces over narrow side-by-side panels. Reserve dense multi-column KPI rows and split operational panels for content areas that are genuinely wide enough.
+
 For weather workspaces, low-saturation icon tints may distinguish metric categories, but values and surfaces remain neutral and the tints must never imply an operational state.
 
 **Why:** Weather variables benefit from quick visual scanning, while the real weather source, freshness, cached state, and unavailable state must remain semantically unambiguous.

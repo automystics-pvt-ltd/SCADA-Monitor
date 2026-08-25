@@ -2144,6 +2144,240 @@ button:not(:disabled):active,
   .scada-main-content { padding: 1.15rem 1.5rem 1.75rem; }
 }
 
+/* Dashboard command-center pass: one compact hierarchy for operational context,
+   source-backed status, primary KPIs, and deep-dive panels. */
+.scada-dashboard-overview {
+  display: grid;
+  gap: .65rem;
+}
+.scada-dashboard-heading {
+  min-height: 2.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--scada-border) 76%, transparent);
+  padding-bottom: .65rem;
+}
+.scada-dashboard-heading h1 {
+  font-size: clamp(1.02rem, 1.25vw, 1.18rem);
+  letter-spacing: -.035em;
+}
+.scada-dashboard-heading [role="status"] {
+  min-height: 2.1rem;
+  border-radius: .65rem;
+  padding: .45rem .65rem;
+  font-size: .66rem;
+  font-weight: 700;
+}
+.scada-dashboard-site-bar {
+  min-height: 2.25rem;
+  border-radius: .7rem;
+}
+.scada-dashboard-status-grid {
+  gap: .5rem;
+}
+.scada-dashboard-status-card {
+  min-height: 4.3rem;
+  gap: .58rem;
+  border-radius: .7rem;
+  padding: .58rem .64rem;
+}
+.scada-dashboard-status-icon {
+  width: 1.9rem;
+  height: 1.9rem;
+  flex-basis: 1.9rem;
+  border-radius: .55rem;
+}
+.scada-dashboard-status-label {
+  font-size: .53rem;
+  letter-spacing: .1em;
+}
+.scada-dashboard-status-value {
+  margin-top: .2rem;
+  font-size: .79rem;
+}
+.scada-dashboard-status-detail {
+  margin-top: .2rem;
+  font-size: .56rem;
+}
+.scada-dashboard-communication-bar,
+.scada-dashboard-system-strip {
+  border-radius: .7rem;
+}
+.scada-dashboard-communication-bar {
+  min-height: 2.85rem;
+  padding: .52rem .66rem !important;
+}
+.scada-dashboard-system-strip {
+  gap: .55rem;
+  padding: .56rem .66rem;
+}
+.scada-dashboard-system-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-basis: 1.75rem;
+  border-radius: .52rem;
+}
+.scada-dashboard-system-primary strong,
+.scada-dashboard-system-metric strong {
+  font-size: .66rem;
+}
+.scada-dashboard-system-primary p,
+.scada-dashboard-system-metric p {
+  font-size: .55rem;
+}
+.scada-dashboard-kpis {
+  margin-top: 0;
+  gap: .5rem;
+}
+.scada-kpi-card {
+  min-height: 8.45rem;
+  border-radius: .75rem;
+  padding: .62rem .68rem .5rem;
+}
+.scada-kpi-card--inverter,
+.scada-kpi-card--alarm {
+  min-height: 8.45rem;
+}
+.scada-kpi-card-header {
+  gap: .4rem;
+}
+.scada-kpi-card-header h3 {
+  font-size: .53rem;
+  letter-spacing: .045em;
+}
+.scada-kpi-icon {
+  width: 1.42rem;
+  height: 1.42rem;
+  border-radius: .48rem;
+}
+.scada-kpi-icon svg {
+  width: .82rem;
+  height: .82rem;
+}
+.scada-kpi-info {
+  width: .82rem;
+  height: .82rem;
+  font-size: .48rem;
+}
+.scada-kpi-metric-content {
+  padding: .42rem 0 .3rem;
+}
+.scada-kpi-value {
+  font-size: clamp(1.18rem, 1.58vw, 1.7rem);
+}
+.scada-kpi-unit {
+  font-size: .58rem;
+}
+.scada-kpi-status-caption {
+  margin-top: .22rem;
+  font-size: .55rem;
+}
+.scada-kpi-footer {
+  min-height: 1.32rem;
+  gap: .3rem;
+  font-size: .52rem;
+}
+.scada-kpi-footer-icon svg {
+  width: .68rem;
+  height: .68rem;
+}
+.scada-kpi-inverter-content {
+  gap: .48rem;
+  padding: .32rem 0;
+}
+.scada-kpi-availability-ring {
+  width: 3.28rem;
+  height: 3.28rem;
+  border-width: .38rem;
+}
+.scada-kpi-availability-ring span {
+  font-size: .67rem;
+}
+.scada-kpi-card--inverter .scada-kpi-value,
+.scada-kpi-card--alarm .scada-kpi-value {
+  font-size: clamp(1.35rem, 1.75vw, 1.82rem);
+}
+.scada-dashboard-flow {
+  border-radius: .82rem;
+}
+.scada-dashboard-flow > .relative.z-10:first-of-type > div > p:first-child {
+  font-size: .53rem;
+  letter-spacing: .13em;
+}
+.scada-dashboard-flow > .relative.z-10:first-of-type > div > p:last-child {
+  font-size: .76rem;
+}
+.scada-dashboard-flow-state {
+  padding: .34rem .55rem;
+  font-size: .53rem;
+  letter-spacing: .08em;
+}
+.scada-dashboard-flow-reading {
+  padding-top: .45rem;
+}
+.scada-dashboard-flow-label-grid {
+  padding-top: .45rem;
+}
+.scada-dashboard-flow-reading strong {
+  font-size: clamp(.78rem, 1.18vw, .98rem);
+}
+.scada-dashboard-primary-grid,
+.scada-dashboard-analysis-grid {
+  gap: .65rem;
+}
+.scada-chart-surface,
+.scada-electrical-section,
+.scada-inverter-fleet {
+  border-radius: .82rem;
+}
+@media (min-width: 1536px) {
+  .scada-dashboard-kpis {
+    grid-auto-rows: 8.3rem;
+  }
+  .scada-kpi-card--inverter,
+  .scada-kpi-card--alarm {
+    grid-column: span 1;
+    min-height: 0;
+  }
+}
+@media (max-width: 639px) {
+  .scada-dashboard-overview {
+    gap: .55rem;
+  }
+  .scada-dashboard-heading {
+    align-items: flex-start;
+  }
+  .scada-dashboard-heading [role="status"] {
+    width: 100%;
+  }
+  .scada-dashboard-status-card {
+    min-height: 4rem;
+  }
+  .scada-dashboard-system-strip {
+    grid-template-columns: 1fr;
+  }
+  .scada-kpi-card,
+  .scada-kpi-card--inverter,
+  .scada-kpi-card--alarm {
+    min-height: 7.85rem;
+  }
+}
+@media (min-width: 720px) {
+  .scada-dashboard-analysis-grid {
+    grid-template-columns: minmax(16rem, .78fr) minmax(0, 1.25fr);
+  }
+  .scada-dashboard-analysis-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+@media (min-width: 1280px) {
+  .scada-dashboard-primary-grid {
+    grid-template-columns: minmax(0, 1.65fr) minmax(20rem, .85fr);
+    align-items: start;
+  }
+  .scada-dashboard-analysis-grid {
+    grid-template-columns: minmax(17rem, .72fr) minmax(0, 1.28fr);
+  }
+}
+
 /* Environment workspace: a compact weather board inspired by the supplied
    reference, with source and time provenance kept visible on every surface. */
 .scada-environment-shell {

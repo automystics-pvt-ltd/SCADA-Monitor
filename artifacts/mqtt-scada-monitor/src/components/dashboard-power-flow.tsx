@@ -88,7 +88,7 @@ export function DashboardPowerFlow({
   return (
     <section
       aria-label="Plant power-flow visualization"
-      className="scada-dashboard-flow relative isolate overflow-hidden rounded-2xl border px-3 py-4 sm:px-5 sm:py-5"
+      className="scada-dashboard-flow relative isolate overflow-hidden rounded-2xl border px-3 py-3.5 sm:px-4 sm:py-4"
       data-testid="dashboard-power-flow"
        data-flow-state={movement === 'power' ? 'streaming' : movement === 'monitoring' ? 'monitoring' : value === 0 ? 'zero' : provenance === 'snapshot' ? 'saved' : 'paused'}
       data-stream-mode={mode}
@@ -123,7 +123,7 @@ export function DashboardPowerFlow({
         </span>
       </div>
 
-      <div className="relative z-10 mt-3 h-[180px] sm:h-[225px] lg:h-[255px]">
+        <div className="relative z-10 mt-2.5 h-[168px] sm:h-[205px] lg:h-[225px]">
         <svg viewBox="0 0 1000 280" role="img" aria-label={`Power movement from solar array through inverter to grid: ${reading}`} className="h-full w-full">
            <path d="M300 120 H425 Q450 120 450 147 V158" fill="none" className={animatedPathClass} stroke={monitoringChannelActive ? animatedPathStroke : 'var(--dashboard-flow-idle)'} strokeDasharray={monitoringChannelActive ? '14 9' : undefined} strokeWidth="5" strokeLinecap="round" />
            <path d="M550 158 V147 Q550 120 575 120 H782" fill="none" className={monitoringChannelActive ? `${animatedPathClass} dashboard-flow-path-delayed` : ''} stroke={monitoringChannelActive ? animatedPathStroke : 'var(--dashboard-flow-idle)'} strokeDasharray={monitoringChannelActive ? '14 9' : undefined} strokeWidth="5" strokeLinecap="round" />
