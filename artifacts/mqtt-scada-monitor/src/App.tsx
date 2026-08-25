@@ -1880,16 +1880,10 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
       <div className="flex-1 min-h-[160px] relative z-10">
          {data.length ? <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={powerTrendByRange[range]} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="colorPower" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#FF5C00" stopOpacity={0.4}/>
-                <stop offset="100%" stopColor="#FF5C00" stopOpacity={0}/>
-              </linearGradient>
-            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--scada-border)" vertical={false} opacity={0.5} />
             <XAxis dataKey="time" hide />
             <Tooltip cursor={{ stroke: '#FF5C00', strokeDasharray: '3 3', strokeWidth: 1.5 }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} kW`, 'Plant power']} labelFormatter={(label) => `${range === 'today' ? 'Time' : 'Period'}: ${label}`} />
-            <Area type="monotone" dataKey="power" stroke="#FF5C00" strokeWidth={3} fillOpacity={1} fill="url(#colorPower)" activeDot={{ r: 6, stroke: '#090B13', strokeWidth: 3, fill: '#FF5C00' }} isAnimationActive={false} />
+            <Area type="monotone" dataKey="power" stroke="#FF5C00" strokeWidth={3} fill="#FF5C00" fillOpacity={0.16} activeDot={{ r: 6, stroke: '#090B13', strokeWidth: 3, fill: '#FF5C00' }} isAnimationActive={false} />
          </AreaChart>
           </ResponsiveContainer> : hasRawValue ? (
             <div data-testid="panel-power-raw-snapshot" className="flex h-full min-h-[140px] flex-col justify-center gap-4 rounded-lg border border-dashed border-orange-500/30 bg-orange-500/[0.03] px-5">
@@ -2185,7 +2179,7 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
 
         <div className="rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4">
           <div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Temperature trend</p><p className="mt-1 text-xs text-slate-400">Provider observations in {weather.data?.location.timezone ?? 'site timezone'}</p></div><Thermometer size={17} className="text-rose-400" /></div>
-          {temperatureTrend.length > 1 ? <div className="mt-3 h-40"><ResponsiveContainer width="100%" height="100%"><AreaChart data={temperatureTrend} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}><defs><linearGradient id="environmentTemperature" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#fb7185" stopOpacity={0.28} /><stop offset="95%" stopColor="#fb7185" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => String(value).slice(11, 16)} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => `${value}°`} width={32} /><Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toFixed(1)} °C`, 'Temperature']} /><Area type="monotone" dataKey="temperatureC" stroke="#fb7185" strokeWidth={2} fill="url(#environmentTemperature)" isAnimationActive={false} /></AreaChart></ResponsiveContainer></div> : <div className="mt-3 flex h-40 items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">No provider temperature trend returned.</span></div>}
+          {temperatureTrend.length > 1 ? <div className="mt-3 h-40"><ResponsiveContainer width="100%" height="100%"><AreaChart data={temperatureTrend} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => String(value).slice(11, 16)} /><YAxis tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} tickFormatter={(value) => `${value}°`} width={32} /><Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toFixed(1)} °C`, 'Temperature']} /><Area type="monotone" dataKey="temperatureC" stroke="#fb7185" strokeWidth={2} fill="#fb7185" fillOpacity={0.16} isAnimationActive={false} /></AreaChart></ResponsiveContainer></div> : <div className="mt-3 flex h-40 items-center justify-center rounded-lg border border-dashed border-[#1E293B] text-center text-xs text-slate-500">Data unavailable<br /><span className="text-[10px]">No provider temperature trend returned.</span></div>}
           <p className="mt-2 text-[10px] text-slate-500">{metricDetail('Temperature trend')} · Last updated {receivedAt}</p>
         </div>
       </div>
@@ -2924,8 +2918,8 @@ function ScadaCredentialLogin({ onSignedIn }: { onSignedIn: () => void }) {
 }
 
 function AppShell() {
-  // The monitor is intentionally live-only. The union keeps display components
-  // compatible with their existing non-operational state handling.
+  // Saved backend evidence hydrates independently; live MQTT/SSE is an
+  // additive real-time layer and must never gate the dashboard render.
   const [mode] = useState<'demo' | 'live'>('live');
   const [devices, setDevices] = useState<Device[]>([]);
   const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem('solar-scada-theme') as ThemeMode) || 'dark');
@@ -2952,6 +2946,7 @@ function AppShell() {
   const [duplicateEventCount, setDuplicateEventCount] = useState(0);
   const [resyncNotice, setResyncNotice] = useState('');
   const [savedKpiSnapshot, setSavedKpiSnapshot] = useState<SavedKpiSnapshot | null>(null);
+  const [savedSnapshotLoadState, setSavedSnapshotLoadState] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle');
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
   const [activeSite, setActiveSite] = useState('');
   const [siteAccessState, setSiteAccessState] = useState<{ sites: string[]; roles: Record<string, string>; activations: Record<string, 'active' | 'inactive'>; global: boolean; loading: boolean; error: string }>({ sites: [], roles: {}, activations: {}, global: false, loading: true, error: '' });
@@ -3050,26 +3045,34 @@ function AppShell() {
     if (!scadaSession.authenticated || !activeSite) {
       if (activeSite) clearConfirmedSnapshotCache(localStorage, activeSite);
       setSavedKpiSnapshot(null);
+      setSavedSnapshotLoadState('idle');
       return;
     }
     const cachedSnapshot = readConfirmedSnapshotCache(localStorage, activeSite);
     setSavedKpiSnapshot(cachedSnapshot ? applySnapshotMappings(cachedSnapshot) : null);
+    setSavedSnapshotLoadState(cachedSnapshot ? 'ready' : 'loading');
     const controller = new AbortController();
     const loadSavedKpiSnapshot = async () => {
       try {
         const response = await fetch(`/api/mqtt/snapshots/latest?siteName=${encodeURIComponent(activeSite)}`, { signal: controller.signal, cache: 'no-store' });
-        const payload = await response.json() as { snapshot?: unknown };
-        if (!response.ok || controller.signal.aborted) return;
+        const payload = await response.json().catch(() => ({})) as { snapshot?: unknown; message?: string };
+        if (!response.ok) throw new Error(payload.message ?? 'The latest saved backend record could not be loaded.');
+        if (controller.signal.aborted) return;
         const parsedSnapshot = parseSavedKpiSnapshot(payload.snapshot);
         const snapshot = parsedSnapshot;
         if (snapshot?.saveStatus === 'saved') {
           acceptConfirmedSnapshot(snapshot, activeSite);
+          setSavedSnapshotLoadState('ready');
         } else {
           clearConfirmedSnapshotCache(localStorage, activeSite);
           setSavedKpiSnapshot(null);
+          setSavedSnapshotLoadState('empty');
         }
-      } catch {
-        // Keep any newer snapshot already received through SSE.
+      } catch (loadError) {
+        if (controller.signal.aborted) return;
+        // Keep any confirmed cache or newer snapshot already received through
+        // SSE. Live stream failure must not erase saved backend evidence.
+        setSavedSnapshotLoadState('error');
       }
     };
     void loadSavedKpiSnapshot();
@@ -3859,6 +3862,20 @@ function AppShell() {
       : deviceCommunication === 'interrupted'
         ? 'INTERRUPTED'
         : deviceCommunication.toUpperCase();
+  const lastLiveDataTimestamp = communication?.lastReceivedAt
+    ?? (lastTelemetryAt === null ? undefined : new Date(lastTelemetryAt).toISOString());
+  const lastLiveDataLabel = lastLiveDataTimestamp
+    ? formatInPlantTimezone(lastLiveDataTimestamp, persistence.timezone)
+    : 'No live data received in this session';
+  const liveDataUnavailableReason = error
+    || communication?.activeInterruption?.reason
+    || communication?.confirmedDeliveryGap?.reason
+    || (communication?.subscriptionState === 'pending' ? 'The broker topic subscription is still being confirmed.' : undefined)
+    || (communication?.subscriptionState === 'failed' ? 'The broker topic subscription failed.' : undefined)
+    || (streamPhase === 'reconnecting' ? 'The live telemetry stream is reconnecting.' : undefined)
+    || (deviceCommunication === 'stale' ? 'The last live device payload is stale.' : undefined)
+    || (deviceCommunication === 'interrupted' ? 'Live device telemetry has stopped.' : undefined)
+    || (!connected ? 'The live broker connection is unavailable.' : 'No live MQTT payload has been received yet.');
   const dashboardDataStatus = mode === 'demo'
     ? { title: 'Demo Data Available', detail: 'Demonstration values are not operational telemetry.', tone: 'border-blue-500/25 bg-blue-500/5 text-blue-300' }
     : electricalLiveState === 'fresh'
@@ -3867,12 +3884,12 @@ function AppShell() {
         ? lastTelemetryAt === null
           ? {
               title: 'Last Saved Data',
-              detail: `Saved backend evidence from ${lastSavedLabel} remains on screen until a fresh live payload arrives.`,
+               detail: `Live data unavailable: ${liveDataUnavailableReason} Last live data: ${lastLiveDataLabel}. Showing saved backend evidence from ${lastSavedLabel}.`,
               tone: 'border-blue-500/25 bg-blue-500/5 text-blue-300',
             }
           : {
               title: 'Live Data Temporarily Unavailable — Showing Last Saved',
-              detail: `Saved backend evidence from ${lastSavedLabel} remains on screen until a fresh live payload arrives.`,
+               detail: `Live data unavailable: ${liveDataUnavailableReason} Last live data: ${lastLiveDataLabel}. Showing saved backend evidence from ${lastSavedLabel}.`,
               tone: 'border-amber-500/25 bg-amber-500/5 text-amber-300',
             }
         : { title: 'No Valid Data Available', detail: 'No fresh MQTT telemetry or successfully saved backend record is available for this dashboard.', tone: 'border-rose-500/25 bg-rose-500/5 text-rose-300' };
@@ -3916,12 +3933,16 @@ function AppShell() {
             </section>}
             {mode === 'live' && <section data-testid="panel-saved-data" aria-label="Saved backend data" className="mb-4 rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
+               <div data-testid="saved-data-status">
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Saved Data</p>
                   <h2 className="mt-1 text-sm font-bold text-slate-100">Latest confirmed backend record</h2>
                   <p className="mt-1 text-[11px] leading-5 text-slate-400">{savedKpiSnapshot
                     ? `Persisted for ${formatInPlantTimezone(savedKpiSnapshot.scheduledFor || savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone ?? persistence.timezone)} · ${savedKpiSnapshot.parameterCount} source parameter${savedKpiSnapshot.parameterCount === 1 ? '' : 's'}.`
-                    : 'No successfully persisted backend record is available for this site yet.'}</p>
+                     : savedSnapshotLoadState === 'loading'
+                       ? 'Loading the latest successfully saved backend record independently of live telemetry…'
+                       : savedSnapshotLoadState === 'error'
+                         ? 'The saved backend record could not be refreshed. Any previously confirmed saved record remains protected.'
+                         : 'No successfully persisted backend record is available for this site yet.'}</p>
                 </div>
                 {savedKpiSnapshot && <span className={`shrink-0 rounded-md border px-2.5 py-1.5 text-[10px] font-semibold ${hasValidSavedSnapshot ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300' : 'border-slate-600 bg-slate-800 text-slate-300'}`}>{hasValidSavedSnapshot ? 'Eligible saved fallback' : 'Historical saved record'}</span>}
               </div>
