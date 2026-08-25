@@ -3980,6 +3980,23 @@ function AppShell() {
     : persistence.savingActive
       ? `${persistence.intervalMinutes}m cycle`
       : 'Paused';
+  const dashboardSourceValue = electricalLiveState === 'fresh'
+    ? 'Live'
+    : hasValidSavedSnapshot
+      ? 'Saved'
+      : 'Unavailable';
+  const dashboardSourceDetail = electricalLiveState === 'fresh'
+    ? communication?.brokerTransport === 'subscribed'
+      ? 'Topic subscribed'
+      : 'MQTT transport'
+    : dashboardDataStatus.title;
+  const dashboardCommunicationSummary = mode === 'demo'
+    ? 'Demo'
+    : connected && deviceCommunication === 'live'
+      ? 'Healthy'
+      : !connected
+        ? 'Reconnecting'
+        : communicationLabel(deviceCommunication);
 
   return (
     <div className={`scada-theme ${theme === 'dark' ? 'dark' : 'light'} flex h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#0b0f19] font-sans text-slate-200`}>
@@ -4012,7 +4029,7 @@ function AppShell() {
               {mode === 'live' && <section className="scada-dashboard-status-grid mb-3" aria-label="Plant status summary">
                 <article role="status" data-testid="status-dashboard-data-source" title={dashboardDataStatus.detail} className={`scada-dashboard-status-card ${dashboardDataStatus.tone}`}>
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--radio"><Radio size={18} aria-hidden="true" /></span>
-                  <div className="min-w-0"><p className="scada-dashboard-status-label">Data source</p><strong className="scada-dashboard-status-value">{electricalLiveState === 'fresh' ? 'Live' : hasValidSavedSnapshot ? 'Saved' : 'Unavailable'}</strong><p className="scada-dashboard-status-detail">{electricalLiveState === 'fresh' ? 'MQTT active' : dashboardDataStatus.title}</p></div>
+                  <div className="min-w-0"><p className="scada-dashboard-status-label">Data source</p><strong className="scada-dashboard-status-value">{dashboardSourceValue}</strong><p className="scada-dashboard-status-detail">{dashboardSourceDetail}</p></div>
                 </article>
                 <article data-testid="panel-saved-data" aria-label="Saved backend data" title={savedKpiSnapshot ? `Persisted ${formatInPlantTimezone(savedKpiSnapshot.scheduledFor || savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone ?? persistence.timezone)}. ${dashboardSavedDetail}.` : dashboardSavedDetail} className="scada-dashboard-status-card scada-dashboard-status-card--neutral">
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--database"><Database size={18} aria-hidden="true" /></span>
@@ -4020,37 +4037,35 @@ function AppShell() {
                 </article>
                 <article title={`Freshness: ${formatElapsed(dashboardFreshnessAge)}. ${dashboardFreshnessDetail}.`} className="scada-dashboard-status-card scada-dashboard-status-card--freshness">
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--clock"><Activity size={18} aria-hidden="true" /></span>
-                  <div className="min-w-0"><p className="scada-dashboard-status-label">Data freshness</p><strong className="scada-dashboard-status-value">{formatElapsed(dashboardFreshnessAge)}</strong><p className="scada-dashboard-status-detail">{dashboardFreshnessDetail}</p></div>
+                  <div className="min-w-0"><p className="scada-dashboard-status-label">Data freshness</p><strong className="scada-dashboard-status-value">{formatElapsed(dashboardFreshnessAge)}</strong><p className="scada-dashboard-status-detail">{lastLiveDataTimestamp ? `Updated ${formatInPlantTimezone(lastLiveDataTimestamp, persistence.timezone)}` : 'Awaiting first payload'}</p></div>
                 </article>
                 <article title={dashboardLiveStatusDetail} className={`scada-dashboard-status-card ${dashboardSystemHealthy ? 'scada-dashboard-status-card--healthy' : 'scada-dashboard-status-card--attention'}`}>
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--heartbeat"><Activity size={18} aria-hidden="true" /></span>
-                  <div className="min-w-0"><p className="scada-dashboard-status-label">Live status</p><strong className="scada-dashboard-status-value">{dashboardLiveStatusValue}</strong><p className="scada-dashboard-status-detail">{dashboardLiveStatusDetail}</p></div>
+                  <div className="min-w-0"><p className="scada-dashboard-status-label">Live status</p><strong className="scada-dashboard-status-value">{dashboardLiveStatusValue}</strong><p className="scada-dashboard-status-detail">{dashboardSystemHealthy ? 'All systems normal' : dashboardLiveStatusDetail}</p></div>
                 </article>
               </section>}
               <section data-testid="panel-live-communication" aria-label="Live communication health" className="scada-dashboard-communication-bar mb-3 rounded-xl border px-3 py-2.5">
                 <div className="flex min-w-0 items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-1.5"><span className="scada-dashboard-compact-icon"><Wifi size={12} aria-hidden="true" /></span><h2 className="scada-dashboard-status-label">Communication health</h2></div>
+                  <div className="flex min-w-0 items-center gap-1.5"><span className="scada-dashboard-compact-icon"><Wifi size={12} aria-hidden="true" /></span><h2 className="scada-dashboard-status-label">Communication health</h2><CustomBadge tone={communicationTone(deviceCommunication)}>{dashboardCommunicationSummary}</CustomBadge></div>
                   <details className="scada-dashboard-communication-details">
                     <summary>Details <ChevronRight size={13} aria-hidden="true" /></summary>
                     <div className="scada-dashboard-communication-detail-content">
-                      <span className="scada-dashboard-compact-chip">SSE <strong>{streamPhase}</strong></span>
-                      {recoveredEventCount > 0 && <span className="scada-dashboard-compact-chip scada-dashboard-compact-chip--blue">Recovered {recoveredEventCount}</span>}
-                      {duplicateEventCount > 0 && <span className="scada-dashboard-compact-chip">Suppressed {duplicateEventCount}</span>}
-                      {communication?.confirmedDeliveryGap && <span role="status" className="scada-dashboard-compact-chip scada-dashboard-compact-chip--amber">Gap · {communication.confirmedDeliveryGap.reason}</span>}
-                      {communication?.activeInterruption && <span role="status" className="scada-dashboard-compact-chip scada-dashboard-compact-chip--rose">Interrupted · {communication.activeInterruption.reason}</span>}
-                      {communication?.lastInterruption && !communication.activeInterruption && <span className="scada-dashboard-compact-chip">Last recovery · {formatElapsed(communication.lastInterruption.durationMs)}</span>}
-                      {resyncNotice && <span role="status" className="scada-dashboard-compact-chip scada-dashboard-compact-chip--amber">{resyncNotice}</span>}
+                      <div className="scada-dashboard-communication-metrics">
+                        <div title={`Broker: ${brokerTransportLabel}. Subscription: ${communication?.subscriptionState ?? 'unknown'}.`}><p>Broker</p><strong className={communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}>{brokerTransportLabel}</strong></div>
+                        <div title={`Last received: ${formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}.`}><p>Last received</p><strong>{formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}</strong></div>
+                        <div title="Median time between received telemetry messages."><p>Frequency</p><strong>{communication?.dataFrequencySeconds === undefined ? 'Learning' : communication.dataFrequencySeconds < 0.01 ? '<0.01s' : `${communication.dataFrequencySeconds}s`}</strong></div>
+                        <div title="Age of the most recent received telemetry message."><p>Freshness</p><strong>{formatElapsed(dashboardFreshnessAge)}</strong></div>
+                        <div title={`Source clock age: ${formatElapsed(communication?.sourceAgeMs)}. Last source timestamp: ${communication?.lastSourceTimestamp ?? 'unavailable'}.`}><p>Source age</p><strong>{formatElapsed(communication?.sourceAgeMs)}</strong></div>
+                        <div title={`Received messages: ${communication?.receivedMessageCount?.toLocaleString() ?? '0'}. Last sequence: ${communication?.lastReceivedSequence ?? 'unavailable'}.`}><p>Messages</p><strong>{communication?.receivedMessageCount?.toLocaleString() ?? '0'}</strong></div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="scada-dashboard-compact-chip">SSE <strong>{streamPhase}</strong></span>
+                        {recoveredEventCount > 0 && <span className="scada-dashboard-compact-chip scada-dashboard-compact-chip--blue">Recovered {recoveredEventCount}</span>}
+                        {duplicateEventCount > 0 && <span className="scada-dashboard-compact-chip">Suppressed {duplicateEventCount}</span>}
+                        {communication?.lastInterruption && !communication.activeInterruption && <span className="scada-dashboard-compact-chip">Last recovery · {formatElapsed(communication.lastInterruption.durationMs)}</span>}
+                      </div>
                     </div>
                   </details>
-                </div>
-                <div className="scada-dashboard-communication-metrics">
-                  <div title={`Broker: ${brokerTransportLabel}. Subscription: ${communication?.subscriptionState ?? 'unknown'}.`}><p>Broker</p><strong className={communication?.brokerTransport === 'subscribed' ? 'text-emerald-400' : communication?.brokerTransport === 'connected' ? 'text-blue-300' : 'text-amber-400'}>{brokerTransportLabel}</strong></div>
-                  <div title={`Device communication: ${communicationLabel(deviceCommunication)}.`}><p>Device</p><strong className={deviceCommunication === 'live' ? 'text-emerald-400' : deviceCommunication === 'interrupted' ? 'text-rose-400' : 'text-amber-400'}>{communicationLabel(deviceCommunication)}</strong></div>
-                  <div title={`Last received: ${formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}.`}><p>Last received</p><strong>{formatInPlantTimezone(communication?.lastReceivedAt, persistence.timezone)}</strong></div>
-                  <div title="Median time between received telemetry messages."><p>Frequency</p><strong>{communication?.dataFrequencySeconds === undefined ? 'Learning' : communication.dataFrequencySeconds < 0.01 ? '<0.01s' : `${communication.dataFrequencySeconds}s`}</strong></div>
-                  <div title="Age of the most recent received telemetry message."><p>Freshness</p><strong>{formatElapsed(dashboardFreshnessAge)}</strong></div>
-                  <div title={`Source clock age: ${formatElapsed(communication?.sourceAgeMs)}. Last source timestamp: ${communication?.lastSourceTimestamp ?? 'unavailable'}.`}><p>Source age</p><strong>{formatElapsed(communication?.sourceAgeMs)}</strong></div>
-                  <div title={`Received messages: ${communication?.receivedMessageCount?.toLocaleString() ?? '0'}. Last sequence: ${communication?.lastReceivedSequence ?? 'unavailable'}.`}><p>Messages</p><strong>{communication?.receivedMessageCount?.toLocaleString() ?? '0'}</strong></div>
                 </div>
                 {(communication?.confirmedDeliveryGap || communication?.activeInterruption || resyncNotice) && <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
                   {communication?.confirmedDeliveryGap && <span role="status" className="scada-dashboard-compact-chip scada-dashboard-compact-chip--amber">Gap · {communication.confirmedDeliveryGap.reason}</span>}

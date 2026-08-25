@@ -678,15 +678,12 @@
   z-index: 10;
   top: calc(100% + .4rem);
   right: 0;
-  display: flex;
-  width: min(22rem, calc(100vw - 3rem));
-  flex-wrap: wrap;
-  gap: .35rem;
+  width: min(42rem, calc(100vw - 2rem));
   border: 1px solid var(--scada-border);
   border-radius: .65rem;
   background: var(--scada-surface-raised);
   box-shadow: var(--scada-shadow);
-  padding: .5rem;
+  padding: .65rem;
 }
 .scada-dashboard-communication-metrics {
   display: grid;
@@ -816,7 +813,7 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .scada-dashboard-communication-metrics {
-    grid-template-columns: 1.15fr 1fr 1.35fr .9fr .9fr 1fr .85fr;
+    grid-template-columns: 1.1fr 1.35fr .9fr .9fr 1fr .85fr;
     gap: 0;
   }
   .scada-dashboard-communication-metrics > div,
