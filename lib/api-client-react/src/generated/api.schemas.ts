@@ -23,6 +23,17 @@ export interface PlatformAdminAuthUserResponse {
 
 export type PlatformAdminOverviewCommunication = { [key: string]: unknown };
 
+export type PlatformMqttConfigApplyState = typeof PlatformMqttConfigApplyState[keyof typeof PlatformMqttConfigApplyState];
+
+
+export const PlatformMqttConfigApplyState = {
+  idle: 'idle',
+  connecting: 'connecting',
+  subscribed: 'subscribed',
+  'rolling-back': 'rolling-back',
+  failed: 'failed',
+} as const;
+
 export interface PlatformMqttConfig {
   brokerUrl: string;
   topic: string;
@@ -30,6 +41,10 @@ export interface PlatformMqttConfig {
   timezone: string;
   credentialsConfigured: boolean;
   pendingApply: boolean;
+  applyState: PlatformMqttConfigApplyState;
+  lastApplyError?: string;
+  lastApplyAt?: string;
+  connected: boolean;
 }
 
 export type PlatformAuditEventMetadata = { [key: string]: unknown };

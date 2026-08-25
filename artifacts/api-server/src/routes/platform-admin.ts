@@ -27,7 +27,7 @@ import {
   platformSitesTable,
   usersTable,
 } from "@workspace/db";
-import { getMqttRuntimeStatus } from "./mqtt";
+import { applyMqttConfiguration, getMqttRuntimeStatus, type MqttRuntimeConfiguration } from "./mqtt";
 import {
   platformAdminSessionMiddleware,
   requirePlatformAdmin,
@@ -43,6 +43,10 @@ type MqttConfig = {
   timezone: string;
   credentialsConfigured: boolean;
   pendingApply: boolean;
+  applyState: string;
+  lastApplyError?: string;
+  lastApplyAt?: string;
+  connected: boolean;
 };
 
 function hasRecord(value: unknown): value is Record<string, unknown> {
@@ -80,13 +84,19 @@ async function brokerConfiguration(): Promise<MqttConfig> {
   const topic = typeof value.topic === "string" ? value.topic : process.env.MQTT_TOPIC ?? "trn246/modbus";
   const plantSite = typeof value.plantSite === "string" ? value.plantSite : process.env.MQTT_PLANT_SITE?.trim() || topic;
   const timezone = typeof value.timezone === "string" ? value.timezone : process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? "Asia/Kolkata";
+  const runtime = getMqttRuntimeStatus();
+  const pendingApply = brokerUrl !== runtime.brokerUrl || topic !== runtime.topic || plantSite !== runtime.plantSite || timezone !== runtime.timezone;
   return {
     brokerUrl,
     topic,
     plantSite,
     timezone,
     credentialsConfigured: Boolean(process.env.MQTT_USERNAME && process.env.MQTT_PASSWORD),
-    pendingApply: Boolean(saved),
+    pendingApply,
+    applyState: runtime.applyState,
+    lastApplyError: runtime.lastApplyError,
+    lastApplyAt: runtime.lastApplyAt,
+    connected: runtime.connected,
   };
 }
 
@@ -310,6 +320,28 @@ router.patch("/platform-admin/mqtt-config", async (req: Request, res): Promise<v
     credentialsConfigured: Boolean(process.env.MQTT_USERNAME && process.env.MQTT_PASSWORD),
     pendingApply: true,
   }));
+});
+
+router.post("/platform-admin/mqtt-config/apply", async (req: Request, res): Promise<void> => {
+  const config = await brokerConfiguration();
+  if (!config.pendingApply) {
+    res.json(UpdatePlatformMqttConfigResponse.parse(config));
+    return;
+  }
+  const next: MqttRuntimeConfiguration = {
+    brokerUrl: config.brokerUrl,
+    topic: config.topic,
+    plantSite: config.plantSite,
+    timezone: config.timezone,
+  };
+  const applied = await applyMqttConfiguration(next);
+  const result = await brokerConfiguration();
+  await audit(req.platformAdmin!, applied ? "mqtt.configuration.applied" : "mqtt.configuration.rollback", "mqtt", "connection", {
+    brokerUrl: applied ? next.brokerUrl : result.brokerUrl,
+    topic: applied ? next.topic : result.topic,
+    applied,
+  });
+  res.status(applied ? 200 : 502).json(UpdatePlatformMqttConfigResponse.parse(result));
 });
 
 router.get("/platform-admin/audit", async (_req, res): Promise<void> => {

@@ -177,6 +177,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlatformMqttConfig"
+    post:
+      operationId: applyPlatformMqttConfig
+      tags: [platform-admin]
+      summary: Apply staged MQTT configuration to the live consumer
+      responses:
+        "200":
+          description: Configuration applied and subscription confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformMqttConfig"
+        "502":
+          description: Apply failed and previous settings were restored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformMqttConfig"
   /platform-admin/audit:
     get:
       operationId: listPlatformAuditEvents
@@ -306,7 +323,11 @@ components:
         timezone: { type: string }
         credentialsConfigured: { type: boolean }
         pendingApply: { type: boolean }
-      required: [brokerUrl, topic, plantSite, timezone, credentialsConfigured, pendingApply]
+        applyState: { type: string, enum: [idle, connecting, subscribed, rolling-back, failed] }
+        lastApplyError: { type: string }
+        lastApplyAt: { type: string, format: date-time }
+        connected: { type: boolean }
+      required: [brokerUrl, topic, plantSite, timezone, credentialsConfigured, pendingApply, applyState, connected]
     PlatformMqttConfigInput:
       type: object
       properties:

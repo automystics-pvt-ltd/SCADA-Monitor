@@ -45,7 +45,11 @@ export const GetPlatformAdminOverviewResponse = zod.object({
   "plantSite": zod.string(),
   "timezone": zod.string(),
   "credentialsConfigured": zod.boolean(),
-  "pendingApply": zod.boolean()
+  "pendingApply": zod.boolean(),
+  "applyState": zod.enum(['idle', 'connecting', 'subscribed', 'rolling-back', 'failed']),
+  "lastApplyError": zod.string().optional(),
+  "lastApplyAt": zod.coerce.date().optional(),
+  "connected": zod.boolean()
 }),
   "communication": zod.record(zod.string(), zod.unknown()),
   "recentAudit": zod.array(zod.object({
@@ -187,7 +191,11 @@ export const GetPlatformMqttConfigResponse = zod.object({
   "plantSite": zod.string(),
   "timezone": zod.string(),
   "credentialsConfigured": zod.boolean(),
-  "pendingApply": zod.boolean()
+  "pendingApply": zod.boolean(),
+  "applyState": zod.enum(['idle', 'connecting', 'subscribed', 'rolling-back', 'failed']),
+  "lastApplyError": zod.string().optional(),
+  "lastApplyAt": zod.coerce.date().optional(),
+  "connected": zod.boolean()
 })
 
 
@@ -218,7 +226,28 @@ export const UpdatePlatformMqttConfigResponse = zod.object({
   "plantSite": zod.string(),
   "timezone": zod.string(),
   "credentialsConfigured": zod.boolean(),
-  "pendingApply": zod.boolean()
+  "pendingApply": zod.boolean(),
+  "applyState": zod.enum(['idle', 'connecting', 'subscribed', 'rolling-back', 'failed']),
+  "lastApplyError": zod.string().optional(),
+  "lastApplyAt": zod.coerce.date().optional(),
+  "connected": zod.boolean()
+})
+
+
+/**
+ * @summary Apply staged MQTT configuration to the live consumer
+ */
+export const ApplyPlatformMqttConfigResponse = zod.object({
+  "brokerUrl": zod.string(),
+  "topic": zod.string(),
+  "plantSite": zod.string(),
+  "timezone": zod.string(),
+  "credentialsConfigured": zod.boolean(),
+  "pendingApply": zod.boolean(),
+  "applyState": zod.enum(['idle', 'connecting', 'subscribed', 'rolling-back', 'failed']),
+  "lastApplyError": zod.string().optional(),
+  "lastApplyAt": zod.coerce.date().optional(),
+  "connected": zod.boolean()
 })
 
 

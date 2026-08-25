@@ -14,6 +14,7 @@ export * from './platformAdminUser';
 export * from './platformAuditEvent';
 export * from './platformAuditEventMetadata';
 export * from './platformMqttConfig';
+export * from './platformMqttConfigApplyState';
 export * from './platformMqttConfigInput';
 export * from './platformOrganization';
 export * from './platformOrganizationInput';

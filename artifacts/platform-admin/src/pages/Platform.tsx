@@ -1,6 +1,7 @@
 import { 
   useGetPlatformMqttConfig, 
   useUpdatePlatformMqttConfig,
+  useApplyPlatformMqttConfig,
   getGetPlatformMqttConfigQueryKey
 } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -22,7 +23,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { useToast } from "@/hooks/use-toast"
-import { Server, Save } from "lucide-react"
+import { Server, Save, RefreshCw } from "lucide-react"
 
 const configSchema = z.object({
   brokerUrl: z.string().min(8, "URL is too short").max(300),
@@ -32,8 +33,9 @@ const configSchema = z.object({
 })
 
 export default function Platform() {
-  const { data: config, isLoading } = useGetPlatformMqttConfig()
+  const { data: config, isLoading } = useGetPlatformMqttConfig({ query: { queryKey: getGetPlatformMqttConfigQueryKey(), refetchInterval: 3000 } })
   const updateConfig = useUpdatePlatformMqttConfig()
+  const applyConfig = useApplyPlatformMqttConfig()
   const queryClient = useQueryClient()
   const { toast } = useToast()
   
@@ -67,7 +69,7 @@ export default function Platform() {
       { data: values },
       {
         onSuccess: (data) => {
-          toast({ title: "Configuration staged", description: "Restart the API Server workflow to apply it to the MQTT consumer." })
+          toast({ title: "Configuration staged", description: "Apply it below when you are ready to reconnect the consumer." })
           queryClient.setQueryData(getGetPlatformMqttConfigQueryKey(), data)
           form.reset(values) // Reset form to clear isDirty state
         },
@@ -77,6 +79,22 @@ export default function Platform() {
       }
     )
   }
+
+  const apply = () => {
+    applyConfig.mutate(undefined, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetPlatformMqttConfigQueryKey(), data)
+        toast({ title: "MQTT configuration applied", description: "The broker connection and topic subscription were confirmed." })
+      },
+      onError: (error) => {
+        queryClient.invalidateQueries({ queryKey: getGetPlatformMqttConfigQueryKey() })
+        toast({ title: "Apply rolled back", description: error instanceof Error ? error.message : "The previous working connection was restored.", variant: "destructive" })
+      },
+    })
+  }
+
+  const applying = applyConfig.isPending || config?.applyState === "connecting" || config?.applyState === "rolling-back"
+  const applyLabel = config?.applyState === "rolling-back" ? "Restoring working connection..." : applying ? "Connecting and confirming..." : "Apply staged configuration"
 
   return (
     <div className="space-y-6">
@@ -94,7 +112,7 @@ export default function Platform() {
               <Server className="h-5 w-5" /> MQTT Broker Settings
             </CardTitle>
             <CardDescription>
-              Changes are saved server-side but are not applied to the running MQTT consumer until the API Server workflow is restarted. Broker credentials remain in workspace secrets.
+              Stage safe endpoint, topic, site, and timezone settings, then apply them to the live consumer. Broker credentials remain in workspace secrets and are never stored or displayed.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -172,7 +190,12 @@ export default function Platform() {
                       <div className={`h-2 w-2 rounded-full ${config?.credentialsConfigured ? 'bg-emerald-500' : 'bg-destructive'}`} />
                       {config?.credentialsConfigured ? "Credentials securely configured" : "Warning: No credentials configured"}
                     </div>
-                    <Button type="submit" disabled={updateConfig.isPending || !form.formState.isDirty}>
+                    <div className="flex items-center gap-3">
+                    <Button type="button" variant="outline" onClick={apply} disabled={applying || !config?.pendingApply}>
+                      <RefreshCw className={`h-4 w-4 mr-2 ${applying ? "animate-spin" : ""}`} />
+                      {applyLabel}
+                    </Button>
+                    <Button type="submit" disabled={updateConfig.isPending || !form.formState.isDirty || applying}>
                       {updateConfig.isPending ? (
                         "Saving..."
                       ) : (
@@ -182,6 +205,21 @@ export default function Platform() {
                         </>
                       )}
                     </Button>
+                    </div>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">Live consumer</span>
+                      <span className={config?.connected ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+                        {config?.connected ? "Connected and subscribed" : config?.applyState === "failed" ? "Apply failed; previous settings restored" : "Disconnected"}
+                      </span>
+                    </div>
+                    {config?.pendingApply && !applying && (
+                      <p className="mt-1 text-muted-foreground">A staged configuration differs from the active consumer.</p>
+                    )}
+                    {config?.lastApplyError && (
+                      <p className="mt-1 text-destructive">{config.lastApplyError}</p>
+                    )}
                   </div>
                 </form>
               </Form>

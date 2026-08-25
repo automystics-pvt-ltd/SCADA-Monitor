@@ -11,3 +11,4 @@
 - [Fault guidance provenance](fault-guidance-provenance.md) — Scope code mappings to evidence, preserve raw faults, and never invent unknown-code reasons.
 - [Complete report evidence presentation](complete-report-evidence-presentation.md) — Page dense evidence in the UI, but keep selected-period payloads and all exports complete.
 - [Bounded report evidence queries](bounded-report-evidence-queries.md) — Preview pages, totals, and charts must derive from one filtered database relation; exports use a deliberate complete path.
+- [Live MQTT configuration applies](live-mqtt-configuration-applies.md) — Swap candidates only after subscription confirmation; retain staged settings and restore the last working runtime on failure.

@@ -886,6 +886,77 @@ export const useUpdatePlatformMqttConfig = <TError = ErrorType<unknown>,
       return useMutation(getUpdatePlatformMqttConfigMutationOptions(options));
     }
 
+export const getApplyPlatformMqttConfigUrl = () => {
+
+
+
+
+  return `/api/platform-admin/mqtt-config`
+}
+
+/**
+ * @summary Apply staged MQTT configuration to the live consumer
+ */
+export const applyPlatformMqttConfig = async ( options?: Parameters<typeof customFetch>[1]): Promise<PlatformMqttConfig> => {
+
+  return customFetch<PlatformMqttConfig>(getApplyPlatformMqttConfigUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getApplyPlatformMqttConfigMutationOptions = <TError = ErrorType<PlatformMqttConfig>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyPlatformMqttConfig>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof applyPlatformMqttConfig>>, TError,void, TContext> => {
+
+const mutationKey = ['applyPlatformMqttConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof applyPlatformMqttConfig>>, void> = () => {
+
+
+          return  applyPlatformMqttConfig(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApplyPlatformMqttConfigMutationResult = NonNullable<Awaited<ReturnType<typeof applyPlatformMqttConfig>>>
+
+    export type ApplyPlatformMqttConfigMutationError = ErrorType<PlatformMqttConfig>
+
+    /**
+ * @summary Apply staged MQTT configuration to the live consumer
+ */
+export const useApplyPlatformMqttConfig = <TError = ErrorType<PlatformMqttConfig>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyPlatformMqttConfig>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof applyPlatformMqttConfig>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getApplyPlatformMqttConfigMutationOptions(options));
+    }
+
 export const getListPlatformAuditEventsUrl = () => {
 
 

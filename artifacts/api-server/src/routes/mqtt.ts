@@ -9,6 +9,7 @@ import {
   mqttInverterEnergyHistoryTable,
   mqttInverterMeasurementHistoryTable,
   mqttSnapshotsTable,
+  platformConfigurationTable,
   plantCalibrationProfilesTable,
   plantLocationsTable,
 } from "@workspace/db";
@@ -32,11 +33,10 @@ import {
 import { queryBoundedScadaReport } from "../lib/scada-report-query";
 
 const router: IRouter = Router();
-const brokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
-const subscriptionTopic = process.env.MQTT_TOPIC ?? "trn246/modbus";
+const defaultBrokerUrl = process.env.MQTT_BROKER_URL ?? "mqtt://76.13.4.214";
+const defaultSubscriptionTopic = process.env.MQTT_TOPIC ?? "trn246/modbus";
 const mqttInstanceIdentity = process.env.MQTT_CLIENT_INSTANCE_ID ?? process.env.HOSTNAME ?? `pid-${process.pid}`;
-const mqttClientId = process.env.MQTT_CLIENT_ID
-  ?? `scada-${Buffer.from(subscriptionTopic).toString("hex").slice(0, 8)}-${Buffer.from(mqttInstanceIdentity).toString("hex").slice(0, 10)}`;
+const configuredClientId = process.env.MQTT_CLIENT_ID;
 const mqttLeaseOwnerId = `lease-${Buffer.from(mqttInstanceIdentity).toString("hex").slice(0, 16)}-${process.pid}`;
 const username = process.env.MQTT_USERNAME;
 const password = process.env.MQTT_PASSWORD;
@@ -54,8 +54,23 @@ const PERSISTENCE_INTERVAL_MINUTES = 15;
 const PERSISTENCE_START_MINUTE = 6 * 60;
 const PERSISTENCE_END_MINUTE = 18 * 60;
 const DEFAULT_PLANT_TIMEZONE = "Asia/Kolkata";
-const configuredTimezone = process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? DEFAULT_PLANT_TIMEZONE;
-const configuredMqttPlantSite = process.env.MQTT_PLANT_SITE?.trim() || subscriptionTopic;
+const defaultTimezone = process.env.MQTT_PLANT_TIMEZONE ?? process.env.PLANT_TIMEZONE ?? DEFAULT_PLANT_TIMEZONE;
+const defaultMqttPlantSite = process.env.MQTT_PLANT_SITE?.trim() || defaultSubscriptionTopic;
+export type MqttRuntimeConfiguration = { brokerUrl: string; topic: string; plantSite: string; timezone: string };
+let runtimeConfiguration: MqttRuntimeConfiguration = {
+  brokerUrl: defaultBrokerUrl,
+  topic: defaultSubscriptionTopic,
+  plantSite: defaultMqttPlantSite,
+  timezone: defaultTimezone,
+};
+let applyState: "idle" | "connecting" | "subscribed" | "rolling-back" | "failed" = "idle";
+let lastApplyError: string | undefined;
+let lastApplyAt: string | undefined;
+let applyWaiters: Array<(success: boolean) => void> = [];
+let brokerUrl = runtimeConfiguration.brokerUrl;
+let subscriptionTopic = runtimeConfiguration.topic;
+let configuredMqttPlantSite = runtimeConfiguration.plantSite;
+let plantTimezone = validTimezone(runtimeConfiguration.timezone);
 
 function payloadSiteName(payload: unknown) {
   return isRecord(payload) ? parseSiteName(payload.site_name ?? payload.siteName ?? payload.plant_name ?? payload.plantName) : "";
@@ -551,7 +566,6 @@ function validTimezone(timezone: string) {
   }
 }
 
-let plantTimezone = validTimezone(configuredTimezone);
 
 type ZonedParts = { year: number; month: number; day: number; hour: number; minute: number; second: number };
 
@@ -1060,12 +1074,75 @@ function stopClientForLeaseLoss() {
   activeClient?.end(true);
 }
 
+function resolveApplyWaiters(success: boolean) {
+  const waiters = applyWaiters;
+  applyWaiters = [];
+  for (const resolve of waiters) resolve(success);
+}
+
+async function waitForSubscription(timeoutMs = 20_000) {
+  if (subscriptionState === "active" && connected) return true;
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      applyWaiters = applyWaiters.filter((waiter) => waiter !== complete);
+      resolve(false);
+    }, timeoutMs);
+    const complete = (success: boolean) => {
+      clearTimeout(timer);
+      resolve(success);
+    };
+    applyWaiters.push(complete);
+  });
+}
+
+export async function applyMqttConfiguration(next: MqttRuntimeConfiguration) {
+  if (!consumerLeaseHeld) {
+    throw new Error("This API instance is not the active MQTT consumer.");
+  }
+  if (applyState === "connecting" || applyState === "rolling-back") {
+    throw new Error("An MQTT configuration apply is already in progress.");
+  }
+  const previous = runtimeConfiguration;
+  applyState = "connecting";
+  lastApplyError = undefined;
+  lastApplyAt = new Date().toISOString();
+  runtimeConfiguration = next;
+  brokerUrl = next.brokerUrl;
+  subscriptionTopic = next.topic;
+  configuredMqttPlantSite = next.plantSite;
+  plantTimezone = validTimezone(next.timezone);
+  stopClientForLeaseLoss();
+  consumerLeaseHeld = true;
+  startClient();
+  const connectedToCandidate = await waitForSubscription();
+  if (connectedToCandidate) {
+    applyState = "subscribed";
+    broadcast("status", status());
+    return true;
+  }
+
+  applyState = "rolling-back";
+  lastApplyError = "The staged broker did not confirm its topic subscription.";
+  runtimeConfiguration = previous;
+  brokerUrl = previous.brokerUrl;
+  subscriptionTopic = previous.topic;
+  configuredMqttPlantSite = previous.plantSite;
+  plantTimezone = validTimezone(previous.timezone);
+  stopClientForLeaseLoss();
+  consumerLeaseHeld = true;
+  startClient();
+  await waitForSubscription(20_000);
+  applyState = "failed";
+  broadcast("status", status());
+  return false;
+}
+
 async function renewConsumerLease() {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + MQTT_CONSUMER_LEASE_MS);
   try {
     const [lease] = await db.insert(mqttConsumerLeasesTable)
-      .values({ topic: subscriptionTopic, ownerId: mqttLeaseOwnerId, expiresAt, updatedAt: now })
+    .values({ topic: subscriptionTopic, ownerId: mqttLeaseOwnerId, expiresAt, updatedAt: now })
       .onConflictDoUpdate({
         target: mqttConsumerLeasesTable.topic,
         set: { ownerId: mqttLeaseOwnerId, expiresAt, updatedAt: now },
@@ -1102,13 +1179,37 @@ async function renewConsumerLease() {
   }
 }
 
+let runtimeConfigurationLoaded = false;
+
+async function loadRuntimeConfiguration() {
+  if (runtimeConfigurationLoaded) return;
+  const [saved] = await db.select().from(platformConfigurationTable)
+    .where(eq(platformConfigurationTable.key, "mqtt")).limit(1);
+  if (saved && isRecord(saved.value)) {
+    const value = saved.value;
+    runtimeConfiguration = {
+      brokerUrl: typeof value.brokerUrl === "string" ? value.brokerUrl : defaultBrokerUrl,
+      topic: typeof value.topic === "string" ? value.topic : defaultSubscriptionTopic,
+      plantSite: typeof value.plantSite === "string" ? value.plantSite : defaultMqttPlantSite,
+      timezone: typeof value.timezone === "string" ? value.timezone : defaultTimezone,
+    };
+    brokerUrl = runtimeConfiguration.brokerUrl;
+    subscriptionTopic = runtimeConfiguration.topic;
+    configuredMqttPlantSite = runtimeConfiguration.plantSite;
+    plantTimezone = validTimezone(runtimeConfiguration.timezone);
+  }
+  runtimeConfigurationLoaded = true;
+}
+
 function requestMqttConsumer() {
+  void loadRuntimeConfiguration().then(() => {
   startSnapshotTimer();
   startCommunicationTimer();
   void renewConsumerLease();
   if (!consumerLeaseTimer) {
     consumerLeaseTimer = setInterval(() => void renewConsumerLease(), MQTT_CONSUMER_LEASE_RENEWAL_MS);
   }
+  });
 }
 
 function status() {
@@ -1118,6 +1219,11 @@ function status() {
     connected: connected && subscriptionState === "active" && consumerLeaseHeld,
     brokerUrl,
     topic: subscriptionTopic,
+    plantSite: configuredMqttPlantSite,
+    timezone: plantTimezone,
+    applyState,
+    lastApplyError,
+    lastApplyAt,
     error: lastError,
     communication: {
       brokerTransport: consumerLeaseHeld
@@ -1176,7 +1282,8 @@ function startClient() {
   if (!consumerLeaseHeld || client) return;
 
   const mqttClient = mqtt.connect(brokerUrl, {
-    clientId: mqttClientId,
+    clientId: configuredClientId
+      ?? `scada-${Buffer.from(subscriptionTopic).toString("hex").slice(0, 8)}-${Buffer.from(mqttInstanceIdentity).toString("hex").slice(0, 10)}`,
     username,
     password,
     protocolVersion: 4,
@@ -1219,6 +1326,7 @@ function startClient() {
           reason: error.message,
         });
         logger.error({ err: error, subscriptionTopic }, "MQTT subscription failed");
+        resolveApplyWaiters(false);
         broadcast("status", status());
         return;
       }
@@ -1230,6 +1338,8 @@ function startClient() {
         metadata: { qos: 1 },
       });
       logger.info({ subscriptionTopic }, "MQTT topic subscription confirmed");
+      applyState = applyState === "connecting" ? "subscribed" : applyState;
+      resolveApplyWaiters(true);
       broadcast("status", status());
     });
   });

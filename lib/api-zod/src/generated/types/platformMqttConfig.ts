@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PlatformMqttConfigApplyState } from './platformMqttConfigApplyState';
 
 export interface PlatformMqttConfig {
   brokerUrl: string;
@@ -13,4 +14,8 @@ export interface PlatformMqttConfig {
   timezone: string;
   credentialsConfigured: boolean;
   pendingApply: boolean;
+  applyState: PlatformMqttConfigApplyState;
+  lastApplyError?: string;
+  lastApplyAt?: Date;
+  connected: boolean;
 }
