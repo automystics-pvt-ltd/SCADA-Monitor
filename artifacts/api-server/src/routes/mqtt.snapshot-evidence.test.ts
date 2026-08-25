@@ -1,6 +1,52 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { snapshotEvidence } from "./mqtt.ts";
+import { canWriteScheduledSnapshot, isPersistenceWindowOpen, persistenceSchedule, snapshotEvidence } from "./mqtt.ts";
+
+test("pauses scheduled saves and retry processing outside the plant-local 06:00–18:00 window", () => {
+  const beforeClose = persistenceSchedule(new Date("2026-08-25T12:29:59.000Z"));
+  assert.equal(beforeClose.collecting, true);
+  assert.equal(isPersistenceWindowOpen(new Date("2026-08-25T12:29:59.000Z")), true);
+
+  const atClose = persistenceSchedule(new Date("2026-08-25T12:30:00.000Z"));
+  assert.equal(atClose.collecting, false);
+  assert.equal(atClose.nextScheduledAt.toISOString(), "2026-08-26T00:30:00.000Z");
+  assert.equal(isPersistenceWindowOpen(new Date("2026-08-25T12:30:00.000Z")), false);
+
+  const overnight = persistenceSchedule(new Date("2026-08-25T18:00:00.000Z"));
+  assert.equal(overnight.collecting, false);
+  assert.equal(overnight.nextScheduledAt.toISOString(), "2026-08-26T00:30:00.000Z");
+
+  const beforeOpen = persistenceSchedule(new Date("2026-08-26T00:29:59.000Z"));
+  assert.equal(beforeOpen.collecting, false);
+  assert.equal(beforeOpen.nextScheduledAt.toISOString(), "2026-08-26T00:30:00.000Z");
+
+  const atOpen = persistenceSchedule(new Date("2026-08-26T00:30:00.000Z"));
+  assert.equal(atOpen.collecting, true);
+  assert.equal(atOpen.nextScheduledAt.toISOString(), "2026-08-26T00:45:00.000Z");
+  assert.equal(isPersistenceWindowOpen(new Date("2026-08-26T00:30:00.000Z")), true);
+});
+
+test("stops retry and reconciliation writes that cross 18:00 while allowing only the final boundary flush", () => {
+  const scheduledDaytimeWindow = new Date("2026-08-25T12:15:00.000Z");
+  const finalBoundary = new Date("2026-08-25T12:30:00.000Z");
+  const retryAttemptTimes = [
+    new Date("2026-08-25T12:29:59.000Z"),
+    new Date("2026-08-25T12:30:00.000Z"),
+  ];
+
+  assert.deepEqual(
+    retryAttemptTimes.map((attemptedAt) => canWriteScheduledSnapshot(attemptedAt, scheduledDaytimeWindow)),
+    [true, false],
+  );
+  assert.deepEqual(
+    retryAttemptTimes.map((attemptedAt) => canWriteScheduledSnapshot(attemptedAt, scheduledDaytimeWindow)),
+    [true, false],
+  );
+  assert.equal(canWriteScheduledSnapshot(new Date("2026-08-25T12:30:01.000Z"), finalBoundary), false);
+  assert.equal(canWriteScheduledSnapshot(new Date("2026-08-25T12:30:01.000Z"), finalBoundary, true), true);
+  assert.equal(canWriteScheduledSnapshot(new Date("2026-08-25T12:31:00.000Z"), finalBoundary, true), false);
+  assert.equal(canWriteScheduledSnapshot(new Date("2026-08-25T18:00:00.000Z"), finalBoundary, true), false);
+});
 
 test("normalizes schema-v4 discovered snapshot evidence for saved KPIs without losing raw provenance", () => {
   const observedAt = "2026-08-25T04:00:00.000Z";

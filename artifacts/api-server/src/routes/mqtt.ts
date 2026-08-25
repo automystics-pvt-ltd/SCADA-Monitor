@@ -1061,7 +1061,7 @@ function setLastSnapshot(evidence: SavedSnapshotEvidence) {
   lastSnapshotStatus = evidence.saveStatus;
 }
 
-function persistenceSchedule(now: Date) {
+export function persistenceSchedule(now: Date) {
   const local = zonedParts(now, plantTimezone);
   const minutes = local.hour * 60 + local.minute;
   const collecting = minutes >= PERSISTENCE_START_MINUTE && minutes < PERSISTENCE_END_MINUTE;
@@ -1092,6 +1092,27 @@ function persistenceSchedule(now: Date) {
     currentSlotStart,
     nextScheduledAt: nextStart,
   };
+}
+
+export function isPersistenceWindowOpen(now: Date) {
+  return persistenceSchedule(now).collecting;
+}
+
+export function canWriteScheduledSnapshot(
+  now: Date,
+  scheduledFor: Date,
+  allowFinalBoundaryClose = false,
+) {
+  if (isPersistenceWindowOpen(now)) return true;
+  if (!allowFinalBoundaryClose) return false;
+
+  const currentLocal = zonedParts(now, plantTimezone);
+  const scheduledLocal = zonedParts(scheduledFor, plantTimezone);
+  return currentLocal.year === scheduledLocal.year
+    && currentLocal.month === scheduledLocal.month
+    && currentLocal.day === scheduledLocal.day
+    && currentLocal.hour * 60 + currentLocal.minute === PERSISTENCE_END_MINUTE
+    && scheduledFor.getTime() === localBoundary(scheduledLocal, PERSISTENCE_END_MINUTE).getTime();
 }
 
 function localBoundary(parts: ZonedParts, minuteOfDay: number) {
@@ -1171,7 +1192,14 @@ function snapshotOutcome(buffer: SnapshotBuffer) {
   return { saveStatus: "saved" as const, missingReason: undefined };
 }
 
-async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, savedAt = new Date(), existingQueueEntry?: SnapshotOfflineQueueEntry<SnapshotOfflinePayload>) {
+async function persistSnapshot(
+  buffer: SnapshotBuffer,
+  scheduledFor: Date,
+  savedAt = new Date(),
+  existingQueueEntry?: SnapshotOfflineQueueEntry<SnapshotOfflinePayload>,
+  allowFinalBoundaryClose = false,
+) {
+  if (!canWriteScheduledSnapshot(new Date(), scheduledFor, allowFinalBoundaryClose)) return false;
   const scheduledForIso = scheduledFor.toISOString();
   let queuedEntry = existingQueueEntry;
   let queuedEntries: SnapshotOfflineQueueEntry<SnapshotOfflinePayload>[];
@@ -1204,6 +1232,11 @@ async function persistSnapshot(buffer: SnapshotBuffer, scheduledFor: Date, saved
   try {
     const outcome = snapshotOutcome(buffer);
     const calibrationProfile = await currentPlantCalibrationProfile();
+    if (!canWriteScheduledSnapshot(new Date(), scheduledFor, allowFinalBoundaryClose)) {
+      // The queue entry remains durable for the next daytime window. Do not
+      // turn a retry admitted before close into an overnight database write.
+      return false;
+    }
     const [inserted] = await db.insert(mqttSnapshotsTable).values({
       windowStartedAt: buffer.startedAt,
       windowEndedAt: scheduledFor,
@@ -1276,9 +1309,11 @@ async function latestSavedSnapshotEvidence(siteName?: string) {
 
 async function reconcileCompletedWindows(now = new Date()) {
   const { schedule, boundaries } = completedWindowBoundaries(now);
+  if (!schedule.collecting) return;
   if (reconciledScheduleDate === schedule.localDate) return;
 
   for (const boundary of boundaries) {
+    if (!isPersistenceWindowOpen(new Date())) return;
     const windowStartedAt = new Date(boundary.getTime() - PERSISTENCE_INTERVAL_MINUTES * 60_000);
     const saved = await persistSnapshot(emptySnapshotBuffer(windowStartedAt, slotKey(zonedParts(windowStartedAt, plantTimezone))), boundary, now);
     if (!saved) return;
@@ -1288,6 +1323,7 @@ async function reconcileCompletedWindows(now = new Date()) {
 
 async function retryFailedSnapshots() {
   while (true) {
+    if (!isPersistenceWindowOpen(new Date())) return;
     let entry: SnapshotOfflineQueueEntry<SnapshotOfflinePayload> | undefined;
     try {
       const entries = await snapshotOfflineQueue.list();
@@ -1306,14 +1342,15 @@ async function retryFailedSnapshots() {
       logger.error({ entryId: entry.id }, "MQTT snapshot retry entry could not be restored");
       return;
     }
+    if (!isPersistenceWindowOpen(new Date())) return;
     const stored = await persistSnapshot(buffer, scheduledFor, new Date(), entry);
     if (!stored) return;
   }
 }
 
 async function runSnapshotSchedule(now = new Date()) {
-  await retryFailedSnapshots();
   const schedule = persistenceSchedule(now);
+  await retryFailedSnapshots();
   if (schedule.collecting) {
     if (!snapshotBuffer) snapshotBuffer = emptySnapshotBuffer(schedule.currentSlotStart, schedule.currentSlotKey);
     else if (snapshotBuffer.slotKey !== schedule.currentSlotKey) {
@@ -1321,12 +1358,12 @@ async function runSnapshotSchedule(now = new Date()) {
       snapshotBuffer = emptySnapshotBuffer(schedule.currentSlotStart, schedule.currentSlotKey);
       await persistSnapshot(previousBuffer, schedule.currentSlotStart, now);
     }
-  } else if (schedule.minutes >= PERSISTENCE_END_MINUTE && snapshotBuffer) {
+  } else if (schedule.minutes === PERSISTENCE_END_MINUTE && snapshotBuffer) {
     const lastBoundary = localDateTimeToUtc({ ...schedule.local, hour: 18, minute: 0, second: 0 }, plantTimezone);
     const previousBuffer = snapshotBuffer;
     snapshotBuffer = undefined;
-    await persistSnapshot(previousBuffer, lastBoundary, now);
-  } else if (schedule.minutes < PERSISTENCE_START_MINUTE) {
+    await persistSnapshot(previousBuffer, lastBoundary, now, undefined, true);
+  } else if (schedule.minutes > PERSISTENCE_END_MINUTE || schedule.minutes < PERSISTENCE_START_MINUTE) {
     snapshotBuffer = undefined;
   }
   await reconcileCompletedWindows(now);
@@ -1555,8 +1592,10 @@ function status() {
       timezone: plantTimezone,
       inverterEnergySite: configuredMqttPlantSite,
       savingActive: schedule.collecting,
+      scheduleState: schedule.collecting ? "active" : "paused",
       currentWindow: snapshotBuffer?.slotKey,
       nextScheduledAt: schedule.nextScheduledAt.toISOString(),
+      resumeAt: schedule.nextScheduledAt.toISOString(),
       pendingMessages: (snapshotBuffer?.messages.length ?? 0) + offlineQueuedMessageCount,
       offlineQueuedSnapshots: offlineQueuedSnapshotCount,
       offlineQueuedMessages: offlineQueuedMessageCount,

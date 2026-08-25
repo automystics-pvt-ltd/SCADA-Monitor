@@ -6,7 +6,7 @@ import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { approvedDisplayTelemetryUnit, approvedDisplayTelemetryValue, isSourceReportedEvidence, sourceReportedTelemetryUnit, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
@@ -15,6 +15,7 @@ import { dashboardAccessState } from './scada-access';
 import { discoveryDeviceIdFromSourceRecord } from './device-discovery-identity';
 import { createTelemetryMappingStore, mappedTelemetryDestination, mappedTelemetryDisplayLabel, type ScadaTelemetryMapping } from './telemetry-mappings';
 import { clearConfirmedSnapshotCache, readConfirmedSnapshotCache, writeConfirmedSnapshotCache } from './confirmed-snapshot-cache';
+import { persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-persistence';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
@@ -62,8 +63,10 @@ type PersistenceStatus = {
   timezone?: string;
   inverterEnergySite?: string;
   savingActive?: boolean;
+  scheduleState?: 'active' | 'paused';
   currentWindow?: string;
   nextScheduledAt?: string;
+  resumeAt?: string;
   pendingMessages: number;
   offlineQueuedSnapshots?: number;
   offlineQueuedMessages?: number;
@@ -953,7 +956,9 @@ function rawAggregateFallback(aggregate: ScadaAggregate, signal: 'power' | 'ener
 
 function rawKpiFallbacks(rows: TelemetryKpiRow[]): Record<'acPower' | 'dailyEnergy' | 'totalEnergy' | 'specificYield', RawKpiFallback> {
   const aggregates = calculateScadaAggregates(rows);
-  const daily = latestRawCounterMetric(rows, 'daily-counter', ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh', 'todayyield']);
+  // This is the reviewed plant counter, so it wins over broad fallback names.
+  const daily = latestRawMetric(rows, ['todayyield'])
+    ?? latestRawCounterMetric(rows, 'daily-counter', ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']);
   const specificYield = latestRawMetric(rows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']);
   return {
     acPower: rawAggregateFallback(aggregates.acPower, 'power'),
@@ -963,23 +968,22 @@ function rawKpiFallbacks(rows: TelemetryKpiRow[]): Record<'acPower' | 'dailyEner
   };
 }
 
-function KpiCard({ title, value, unit, subtext, formula, icon: Icon, colorClass, borderClass, onClick, help }: any) {
+function KpiCard({ title, value, unit, subtext, icon: Icon, colorClass, borderClass, onClick, help }: any) {
   return (
-    <button type="button" onClick={onClick} title={help} aria-label={`${title}: ${value}${unit ? ` ${unit}` : ''}. ${help || 'Open related monitoring view.'}`} data-testid={`kpi-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} className={`scada-interactive-card scada-kpi-card group text-left w-full bg-[#090B13] border ${borderClass || 'border-[#1E293B]'} rounded-xl p-5 flex flex-col justify-between hover:border-slate-500 transition-all focus-ring overflow-hidden relative`}>
+    <button type="button" onClick={onClick} title={help} aria-label={`${title}: ${value}${unit ? ` ${unit}` : ''}. ${help || 'Open related monitoring view.'}`} data-testid={`kpi-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} className={`scada-interactive-card scada-kpi-card group text-left w-full min-h-[154px] bg-[#090B13] border ${borderClass || 'border-[#1E293B]'} rounded-xl p-4 flex flex-col justify-between hover:border-slate-500 transition-all focus-ring overflow-hidden relative`}>
       <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       <div className="flex items-start justify-between relative z-10">
-        <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{title}</h3>
+        <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{title}</h3>
         <div className={`scada-icon p-1.5 rounded-lg text-[16px] bg-[#0F1322] border border-[#1E293B] ${colorClass}`}>
           <Icon className="scada-icon" size={16} />
         </div>
       </div>
-      <div className="mt-6 relative z-10">
+      <div className="mt-5 relative z-10">
         <div className="flex items-baseline gap-2">
-          <span className="scada-kpi-value text-3xl font-bold tracking-tight text-slate-100 mono">{value}</span>
+          <span className="scada-kpi-value text-[clamp(1.8rem,3vw,2.35rem)] font-bold tracking-tight text-slate-100 mono">{value}</span>
           {unit && <span className="text-[12px] font-bold text-slate-500">{unit}</span>}
         </div>
-        {subtext && <p className="text-[11px] font-medium text-slate-500 mt-1.5">{subtext}</p>}
-        {formula && <p className="mt-3 border-t border-[#1E293B]/70 pt-3 text-[10px] leading-relaxed text-slate-500" title={`Formula: ${formula}`}><span className="font-bold text-slate-400">Formula:</span> {formula}</p>}
+        {subtext && <p className="mt-2 text-[11px] font-medium text-slate-500">{subtext}</p>}
       </div>
     </button>
   );
@@ -2391,6 +2395,14 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   };
   const sortLabel = `${sortKey} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`;
   const scheduleLabel = `${persistence.scheduleStart ?? '06:00'}–${persistence.scheduleEnd ?? '18:00'} ${persistence.timezone ?? 'plant time'}`;
+  const historicalSavingResumeMessage = persistenceResumeMessage(persistence.savingActive);
+  const historicalStorageStatus = persistence.error
+    ? historicalSavingResumeMessage
+      ? 'Historical sync queued · resumes 6 AM'
+      : 'Historical storage retrying'
+    : persistence.savingActive
+      ? `Historical saving · every ${persistence.intervalMinutes} min`
+      : 'Historical saving paused';
   const lastSnapshotLabel = persistence.lastSnapshotAt
     ? `${persistence.lastSnapshotStatus === 'missing' ? 'Missing window' : 'Saved'} · ${formatInPlantTimezone(persistence.lastSnapshotScheduledFor ?? persistence.lastSnapshotAt, persistence.timezone)}`
     : 'No scheduled snapshot recorded yet';
@@ -2453,7 +2465,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span data-testid="status-live-telemetry" className="rounded bg-sky-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-sky-300">Live · 24/7</span>
           <span className={`rounded px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${persistence.error ? 'bg-rose-500/10 text-rose-400' : 'bg-[#1e293b] text-slate-300'}`}>
-            {persistence.error ? 'Historical storage retrying' : persistence.savingActive ? `Historical saving · every ${persistence.intervalMinutes} min` : 'Historical saving paused'}
+            {historicalStorageStatus}
           </span>
           <button type="button" onClick={exportExcel} data-testid="button-export-excel" title="Download the filtered and sorted telemetry as an Excel workbook" className="inline-flex items-center gap-1.5 rounded border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 focus-ring"><Download size={13} /> Excel</button>
           <button type="button" onClick={exportPdf} data-testid="button-export-pdf" title="Open a detailed filtered telemetry report ready to save as PDF" className="inline-flex items-center gap-1.5 rounded border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 focus-ring"><FileText size={13} /> PDF</button>
@@ -3652,7 +3664,8 @@ function AppShell() {
   const activeAlarms = alarmFaultReports.length;
   const rawKpis = useMemo(() => ({
     activePower: latestRawMetric(dashboardEvidenceRows, ['actpow']),
-    dailyEnergy: latestRawCounterMetric(dashboardEvidenceRows, 'daily-counter', ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh', 'todayyield']),
+    dailyEnergy: latestRawMetric(dashboardEvidenceRows, ['todayyield'])
+      ?? latestRawCounterMetric(dashboardEvidenceRows, 'daily-counter', ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']),
     totalEnergy: latestRawCounterMetric(dashboardEvidenceRows, 'cumulative-counter', ['totalenergy', 'totalenergykwh', 'lifetimeenergy', 'lifetimeenergykwh']),
     specificYield: latestRawMetric(dashboardEvidenceRows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']),
     alarms: latestRawMetric(dashboardEvidenceRows, ['alarm', 'alarms', 'alarmcode', 'fault', 'faultcode']),
@@ -3689,8 +3702,6 @@ function AppShell() {
       specificYield: select('specificYield'),
     };
   }, [hasValidSavedSnapshot, liveKpiCalculations, savedKpiCalculations, showingSavedRecord]);
-  const rawKpiValue = (metric: RawTelemetryMetric | null) => metric ? metric.value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—';
-  const rawKpiUnit = (metric: RawTelemetryMetric | null) => metric?.sourceUnit ?? (metric ? 'raw' : '');
   const calculationValue = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 }) : '—';
   const calculationUnit = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.unit ?? '' : '';
   const calculationContext = (calculation: VerifiedKpiCalculation) => {
@@ -3704,30 +3715,31 @@ function AppShell() {
       return {
         value: calculationValue(calculation),
         unit: calculationUnit(calculation),
-        subtext: calculationContext(calculation),
-        formula: calculation.formula,
+        details: `${calculation.formula}. ${calculationContext(calculation)}`,
       };
     }
     if (rawFallback.value === null) {
       return {
         value: 'Not reported',
         unit: '',
-        subtext: showingSavedRecord ? `${rawFallback.readiness} Last Saved: ${lastSavedLabel}.` : rawFallback.readiness,
-        formula: rawFallback.formula,
+        details: showingSavedRecord ? `${rawFallback.readiness} Last saved: ${lastSavedLabel}.` : rawFallback.readiness,
       };
     }
     const registerList = rawFallback.inputs.map((input) => `${input.parameter} (${input.address})`).join(' + ');
     return {
       value: rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 }),
       unit: rawFallback.unit,
-      subtext: `${rawFallback.method} · ${registerList}${rawFallback.sourceUnit ? ` · source unit ${rawFallback.sourceUnit}` : ''} · ${rawFallback.inputs.some((input) => input.sourceReported) ? 'source-reported; scaling confirmation required' : 'scaling required'}${showingSavedRecord ? ` · Last Saved: ${lastSavedLabel}` : ''}`,
-      formula: rawFallback.formula,
+        details: `${rawFallback.formula}. Source: ${registerList}${rawFallback.sourceUnit ? ` (${rawFallback.sourceUnit})` : ''}. ${rawFallback.inputs.some((input) => input.sourceReported) ? 'Source-reported; engineering scaling is not confirmed.' : 'Engineering scaling is not confirmed.'}${showingSavedRecord ? ` Last saved: ${lastSavedLabel}.` : ''}`,
     };
   };
   const acPowerCard = calculationCard(calculations.acPower, rawFallbacks.acPower);
   const dailyEnergyCard = calculationCard(calculations.dailyEnergy, rawFallbacks.dailyEnergy);
   const totalEnergyCard = calculationCard(calculations.totalEnergy, rawFallbacks.totalEnergy);
   const specificYieldCard = calculationCard(calculations.specificYield, rawFallbacks.specificYield);
+  const discoveredInverterTotal = rawKpis.inverters.length;
+  const onlineInverterCount = electricalLiveState === 'fresh' ? validatedInverterFleet.records.length : 0;
+  const inverterCardValue = discoveredInverterTotal ? `${onlineInverterCount} / ${discoveredInverterTotal}` : '0 / Total';
+  const displayedActiveAlarmCount = rawKpis.alarms?.value === 0 ? 0 : activeAlarms;
   const latestApprovedPlantPower = useMemo(() => dashboardEvidenceRows
     .filter((row) => {
       const parameter = String(row.name ?? row.parameter ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -3946,10 +3958,10 @@ function AppShell() {
       ? 'Loading'
       : '—';
   const dashboardSavedDetail = savedKpiSnapshot
-    ? `${savedKpiSnapshot.parameterCount} source parameter${savedKpiSnapshot.parameterCount === 1 ? '' : 's'} · ${hasValidSavedSnapshot ? 'fallback eligible' : 'historical'}`
+    ? `${savedKpiSnapshot.parameterCount} source parameter${savedKpiSnapshot.parameterCount === 1 ? '' : 's'} · ${hasValidSavedSnapshot ? 'fallback eligible' : 'historical'}${persistenceResumeMessage(persistence.savingActive) ? ` · ${persistenceResumeMessage(persistence.savingActive)}` : ''}`
     : savedSnapshotLoadState === 'error'
-      ? 'Refresh failed; record protected'
-      : 'No confirmed backend record';
+      ? `Refresh failed; record protected${persistenceResumeMessage(persistence.savingActive) ? ` · ${persistenceResumeMessage(persistence.savingActive)}` : ''}`
+      : `No confirmed backend record${persistenceResumeMessage(persistence.savingActive) ? ` · ${persistenceResumeMessage(persistence.savingActive)}` : ''}`;
   const dashboardFreshnessDetail = lastLiveDataTimestamp
     ? `Updated ${formatInPlantTimezone(lastLiveDataTimestamp, persistence.timezone)}`
     : 'Awaiting first live payload';
@@ -3964,22 +3976,23 @@ function AppShell() {
       ? 'MQTT and device telemetry active'
       : liveDataUnavailableReason;
   const dashboardSystemHealthy = mode === 'demo' || (!error && !persistence.error && deviceCommunication === 'live' && connected);
+  const dashboardPersistenceResumeMessage = persistenceResumeMessage(persistence.savingActive);
   const dashboardSystemTitle = mode === 'demo'
     ? 'Demo monitoring mode'
+    : dashboardPersistenceResumeMessage
+      ? 'Live monitoring active'
     : dashboardSystemHealthy
       ? 'System operating normally'
       : 'System attention required';
   const dashboardSystemDetail = mode === 'demo'
     ? 'Demonstration values are not operational telemetry.'
+    : dashboardPersistenceResumeMessage
+      ? `Live telemetry remains active overnight. ${dashboardPersistenceResumeMessage}.`
     : dashboardSystemHealthy
       ? 'Live data is active and backend records are up to date.'
       : error || persistence.error || dashboardLiveStatusDetail;
   const dashboardNextSaveAt = persistence.nextScheduledAt ? Date.parse(persistence.nextScheduledAt) : Number.NaN;
-  const dashboardNextSaveCountdown = persistence.savingActive && Number.isFinite(dashboardNextSaveAt)
-    ? formatCountdown(Math.max(0, dashboardNextSaveAt - now))
-    : persistence.savingActive
-      ? `${persistence.intervalMinutes}m cycle`
-      : 'Paused';
+  const dashboardNextSaveCountdown = persistenceNextSaveLabel(persistence.savingActive, persistence.nextScheduledAt, now, persistence.intervalMinutes, formatCountdown);
   const dashboardSourceValue = electricalLiveState === 'fresh'
     ? 'Live'
     : hasValidSavedSnapshot
@@ -4033,7 +4046,7 @@ function AppShell() {
                 </article>
                 <article data-testid="panel-saved-data" aria-label="Saved backend data" title={savedKpiSnapshot ? `Persisted ${formatInPlantTimezone(savedKpiSnapshot.scheduledFor || savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone ?? persistence.timezone)}. ${dashboardSavedDetail}.` : dashboardSavedDetail} className="scada-dashboard-status-card scada-dashboard-status-card--neutral">
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--database"><Database size={18} aria-hidden="true" /></span>
-                  <div className="min-w-0" data-testid="saved-data-status"><p className="scada-dashboard-status-label">Latest saved</p><strong className="scada-dashboard-status-value truncate">{dashboardSavedValue}</strong><p className="scada-dashboard-status-detail">{persistence.offlineQueuedSnapshots ? `Queued sync: ${persistence.offlineQueuedSnapshots}` : dashboardSavedDetail}</p></div>
+                  <div className="min-w-0" data-testid="saved-data-status"><p className="scada-dashboard-status-label">Latest saved</p><strong className="scada-dashboard-status-value truncate">{dashboardSavedValue}</strong><p className="scada-dashboard-status-detail">{persistence.offlineQueuedSnapshots ? `Queued sync: ${persistence.offlineQueuedSnapshots}${dashboardPersistenceResumeMessage ? ` · ${dashboardPersistenceResumeMessage}` : ''}` : dashboardSavedDetail}</p></div>
                 </article>
                 <article title={`Freshness: ${formatElapsed(dashboardFreshnessAge)}. ${dashboardFreshnessDetail}.`} className="scada-dashboard-status-card scada-dashboard-status-card--freshness">
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--clock"><Activity size={18} aria-hidden="true" /></span>
@@ -4075,19 +4088,18 @@ function AppShell() {
               </section>
               {mode === 'live' && <section role="status" aria-label="System operation and persistence status" className={`scada-dashboard-system-strip mb-3 rounded-xl border ${dashboardSystemHealthy ? 'scada-dashboard-system-strip--healthy' : 'scada-dashboard-system-strip--attention'}`}>
                 <div className="scada-dashboard-system-primary"><span className="scada-dashboard-system-icon"><Check size={17} aria-hidden="true" /></span><div className="min-w-0"><strong>{dashboardSystemTitle}</strong><p title={dashboardSystemDetail}>{dashboardSystemDetail}</p></div></div>
-                <div className="scada-dashboard-system-metric" title={persistence.nextScheduledAt ? `Next scheduled save: ${formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}.` : 'The next save window is not available.'}><span><RefreshCw size={15} aria-hidden="true" /></span><div><p>Next save in</p><strong>{dashboardNextSaveCountdown}</strong></div></div>
-                <div className="scada-dashboard-system-metric" title={persistence.savingActive ? `Historical snapshots save every ${persistence.intervalMinutes} minutes.` : 'Historical saving is paused.'}><span><Database size={15} aria-hidden="true" /></span><div><p>Persistence</p><strong>{persistence.savingActive ? `Auto every ${persistence.intervalMinutes} min` : 'Saving paused'}</strong></div></div>
+                <div className="scada-dashboard-system-metric" title={persistence.nextScheduledAt ? `${dashboardPersistenceResumeMessage ? `${dashboardPersistenceResumeMessage}. ` : ''}Next scheduled save: ${formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}.` : 'The next save window is not available.'}><span><RefreshCw size={15} aria-hidden="true" /></span><div><p>Next save in</p><strong>{dashboardNextSaveCountdown}</strong></div></div>
+                <div className="scada-dashboard-system-metric" title={persistence.savingActive ? `Historical snapshots save every ${persistence.intervalMinutes} minutes.` : dashboardPersistenceResumeMessage ?? 'Historical saving is paused.'}><span><Database size={15} aria-hidden="true" /></span><div><p>Persistence</p><strong>{persistence.savingActive ? `Auto every ${persistence.intervalMinutes} min` : 'Saving paused'}</strong></div></div>
               </section>}
             <DashboardPowerFlow {...dashboardFlowReading} mode={mode} monitoringStatus={deviceCommunication} />
               <div className="scada-dashboard-kpis grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Demo inverter summation' : acPowerCard.subtext} formula={mode === 'demo' ? 'Σ demo inverter active-power values' : acPowerCard.formula} onClick={() => navigateTo('power')} help="The card shows exact source evidence whenever it is available. kW is shown only when an administrator-approved plant calibration profile matches its source register, scaling, unit, and role." />
-              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Demo daily energy' : dailyEnergyCard.subtext} formula={mode === 'demo' ? 'Demo daily energy counter' : dailyEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact daily-energy source register if provided. It never creates energy by integrating unvalidated power records." />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Demo lifetime energy' : totalEnergyCard.subtext} formula={mode === 'demo' ? 'Demo cumulative energy counter' : totalEnergyCard.formula} onClick={() => navigateTo('energy')} help="The card shows the exact raw cumulative-energy evidence when it is available. kWh appears only after approved scaling and units are supplied." />
-              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Demo PR 87.3%' : specificYieldCard.subtext} formula={mode === 'demo' ? 'Demo daily energy ÷ installed capacity' : specificYieldCard.formula} onClick={() => navigateTo('power')} help="The card shows a source-provided raw specific-yield register if present. An engineering-specific yield is calculated only from verified daily energy and installed DC capacity." />
-              <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters}/${totalInverters}` : rawKpis.inverters.length ? `${rawKpis.inverters.length}/${rawKpis.inverters.length}` : '—'} unit={mode === 'demo' ? '' : rawKpis.inverters.length ? 'reporting' : ''} icon={Check} colorClass={mode === 'demo' || rawKpis.inverters.length ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'} subtext={mode === 'demo' ? `${inverters.filter((device) => device.status === 'stale').length} stale · ${inverters.filter((device) => device.status === 'offline').length} offline` : rawKpis.inverters.length ? `${showingSavedRecord ? `Last Saved: ${lastSavedLabel}` : rawKpis.inverters[0].provenance === 'live' ? 'Live' : 'Replay'} inverter tags · state mapping required` : 'Awaiting inverter registers'} onClick={() => navigateTo('inverters')} help="The broker exposes inverter registers but not an approved online/offline status mapping." />
-              <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : rawKpis.alarms ? rawKpiValue(rawKpis.alarms) : activeAlarms ? activeAlarms.toString() : '—'} unit={mode === 'demo' ? '' : rawKpis.alarms ? rawKpiUnit(rawKpis.alarms) : activeAlarms ? 'reported' : ''} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : rawKpis.alarms || activeAlarms ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? (activeAlarms ? 'Reported alarm or fault evidence needs review' : 'No active alarms reported') : rawKpis.alarms ? `${rawMetricContext(rawKpis.alarms, 'Awaiting alarm register')}${showingSavedRecord ? ` · Last Saved: ${lastSavedLabel}` : ''}` : activeAlarms ? `${activeAlarms} source-reported alarm or fault register${activeAlarms === 1 ? '' : 's'}` : 'Awaiting alarm or fault register'} onClick={() => navigateTo('alarms')} help="Source-reported alarm and fault fields are shown exactly as received. A code is not treated as an active state unless the source explicitly says so." />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} colorClass="bg-blue-500/10 text-blue-400" subtext={mode === 'demo' ? 'Plant output' : acPowerCard.value === 'Not reported' ? 'Output unavailable' : 'Plant output'} onClick={() => navigateTo('power')} help={`Total AC Power. ${acPowerCard.details}`} />
+              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} colorClass="bg-orange-500/10 text-orange-400" subtext={mode === 'demo' ? 'Energy generated today' : dailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : 'Energy generated today'} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${dailyEnergyCard.details}`} />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} colorClass="bg-purple-500/10 text-purple-400" subtext={mode === 'demo' ? 'Lifetime generation' : totalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : 'Lifetime generation'} onClick={() => navigateTo('energy')} help={`Total Energy. ${totalEnergyCard.details}`} />
+              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} colorClass="bg-pink-500/10 text-pink-400" subtext={mode === 'demo' ? 'Plant performance' : specificYieldCard.value === 'Not reported' ? 'Performance unavailable' : 'Plant performance'} onClick={() => navigateTo('power')} help={`Specific Yield. ${specificYieldCard.details}`} />
+              <KpiCard title="Inverters Online" value={mode === 'demo' ? `${onlineInverters} / ${totalInverters || 'Total'}` : inverterCardValue} icon={Check} colorClass={mode === 'demo' || onlineInverterCount ? 'bg-emerald-500/10 text-emerald-400' : discoveredInverterTotal ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-500/10 text-slate-400'} subtext={mode === 'demo' ? 'Live inverter status' : discoveredInverterTotal ? 'Live inverter status' : 'Inverter status unavailable'} onClick={() => navigateTo('inverters')} help={`Inverters Online. ${discoveredInverterTotal ? `${onlineInverterCount} verified live inverter${onlineInverterCount === 1 ? '' : 's'} out of ${discoveredInverterTotal} discovered source record${discoveredInverterTotal === 1 ? '' : 's'}.` : 'No approved inverter status mapping has reported a total yet.'}`} />
+              <KpiCard title="Active Alarms" value={mode === 'demo' ? activeAlarms.toString() : displayedActiveAlarmCount.toString()} icon={AlertTriangle} colorClass={mode === 'demo' ? (activeAlarms ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400') : displayedActiveAlarmCount ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'} subtext={displayedActiveAlarmCount ? 'Requires attention' : 'No active alarms'} onClick={() => navigateTo('alarms')} help={rawKpis.alarms ? `Active Alarms. Latest source alarm value: ${rawKpis.alarms.value}${rawKpis.alarms.sourceUnit ? ` ${rawKpis.alarms.sourceUnit}` : ''}.` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
             </div>
-            {mode === 'live' && <CalculationSummaryPanel calculations={calculations} rawRows={dashboardEvidenceRows} className="mt-4" />}
           </section>
           
           <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">

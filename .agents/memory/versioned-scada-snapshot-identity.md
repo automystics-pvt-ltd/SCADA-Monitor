@@ -16,3 +16,9 @@ Before attempting the database write, stage every completed snapshot in a server
 **Why:** An in-memory retry list is lost when the API restarts during a transient database or connectivity failure. Retrying newer windows before older ones also makes operational history harder to audit.
 
 **How to apply:** Keep the retry spool private to the API process, permission-restricted, and free of browser access. It may preserve genuine source evidence and honest missing/incomplete window status, but only a backend-confirmed `saved` snapshot can be shown as Saved Data or used as a short-lived operational fallback.
+
+The retry spool and restart reconciliation must use the same plant-local collection window as new snapshot buffering. Once the 18:00 closing boundary has flushed its final interval, pause those writes until the next 06:00 opening boundary while live MQTT/SSE delivery continues independently.
+
+**Why:** An unconditional retry loop can turn a daytime queue entry into a late-night database write, which makes operational status look like data was saved after the scheduled period and can displace the last confirmed daytime record.
+
+**How to apply:** Re-check the authoritative schedule predicate before each queued/reconciled write and immediately before its database insert. Permit the final flush only for the same plant-local day during the 18:00 close minute; otherwise retain queued retries for daytime or discard an unflushed in-memory buffer. Expose the next opening time to clients so they can label the pause without calling live data historical.
