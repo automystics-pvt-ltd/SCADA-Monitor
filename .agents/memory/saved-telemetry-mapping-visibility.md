@@ -5,6 +5,8 @@ description: Saved site mappings remain editable without current source evidence
 
 Saved telemetry mappings are configuration records, not telemetry. When current source evidence is absent, return a configuration-only row with explicit unavailable status and null values rather than stale or invented measurements. Match, aggregate, and render mapping rows by the full site, device, source identity, normalized parameter, and register identity.
 
+Active SCADA sessions must receive mapping changes as a site-scoped live control event, reload the active mapping overlay, and reapply it to their in-memory evidence immediately. Do not make operators wait for a polling interval or browser refresh.
+
 **Why:** Operators need to edit durable mapping decisions during temporary MQTT outages, while source/register collisions must never cause one mapping to attach to another source's evidence.
 
-**How to apply:** Preserve saved active mappings in the Admin workspace even without a live discovery row; mark the evidence unavailable. Use the full identity for aggregation, API matching, and UI list keys. Clearing only disables mapping behavior and must not delete discovered evidence.
+**How to apply:** Preserve saved active mappings in the Admin workspace even without a live discovery row; mark the evidence unavailable. Use the full identity for aggregation, API matching, and UI list keys. Broadcast saves and clears only to the affected site's SSE listeners, then reapply the latest mapping set to retained in-memory rows and saved snapshots. Clearing only disables mapping behavior and must not delete discovered evidence.

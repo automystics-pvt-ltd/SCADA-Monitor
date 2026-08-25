@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useId } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { 
   useListPlatformSites, 
@@ -41,6 +41,7 @@ function ParameterMappingRow({
   onClear: (identity: PlatformTelemetryMappingIdentity) => Promise<void>
 }) {
   const m = parameter.mapping;
+  const unitSuggestionId = `telemetry-unit-${useId().replace(/:/g, "")}`;
   
   const [destination, setDestination] = useState<PlatformTelemetryDestination>(
     m?.destination || PlatformTelemetryDestination['discovered-other']
@@ -136,6 +137,11 @@ function ParameterMappingRow({
           <div className="text-[10px] text-muted-foreground pl-3.5">Source: {parameter.sourceName}</div>
         <div className="font-mono text-[10px] text-muted-foreground truncate max-w-[250px] pl-3.5" title={parameter.sourceIdentity}>
           {parameter.sourceIdentity}
+        </div>
+        <div className="flex items-center gap-1.5 pl-3.5 mt-1">
+          <Badge variant="outline" className="text-[9px] h-4 px-1 rounded bg-background/50 border-border/50 text-muted-foreground font-mono font-normal">
+            {parameter.sourceUnit ? `Reported unit: ${parameter.sourceUnit}` : "No source unit reported"}
+          </Badge>
         </div>
         {parameter.address && (
           <div className="font-mono text-[10px] text-muted-foreground/70 truncate max-w-[250px] pl-3.5 mt-0.5" title={parameter.address}>
@@ -238,14 +244,35 @@ function ParameterMappingRow({
             value={category}
             onChange={e => setCategory(e.target.value)}
           />
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Display unit</p>
+            {parameter.sourceUnit ? (
+              <button
+                type="button"
+                className="text-[9px] font-medium text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
+                onClick={() => setDisplayUnit(parameter.sourceUnit || "")}
+                disabled={displayUnit === parameter.sourceUnit}
+                title="Use the unit reported by this source"
+              >
+                Use reported unit: {parameter.sourceUnit}
+              </button>
+            ) : (
+              <span className="text-[9px] text-muted-foreground">Source unit unavailable</span>
+            )}
+          </div>
           <div className="grid grid-cols-3 gap-1.5">
             <Input
               className="h-8 text-xs bg-background"
-              placeholder="Unit"
+              placeholder={parameter.sourceUnit ? `Suggested: ${parameter.sourceUnit}` : "Enter confirmed unit"}
               value={displayUnit}
               onChange={e => setDisplayUnit(e.target.value)}
-              title="Customer-facing display unit"
+              list={unitSuggestionId}
+              aria-label={`Display unit for ${parameter.displayLabel}`}
+              title={parameter.sourceUnit ? `Suggested source unit: ${parameter.sourceUnit}` : "Customer-facing display unit; do not infer a unit"}
             />
+            <datalist id={unitSuggestionId}>
+              {parameter.sourceUnit && <option value={parameter.sourceUnit} />}
+            </datalist>
             <Input
               className="h-8 text-xs bg-background"
               type="number"

@@ -2951,6 +2951,20 @@ function AppShell() {
     ...snapshot,
     parameters: telemetryMappingStoreRef.current.apply((snapshot.parameters ?? []) as ModbusRow[]) as typeof snapshot.parameters,
   }), []);
+  const refreshTelemetryMappings = useCallback(async (siteName: string, signal?: AbortSignal) => {
+    const response = await fetch(`/api/mqtt/telemetry-mappings?siteName=${encodeURIComponent(siteName)}`, {
+      signal,
+      cache: 'no-store',
+    });
+    const payload = await response.json() as { mappings?: ScadaTelemetryMapping[]; message?: string };
+    if (!response.ok || !Array.isArray(payload.mappings)) {
+      throw new Error(payload.message ?? 'Telemetry mappings could not be loaded.');
+    }
+    if (signal?.aborted) return;
+    telemetryMappingStoreRef.current.setMappings(payload.mappings);
+    setModbusRows((current) => telemetryMappingStoreRef.current.apply(current) as ModbusRow[]);
+    setSavedKpiSnapshot((current) => current ? applySnapshotMappings(current) : current);
+  }, [applySnapshotMappings]);
   const streamRef = useRef<EventSource | null>(null);
   const streamGenerationRef = useRef(0);
   const seenTelemetryEventsRef = useRef(new Map<string, true>());
@@ -3099,15 +3113,7 @@ function AppShell() {
     const controller = new AbortController();
     const loadTelemetryMappings = async () => {
       try {
-        const response = await fetch(`/api/mqtt/telemetry-mappings?siteName=${encodeURIComponent(plantSiteName)}`, { signal: controller.signal, cache: 'no-store' });
-        const payload = await response.json() as { mappings?: ScadaTelemetryMapping[]; message?: string };
-        if (!response.ok || !Array.isArray(payload.mappings)) throw new Error(payload.message ?? 'Telemetry mappings could not be loaded.');
-        if (!controller.signal.aborted) {
-          const mappings = payload.mappings;
-          telemetryMappingStoreRef.current.setMappings(mappings);
-          setModbusRows((current) => telemetryMappingStoreRef.current.apply(current) as ModbusRow[]);
-          setSavedKpiSnapshot((current) => current ? applySnapshotMappings(current) : current);
-        }
+        await refreshTelemetryMappings(plantSiteName, controller.signal);
       } catch {
         if (!controller.signal.aborted) {
           telemetryMappingStoreRef.current.setMappings([]);
@@ -3122,7 +3128,7 @@ function AppShell() {
       controller.abort();
       window.clearInterval(refresh);
     };
-  }, [applySnapshotMappings, plantSiteName, scadaSession.authenticated]);
+  }, [plantSiteName, refreshTelemetryMappings, scadaSession.authenticated]);
 
   useEffect(() => {
     if (!weatherLocation) {
@@ -3317,6 +3323,18 @@ function AppShell() {
         }
       } catch {
         setError('The site activation update could not be read. The connection will refresh its access state automatically.');
+      }
+    });
+    stream.addEventListener('telemetry-mapping', (event) => {
+      if (generation !== streamGenerationRef.current) return;
+      try {
+        const update = JSON.parse((event as MessageEvent).data) as { siteName?: string };
+        if (!update.siteName || update.siteName !== plantSiteName) return;
+        void refreshTelemetryMappings(update.siteName).catch(() => {
+          // The 60-second fallback poll remains active if this immediate reload fails.
+        });
+      } catch {
+        // Ignore a malformed control event; broker telemetry delivery continues normally.
       }
     });
     stream.addEventListener('resync', (event) => {

@@ -478,6 +478,17 @@ export function broadcastSiteActivation(siteName: string, activationStatus: "act
   }
 }
 
+/**
+ * Mapping updates do not wait for the next broker frame. Connected SCADA
+ * sessions for the affected site reload their active mapping set immediately.
+ */
+export function broadcastTelemetryMappingChange(siteName: string, changedAt: string) {
+  for (const [listener, state] of listeners) {
+    if (state.siteName !== siteName) continue;
+    send(listener, "telemetry-mapping", { siteName, changedAt });
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

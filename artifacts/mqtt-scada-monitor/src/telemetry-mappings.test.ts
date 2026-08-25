@@ -73,6 +73,27 @@ test("uses a mapping loaded after a long-lived consumer has already started", ()
   assert.equal(afterClear?.inverter_id, undefined);
 });
 
+test("reapplies a saved mapping revision to rows already visible on the dashboard", () => {
+  const store = createTelemetryMappingStore();
+  const rawRow = { name: "Act Pow", data: "120.5", server_name: "Solar gateway", full_addr: "305003", device_id: "INV-01" };
+  store.setMappings([mapping]);
+  const [initial] = store.apply([rawRow]);
+  const revised = {
+    ...mapping,
+    destination: "voltage",
+    displayLabel: "AC voltage review",
+    inverterIdentity: null,
+    version: 4,
+  };
+  store.setMappings([revised]);
+  const [updated] = store.apply([initial!]);
+
+  assert.equal(updated?.admin_mapping_destination, "voltage");
+  assert.equal(updated?.admin_mapping_label, "AC voltage review");
+  assert.equal(updated?.admin_mapping_version, 4);
+  assert.equal(updated?.inverter_id, undefined);
+});
+
 test("maps retained discovered evidence by its camel-case source identity fields", () => {
   const [mapped] = applyTelemetryMappings([{
     normalizedName: "actpow",

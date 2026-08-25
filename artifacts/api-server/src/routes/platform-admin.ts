@@ -69,6 +69,7 @@ import {
 import {
   applyMqttConfiguration,
   broadcastSiteActivation,
+  broadcastTelemetryMappingChange,
   getMqttRuntimeStatus,
   invalidateTelemetryMappingCache,
   listLiveTelemetryDevices,
@@ -702,6 +703,7 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
     version: mapping.version,
   });
   invalidateTelemetryMappingCache();
+  broadcastTelemetryMappingChange(mapping.siteName, mapping.updatedAt.toISOString());
   res.json(UpsertPlatformTelemetryMappingResponse.parse(telemetryMappingResponse(mapping)));
 });
 
@@ -737,6 +739,7 @@ router.post("/platform-admin/telemetry/mappings/clear", async (req: Request, res
     version: mapping.version,
   });
   invalidateTelemetryMappingCache();
+  broadcastTelemetryMappingChange(mapping.siteName, mapping.updatedAt.toISOString());
   res.json(ClearPlatformTelemetryMappingResponse.parse(telemetryMappingResponse(mapping)));
 });
 
