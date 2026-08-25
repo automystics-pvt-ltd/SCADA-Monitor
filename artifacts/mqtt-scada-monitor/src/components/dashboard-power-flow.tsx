@@ -178,12 +178,12 @@ export function DashboardPowerFlow({
       <div className="relative z-10 mt-2 grid grid-cols-1 gap-2 min-[480px]:grid-cols-2">
         <div className="scada-dashboard-flow-reading">
           <span>Actual AC power</span>
-          <strong className={quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}>{reading}</strong>
+          <strong className={`scada-dashboard-flow-reading-value ${quality === 'raw' ? 'scada-dashboard-flow-reading-value--raw' : 'scada-dashboard-flow-reading-value--verified'}`}>{reading}</strong>
           <small>{observationLabel} {timestampLabel}</small>
         </div>
         <div className="scada-dashboard-flow-reading min-[480px]:text-right">
           <span>Telemetry source</span>
-          <strong className={`block truncate ${quality === 'raw' ? 'text-amber-300' : 'text-slate-100'}`} title={sourceLabel}>{sourceLabel}</strong>
+          <strong className={`scada-dashboard-flow-reading-value block truncate ${quality === 'raw' ? 'scada-dashboard-flow-reading-value--raw' : 'scada-dashboard-flow-reading-value--verified'}`} title={sourceLabel}>{sourceLabel}</strong>
            <small>{inverterCount ? `${inverterLabel} contributing` : provenance === 'snapshot' ? 'Saved evidence — animation paused' : flow.streaming ? 'Fresh telemetry — animation active' : monitoringChannelActive ? 'Monitoring channel active — awaiting fresh power flow' : 'No fresh power flow'}</small>
         </div>
       </div>
