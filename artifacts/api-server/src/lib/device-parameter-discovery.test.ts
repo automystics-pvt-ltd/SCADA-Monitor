@@ -99,6 +99,47 @@ test("uses source identity, timestamps, and raw values in deterministic observat
   assert.equal(first?.observedAt, "2026-08-25T09:00:00.000Z");
 });
 
+test("keeps source-reported TRN246 evidence separate from transport raw values and shared-register signals", () => {
+  const rows = [1, 2, 3, 4, 5].flatMap((number) => discoverDeviceParameters({
+    name: `inv${number}`,
+    data: 2134,
+    raw_data: `modbus-${number}`,
+    full_addr: "305003",
+    server_name: "ana",
+  }, context));
+  const totalEnergy = discoverDeviceParameters({
+    name: "totalenergy",
+    data: 30_670.848,
+    raw_data: "30670848",
+    full_addr: "305008",
+    server_name: "ana",
+  }, context)[0]!;
+
+  assert.deepEqual(rows.map((row) => row.sourceIdentity), [
+    "TRN246|ana|inv1|305003",
+    "TRN246|ana|inv2|305003",
+    "TRN246|ana|inv3|305003",
+    "TRN246|ana|inv4|305003",
+    "TRN246|ana|inv5|305003",
+  ]);
+  assert.equal(new Set(rows.map((row) => row.observationId)).size, 5);
+  assert.ok(rows.every((row) => row.reportedValue === "2134" && row.rawValue.startsWith("modbus-")));
+  assert.ok(rows.every((row) => row.dataQuality === "source-reported" && row.scalingStatus === "raw"));
+  assert.deepEqual({
+    reportedValue: totalEnergy.reportedValue,
+    sourceUnit: totalEnergy.sourceUnit,
+    rawValue: totalEnergy.rawValue,
+    counter: totalEnergy.sourceCounterRole,
+    quality: totalEnergy.dataQuality,
+  }, {
+    reportedValue: "30670.848",
+    sourceUnit: "MWh",
+    rawValue: "30670848",
+    counter: "cumulative-counter",
+    quality: "source-reported",
+  });
+});
+
 test("keeps direct live evidence ahead of recovery or saved evidence and rejects future source clocks as current", () => {
   const live = discoverDeviceParameters({ name: "dc_voltage", data: 710, device_id: "inv-a", date_iso_8601: "2026-08-25T09:00:00.000Z" }, context)[0]!;
   const recovered = { ...live, provenance: "recovered" as const, receivedAt: "2026-08-25T09:01:00.000Z" };

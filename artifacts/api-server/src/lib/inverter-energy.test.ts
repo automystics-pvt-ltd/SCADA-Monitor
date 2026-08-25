@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter } from "./inverter-energy.ts";
+import { applyTrn246TelemetryCalibration } from "./trn246-telemetry-calibration.ts";
 
 const sourceSite = "trn246/modbus";
 
@@ -18,6 +19,30 @@ function trn246InverterYield(overrides: Record<string, unknown> = {}) {
 
 test("rejects the TRN246 invN identity register as an inverter-energy source", () => {
   assert.equal(inverterEnergyObservationFromParameter(trn246InverterYield(), sourceSite), undefined);
+});
+
+test("never promotes the five PDF invN identity rows or totalenergy counter into inverter active power", () => {
+  const inverterRows = [1, 2, 3, 4, 5].map((number) => applyTrn246TelemetryCalibration({
+    name: `inv${number}`,
+    data: 2134,
+    raw_data: "2134",
+    full_addr: "305003",
+    server_name: "ana",
+    date_iso_8601: "2026-08-24T11:04:31+0530",
+  }));
+  const totalEnergy = applyTrn246TelemetryCalibration({
+    name: "totalenergy",
+    data: 30_670.848,
+    raw_data: "30670848",
+    full_addr: "305008",
+    server_name: "ana",
+    date_iso_8601: "2026-08-24T11:04:31+0530",
+  });
+
+  assert.ok(inverterRows.every((row) => inverterActivePowerObservationFromParameter(row, sourceSite) === undefined));
+  assert.equal(inverterActivePowerObservationFromParameter(totalEnergy, sourceSite), undefined);
+  assert.equal(inverterEnergyObservationFromParameter(totalEnergy, sourceSite), undefined);
+  assert.equal(totalEnergy.source_counter_role, "cumulative-counter");
 });
 
 test("rejects bare inverter tags that do not match the trusted source/register mapping", () => {

@@ -139,7 +139,9 @@ function cte(args: QueryArgs) {
         m.value, m.unit, m.address, m.source_name, m.observed_at, m.received_at,
         'historical-saved'::text as provenance,
         case when m.scaling_status = 'validated' then 'validated' else 'raw' end::text as quality,
-        null::text as status, null::text as reason
+        null::text as status, null::text as reason,
+        null::text as source_reported_value, null::text as source_reported_unit,
+        m.raw_value::text as transport_raw_value, null::text as source_identity
       from ${mqttInverterMeasurementHistoryTable} m
       where m.topic = ${args.topic} and m.observed_at >= ${args.from} and m.observed_at <= ${args.to}
       union all
@@ -148,7 +150,8 @@ function cte(args: QueryArgs) {
         e.inverter_name, e.parameter, e.parameter, 'energy', e.value, e.unit, e.address,
         e.source_name, e.observed_at, e.received_at, 'historical-saved',
         case when e.scaling_status = 'validated' then 'validated' else 'raw' end,
-        null::text, null::text
+        null::text, null::text,
+        null::text, null::text, e.raw_value::text, null::text
       from ${mqttInverterEnergyHistoryTable} e
       where e.topic = ${args.topic} and e.observed_at >= ${args.from} and e.observed_at <= ${args.to}
       union all
@@ -160,7 +163,8 @@ function cte(args: QueryArgs) {
         'MQTT delivery evidence', c.received_at, c.received_at, 'historical-saved',
         'source-reported',
         case when c.event_type like '%gap%' or c.event_type like '%interrupt%' then 'warning' else null end,
-        c.reason
+        c.reason,
+        null::text, null::text, c.raw_payload, null::text
       from ${mqttCommunicationEventsTable} c
       where c.topic = ${args.topic} and c.received_at >= ${args.from} and c.received_at <= ${args.to}
         and ${args.siteName ? sql`false` : sql`true`}
@@ -177,7 +181,11 @@ function cte(args: QueryArgs) {
         ${new Date(args.liveRecord.observedAt)}::timestamptz,
         ${new Date(args.liveRecord.receivedAt)}::timestamptz,
         'live'::text, ${args.liveRecord.quality}::text,
-        ${args.liveRecord.status}::text, ${args.liveRecord.reason}::text
+        ${args.liveRecord.status}::text, ${args.liveRecord.reason}::text,
+        ${args.liveRecord.sourceReportedValue ?? null}::text,
+        ${args.liveRecord.sourceReportedUnit ?? null}::text,
+        ${args.liveRecord.transportRawValue ?? null}::text,
+        ${args.liveRecord.sourceIdentity ?? null}::text
       ` : sql``}
       union all
       select
@@ -190,9 +198,12 @@ function cte(args: QueryArgs) {
         coalesce(nullif(p.value->>'display_name', ''), nullif(p.value->>'displayName', ''), nullif(p.value->>'label', ''), ${snapshotParameter}),
         'snapshot',
         case when ${snapshotCategory} = 'alarms' then null
-             when coalesce(p.value->>'data', '') ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$' then (p.value->>'data')::double precision
+             when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved')
+               and coalesce(p.value->>'data', '') ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$' then (p.value->>'data')::double precision
              else null end,
-        case when ${snapshotCategory} = 'alarms' then '' else coalesce(p.value->>'engineering_unit', p.value->>'unit', 'source units') end,
+        case when ${snapshotCategory} = 'alarms' then ''
+             when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then coalesce(p.value->>'engineering_unit', p.value->>'unit', 'source units')
+             else '' end,
         coalesce(p.value->>'full_addr', p.value->>'address', p.value->>'addr', '—'),
         coalesce(p.value->>'server_name', p.value->>'source', 'Saved MQTT snapshot'),
         ${snapshotObserved},
@@ -200,11 +211,16 @@ function cte(args: QueryArgs) {
         case when s.captured_at = s.latest_captured_at then 'latest-saved' else 'historical-saved' end,
         case when ${snapshotCategory} = 'alarms' then 'source-reported'
              when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then 'validated'
+              when p.value->>'source_mapping_status' = 'source-reported' then 'source-reported'
              else 'raw' end,
         coalesce(p.value->>'alarmStatus', p.value->>'alarm_status', p.value->>'status', p.value->>'state', p.value->>'severity'),
         case when ${snapshotCategory} = 'alarms'
              then coalesce(p.value->>'reason', p.value->>'description', p.value->>'message', p.value->>'cause', 'Source-reported alarm/fault evidence.')
-             else null end
+              else null end,
+        coalesce(p.value->>'reported_value', p.value->>'reportedValue', p.value->>'customer_value', p.value->>'customerValue'),
+        coalesce(p.value->>'reported_unit', p.value->>'reportedUnit', p.value->>'customer_unit', p.value->>'customerUnit', p.value->>'source_unit', p.value->>'sourceUnit'),
+        coalesce(p.value->>'raw_data', p.value->>'rawValue', p.value->>'raw_value', p.value->>'source_raw_value', p.value->>'sourceRawValue'),
+        coalesce(p.value->>'source_identity', p.value->>'sourceIdentity')
       from snapshot_scope s
       cross join lateral jsonb_array_elements(
         case when jsonb_typeof(s.data->'latestParameters') = 'array' then s.data->'latestParameters' else '[]'::jsonb end
@@ -269,7 +285,9 @@ export async function queryBoundedScadaReport(args: QueryArgs) {
         device_id as "deviceId", device_name as "deviceName", parameter,
         display_label as "displayLabel", measurement_kind as "measurementKind",
         value, unit, address, source_name as "sourceName", observed_at as "observedAt",
-        received_at as "receivedAt", provenance, quality, status, reason
+         received_at as "receivedAt", provenance, quality, status, reason,
+         source_reported_value as "sourceReportedValue", source_reported_unit as "sourceReportedUnit",
+         transport_raw_value as "transportRawValue", source_identity as "sourceIdentity"
       from filtered_records
       order by observed_at desc, received_at desc, record_type asc, id asc
       limit ${args.pageSize} offset ${offset}`),
@@ -278,7 +296,9 @@ export async function queryBoundedScadaReport(args: QueryArgs) {
         device_id as "deviceId", device_name as "deviceName", parameter,
         display_label as "displayLabel", measurement_kind as "measurementKind",
         value, unit, address, source_name as "sourceName", observed_at as "observedAt",
-        received_at as "receivedAt", provenance, quality, status, reason
+         received_at as "receivedAt", provenance, quality, status, reason,
+         source_reported_value as "sourceReportedValue", source_reported_unit as "sourceReportedUnit",
+         transport_raw_value as "transportRawValue", source_identity as "sourceIdentity"
       from filtered_records
       where quality = 'validated' and value is not null
       order by observed_at desc, received_at desc, record_type asc, id asc

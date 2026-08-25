@@ -67,6 +67,10 @@ export type ScadaReportRecord = {
   quality: ReportQuality;
   status: string | null;
   reason: string | null;
+  sourceReportedValue?: string | null;
+  sourceReportedUnit?: string | null;
+  transportRawValue?: string | null;
+  sourceIdentity?: string | null;
 };
 
 function normalized(value: string) {

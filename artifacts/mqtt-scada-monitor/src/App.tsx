@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
+import { isSourceReportedEvidence, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawMetric, parseSavedKpiSnapshot, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
@@ -183,7 +184,7 @@ type WeatherState = {
 
 const MODBUS_COLUMNS = [
   'timestamp', 'date', 'date_iso_8601', 'bdate', 'server_id', 'bserver_id',
-  'addr', 'baddr', 'full_addr', 'size', 'data', 'raw_data', 'server_name', 'ip', 'name',
+  'addr', 'baddr', 'full_addr', 'size', 'data', 'raw_data', 'reported_value', 'reported_unit', 'source_identity', 'server_name', 'ip', 'name',
 ] as const;
 
 function isRecord(value: JsonValue): value is Record<string, JsonValue> {
@@ -221,6 +222,10 @@ function extractModbusRows(payload: JsonValue): ModbusRow[] {
       name: String(name),
       data,
       raw_data: candidate.raw_data ?? candidate.rawValue ?? candidate.raw_value ?? data,
+      ...(candidate.reported_value !== undefined || candidate.reportedValue !== undefined || candidate.customer_value !== undefined || candidate.customerValue !== undefined || candidate.engineering_value !== undefined || candidate.engineeringValue !== undefined
+        ? { reported_value: candidate.reported_value ?? candidate.reportedValue ?? candidate.customer_value ?? candidate.customerValue ?? candidate.engineering_value ?? candidate.engineeringValue }
+        : {}),
+      reported_unit: candidate.reported_unit ?? candidate.reportedUnit ?? candidate.customer_unit ?? candidate.customerUnit ?? candidate.source_unit ?? candidate.sourceUnit,
       full_addr: candidate.full_addr ?? candidate.address ?? candidate.register ?? candidate.addr,
       server_name: candidate.server_name ?? candidate.source ?? candidate.device ?? candidate.server,
     });
@@ -239,6 +244,18 @@ function extractModbusRows(payload: JsonValue): ModbusRow[] {
   };
   visit(payload);
   return rows;
+}
+
+function sourceReportedValue(row: ModbusRow) {
+  return sourceReportedTelemetryValue(row);
+}
+
+function sourceTransportValue(row: ModbusRow) {
+  return transportRawTelemetryValue(row);
+}
+
+function hasSourceReportedValue(row: ModbusRow) {
+  return isSourceReportedEvidence(row);
 }
 
 function modbusRowKey(row: ModbusRow) {
@@ -430,7 +447,7 @@ function telemetryCategory(row: ModbusRow) {
 }
 
 function telemetryUnit(row: ModbusRow) {
-  const sourceUnit = row.engineering_unit ?? row.engineeringUnit ?? row.unit ?? row.units;
+  const sourceUnit = row.reported_unit ?? row.reportedUnit ?? row.customer_unit ?? row.customerUnit ?? row.source_unit ?? row.sourceUnit ?? row.engineering_unit ?? row.engineeringUnit ?? row.unit ?? row.units;
   return typeof sourceUnit === 'string' && sourceUnit.trim() ? sourceUnit.trim() : 'Raw / not declared';
 }
 
@@ -1109,7 +1126,7 @@ type ElectricalEvidence = {
   source: string;
   address: string;
   quality: string;
-  status: 'Validated' | 'Raw / Scaling Required' | 'Data Unavailable';
+  status: 'Validated' | 'Source Reported / Scaling Required' | 'Raw / Scaling Required' | 'Data Unavailable';
 };
 
 const electricalKindLabels: Record<ElectricalKind, string> = {
@@ -1143,7 +1160,7 @@ function telemetryEpoch(row: ModbusRow) {
 
 function electricalRowIdentity(row: ModbusRow) {
   const receivedAt = row.serverReceivedAt ?? row.timestamp ?? row.snapshotCapturedAt ?? row.date_iso_8601 ?? row.date ?? '';
-  const reportedValue = row.data ?? row.raw_data ?? '';
+  const reportedValue = sourceReportedValue(row) ?? sourceTransportValue(row) ?? '';
   return `${modbusRowKey(row)}|${String(receivedAt)}|${String(reportedValue)}`;
 }
 
@@ -1182,12 +1199,14 @@ function explicitScalingValidated(row: ModbusRow) {
 function electricalEvidence(row: ModbusRow, index: number): ElectricalEvidence | null {
   const kind = electricalKind(row);
   if (!kind) return null;
-  const reported = typeof row.data === 'number' ? row.data : typeof row.data === 'string' && row.data.trim() ? Number(row.data) : NaN;
+  const sourceValue = sourceReportedValue(row);
+  const reported = typeof sourceValue === 'number' ? sourceValue : typeof sourceValue === 'string' && sourceValue.trim() ? Number(sourceValue) : NaN;
   const scaled = Number.isFinite(reported) && explicitScalingValidated(row);
   const timestamp = telemetryEpoch(row);
   const dateTime = telemetryDateTime(row);
-  const reportedRaw = row.data ?? row.raw_data;
-  const transportRaw = row.raw_data ?? row.data;
+  const reportedRaw = sourceValue ?? sourceTransportValue(row);
+  const transportRaw = sourceTransportValue(row);
+  const sourceReported = hasSourceReportedValue(row);
   return {
     id: `${electricalRowIdentity(row)}-${index}`,
     kind,
@@ -1201,8 +1220,8 @@ function electricalEvidence(row: ModbusRow, index: number): ElectricalEvidence |
     timestampLabel: dateTime.full,
     source: String(row.server_name || row.topic || 'Modbus'),
     address: String(row.full_addr || row.addr || 'Data unavailable'),
-    quality: String(row.quality || row.data_quality || (scaled ? 'Validated scaling' : 'Scaling configuration unavailable')),
-    status: reportedRaw === undefined || reportedRaw === null ? 'Data Unavailable' : scaled ? 'Validated' : 'Raw / Scaling Required',
+    quality: String(row.quality || row.data_quality || (scaled ? 'Validated scaling' : sourceReported ? 'Source-reported; scaling approval required' : 'Scaling configuration unavailable')),
+    status: reportedRaw === undefined || reportedRaw === null ? 'Data Unavailable' : scaled ? 'Validated' : sourceReported ? 'Source Reported / Scaling Required' : 'Raw / Scaling Required',
   };
 }
 
@@ -2254,7 +2273,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   const sources = useMemo(() => ['All sources', ...Array.from(new Set(rows.map((row) => String(row.server_name || 'Modbus'))).values()).sort()], [rows]);
   const filteredRows = useMemo(() => rows.filter((row) => {
     const dateTime = telemetryDateTime(row);
-    const searchable = `${row.name ?? ''} ${row.full_addr ?? row.addr ?? ''} ${row.server_name ?? ''} ${row.data ?? ''} ${dateTime.date} ${dateTime.time}`.toLowerCase();
+       const searchable = `${row.name ?? ''} ${row.full_addr ?? row.addr ?? ''} ${row.server_name ?? ''} ${sourceReportedValue(row) ?? ''} ${sourceTransportValue(row) ?? ''} ${dateTime.date} ${dateTime.time}`.toLowerCase();
     return searchable.includes(filter.toLowerCase()) &&
       (filterCategory === 'All categories' || telemetryCategory(row) === filterCategory) &&
       (filterSource === 'All sources' || String(row.server_name || 'Modbus') === filterSource);
@@ -2265,8 +2284,8 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
     const values: Record<TelemetrySortKey, (row: ModbusRow) => string | number> = {
       category: telemetryCategory,
       parameter: (row) => String(row.name || ''),
-      raw: (row) => String(row.raw_data ?? row.data ?? ''),
-      scaled: (row) => String(row.data ?? ''),
+       raw: (row) => String(sourceTransportValue(row) ?? ''),
+       scaled: (row) => String(sourceReportedValue(row) ?? ''),
       unit: telemetryUnit,
       address: (row) => String(row.full_addr ?? row.addr ?? ''),
       date: (row) => telemetryDateTime(row).date,
@@ -2306,7 +2325,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
       ...sortedRows.map((row) => {
         const dateTime = telemetryDateTime(row);
         return `<Row>${[
-          telemetryCategory(row), row.name || '—', row.raw_data ?? row.data, row.data, telemetryUnit(row),
+           telemetryCategory(row), row.name || '—', sourceTransportValue(row), sourceReportedValue(row), telemetryUnit(row),
           row.full_addr ?? row.addr ?? '—', row.quality ?? 'Good', row.server_name || 'Modbus', dateTime.date, dateTime.time,
         ].map(cell).join('')}</Row>`;
       }),
@@ -2324,7 +2343,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
     const title = 'TRN246 Solar Plant — Detailed Live Telemetry';
     const htmlRows = sortedRows.map((row) => {
       const dateTime = telemetryDateTime(row);
-      return `<tr><td>${escapeHtml(telemetryCategory(row))}</td><td>${escapeHtml(row.name || '—')}</td><td>${escapeHtml(row.raw_data ?? row.data)}</td><td>${escapeHtml(row.data)}</td><td>${escapeHtml(telemetryUnit(row))}</td><td>${escapeHtml(row.full_addr ?? row.addr ?? '—')}</td><td>${escapeHtml(row.quality ?? 'Good')}</td><td>${escapeHtml(row.server_name || 'Modbus')}</td><td>${escapeHtml(dateTime.date)}</td><td>${escapeHtml(dateTime.time)}</td></tr>`;
+       return `<tr><td>${escapeHtml(telemetryCategory(row))}</td><td>${escapeHtml(row.name || '—')}</td><td>${escapeHtml(sourceTransportValue(row))}</td><td>${escapeHtml(sourceReportedValue(row))}</td><td>${escapeHtml(telemetryUnit(row))}</td><td>${escapeHtml(row.full_addr ?? row.addr ?? '—')}</td><td>${escapeHtml(row.quality ?? row.source_mapping_status ?? 'Good')}</td><td>${escapeHtml(row.server_name || 'Modbus')}</td><td>${escapeHtml(dateTime.date)}</td><td>${escapeHtml(dateTime.time)}</td></tr>`;
     }).join('');
     reportWindow.document.write(`<!doctype html><html><head><title>${escapeHtml(title)}</title><style>
       @page{size:landscape;margin:12mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}h1{font-size:18px;margin:0 0 4px}p{margin:3px 0;color:#5c6b80}.meta{border-bottom:2px solid #dbe3ef;padding-bottom:10px;margin-bottom:12px}table{width:100%;border-collapse:collapse}th{background:#e8eef7;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.05em}th,td{border:1px solid #dbe3ef;padding:6px 5px;vertical-align:top}td:nth-child(3),td:nth-child(4),td:nth-child(6),td:nth-child(10){font-family:monospace} .empty{text-align:center;padding:24px;color:#5c6b80}@media print{thead{display:table-header-group}tr{break-inside:avoid}}
@@ -2397,11 +2416,11 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
           </thead>
           <tbody className="divide-y divide-[#1e293b]">
             {sortedRows.length ? sortedRows.map((row, index) => {
-               const rawValue = formatValue(row.raw_data ?? row.data);
-               const scaledValue = formatValue(row.data);
+               const rawValue = formatValue(sourceTransportValue(row));
+               const scaledValue = formatValue(sourceReportedValue(row));
                const dateTime = telemetryDateTime(row);
                return (
-                   <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-live-data-${index}`} title={`${String(row.name || 'Parameter')}\nSource-reported value: ${scaledValue} ${telemetryUnit(row)}\nRaw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-[#1e293b]/40 transition-colors">
+                   <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-live-data-${index}`} title={`${String(row.name || 'Parameter')}\nSource-reported value: ${scaledValue} ${telemetryUnit(row)}\nTransport raw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || row.source_mapping_status || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-[#1e293b]/40 transition-colors">
                    <td className="px-5 py-2.5 text-[11px] text-slate-300 flex items-center gap-2">
                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                       {telemetryCategory(row)}
@@ -2415,8 +2434,8 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
                     <td className="px-5 py-2.5 text-[11px] text-slate-400 font-mono">{dateTime.time}</td>
                     <td className="px-5 py-2.5 text-[11px] text-slate-400">{String(row.server_name || 'Modbus')}</td>
                    <td className="px-5 py-2.5">
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${String(row.quality || 'Good').toLowerCase() === 'good' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                        <span className="w-1 h-1 rounded-full bg-current" /> {String(row.quality || 'Good')}
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${explicitScalingValidated(row) ? 'bg-emerald-500/10 text-emerald-400' : hasSourceReportedValue(row) ? 'bg-blue-500/10 text-blue-300' : 'bg-amber-500/10 text-amber-400'}`}>
+                         <span className="w-1 h-1 rounded-full bg-current" /> {explicitScalingValidated(row) ? 'Validated' : hasSourceReportedValue(row) ? 'Source-reported · scaling required' : String(row.quality || 'Raw / scaling required')}
                      </span>
                    </td>
                  </tr>

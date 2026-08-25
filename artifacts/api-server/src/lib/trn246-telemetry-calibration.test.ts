@@ -2,42 +2,66 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { applyTrn246TelemetryCalibration } from "./trn246-telemetry-calibration.ts";
 
-test("converts approved TRN246 active power to kW while retaining the source value", () => {
-  const calibrated = applyTrn246TelemetryCalibration({
+test("preserves an explicitly reported active-power value without inferring scaling or validation", () => {
+  const annotated = applyTrn246TelemetryCalibration({
     name: "actpow",
-    data: 2_015_690_752,
+    data: -11_309.54752,
+    raw_data: "raw-register-evidence",
     full_addr: "305031",
     server_name: "ana",
   });
 
-  assert.equal(calibrated.data, 20_156.90752);
-  assert.equal(calibrated.source_raw_value, 2_015_690_752);
-  assert.equal(calibrated.engineering_unit, "kW");
-  assert.equal(calibrated.semantic, "active_power");
-  assert.equal(calibrated.scaling_validated, true);
+  assert.equal(annotated.data, -11_309.54752);
+  assert.equal(annotated.reported_value, -11_309.54752);
+  assert.equal(annotated.reported_unit, "kW");
+  assert.equal(annotated.source_raw_value, "raw-register-evidence");
+  assert.equal(annotated.source_mapping_status, "source-reported");
+  assert.equal(annotated.scaling_validated, undefined);
+  assert.equal(annotated.semantic, undefined);
 });
 
-test("converts approved TRN246 counters to MWh", () => {
-  const calibrated = applyTrn246TelemetryCalibration({
+test("maps the PDF totalenergy row as a source-reported cumulative MWh counter only", () => {
+  const annotated = applyTrn246TelemetryCalibration({
     name: "totalenergy",
-    data: 31_457_280,
+    data: 30_670.848,
+    raw_data: "30670848",
     full_addr: "305008",
     server_name: "ana",
   });
 
-  assert.equal(calibrated.data, 31_457.28);
-  assert.equal(calibrated.engineering_unit, "MWh");
-  assert.equal(calibrated.semantic, "cumulative_energy");
+  assert.equal(annotated.data, 30_670.848);
+  assert.equal(annotated.reported_value, 30_670.848);
+  assert.equal(annotated.reported_unit, "MWh");
+  assert.equal(annotated.source_counter_role, "cumulative-counter");
+  assert.equal(annotated.scaling_validated, undefined);
+  assert.equal(annotated.semantic, undefined);
 });
 
-test("marks the invN identity register without promoting it to power", () => {
-  const calibrated = applyTrn246TelemetryCalibration({
-    name: "inv1",
-    data: 12_855,
+test("keeps the five PDF inverter identity rows distinct despite their shared source and register", () => {
+  const rows = [1, 2, 3, 4, 5].map((number) => applyTrn246TelemetryCalibration({
+    name: `inv${number}`,
+    data: 2134,
+    raw_data: "2134",
+    full_addr: "305003",
+    server_name: "ana",
+  }));
+
+  assert.deepEqual(rows.map((row) => row.inverter_id), ["inv1", "inv2", "inv3", "inv4", "inv5"]);
+  assert.equal(new Set(rows.map((row) => row.source_identity)).size, 5);
+  assert.ok(rows.every((row) => row.measurement_type === "inverter_identity"));
+  assert.ok(rows.every((row) => row.reported_value === 2134 && row.reported_unit === undefined));
+  assert.ok(rows.every((row) => row.scaling_validated === undefined));
+});
+
+test("does not call a data-only payload customer-facing evidence", () => {
+  const annotated = applyTrn246TelemetryCalibration({
+    name: "todayyield",
+    data: 22.024,
     full_addr: "305003",
     server_name: "ana",
   });
 
-  assert.equal(calibrated.measurement_type, "inverter_identity");
-  assert.equal(calibrated.scaling_validated, undefined);
+  assert.equal(annotated.source_mapping_status, "raw");
+  assert.equal(annotated.reported_unit, undefined);
+  assert.equal(annotated.data, 22.024);
 });

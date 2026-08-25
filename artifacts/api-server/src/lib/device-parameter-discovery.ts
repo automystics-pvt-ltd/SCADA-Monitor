@@ -10,6 +10,8 @@ export type DeviceParameterCategory =
 
 export type DeviceParameterProvenance = "live" | "retained" | "recovered" | "replay" | "snapshot";
 
+import { applyTrn246TelemetryCalibration } from "./trn246-telemetry-calibration";
+
 export type DiscoveredDeviceParameter = {
   observationId: string;
   signalKey: string;
@@ -22,10 +24,16 @@ export type DiscoveredDeviceParameter = {
   displayLabel: string;
   category: DeviceParameterCategory;
   rawValue: string;
+  reportedValue: string;
+  reportedNumericValue: number | null;
   value: number | null;
   unit: string | null;
+  sourceUnit: string | null;
   address: string | null;
   sourceName: string;
+  sourceIdentity: string;
+  sourceMappingStatus: "source-reported" | "raw";
+  sourceCounterRole?: "daily-counter" | "cumulative-counter";
   observedAt?: string;
   receivedAt: string;
   provenance: DeviceParameterProvenance;
@@ -153,11 +161,12 @@ function hash(value: string) {
 
 const metadataKeys = new Set([
   "name", "parameter", "tag", "registername", "data", "value", "currentvalue", "current_value",
+  "customervalue", "customer_value", "reportedvalue", "reported_value", "engineeringvalue", "engineering_value",
   "rawdata", "rawvalue", "raw_value", "dateiso8601", "timestamp", "date", "site", "sitename",
   "site_name", "plant", "plantname", "plant_name", "device", "deviceid", "device_id", "devicename",
   "device_name", "inverter", "inverterid", "inverter_id", "invertername", "inverter_name",
   "assetid", "asset_id", "server", "servername", "server_name", "serverid", "server_id",
-  "source", "address", "addr", "fulladdr", "full_addr", "register", "unit", "units",
+  "source", "address", "addr", "fulladdr", "full_addr", "register", "unit", "units", "reportedunit", "reported_unit", "sourceunit", "source_unit",
   "engineeringunit", "engineering_unit", "scalingvalidated", "scaling_validated", "scalingstatus",
   "scaling_status", "measurementtype", "measurement_type", "semantic", "metric", "kind", "category",
 ]);
@@ -167,7 +176,7 @@ function parameterName(source: Record<string, unknown>) {
 }
 
 function parameterValue(source: Record<string, unknown>) {
-  for (const key of ["data", "value", "currentValue", "current_value", "raw_data", "rawValue", "raw_value"]) {
+  for (const key of ["customer_value", "customerValue", "reported_value", "reportedValue", "engineering_value", "engineeringValue", "data", "value", "currentValue", "current_value", "raw_data", "rawValue", "raw_value"]) {
     if (source[key] !== undefined) return source[key];
   }
   return undefined;
@@ -192,14 +201,18 @@ function buildParameter(
   rawValue: unknown,
   context: DeviceParameterDiscoveryContext,
 ): DiscoveredDeviceParameter {
-  const identity = sourceIdentity(source, context);
+  const mappedSource = applyTrn246TelemetryCalibration(source);
+  const identity = sourceIdentity(mappedSource, context);
   const normalizedName = normalized(originalName) || "unnamed";
-  const address = firstText(source, ["full_addr", "address", "register", "addr"]) ?? null;
-  const observedAt = observationTime(source);
-  const value = numericValue(rawValue);
-  const validated = scalingValidated(source);
+  const address = firstText(mappedSource, ["full_addr", "address", "register", "addr"]) ?? null;
+  const observedAt = observationTime(mappedSource);
+  const reported = parameterValue(mappedSource) ?? rawValue;
+  const value = numericValue(reported);
+  const validated = scalingValidated(mappedSource);
+  const sourceMappingStatus = mappedSource.source_mapping_status === "source-reported" ? "source-reported" as const : "raw" as const;
   const signalKey = [identity.siteName, identity.deviceId, normalizedName, address ?? "—"].join("|");
-  const observationId = `parameter:${hash([signalKey, observedAt ?? "", context.receivedAt, rawText(rawValue)].join("|"))}`;
+  const sourceIdentityKey = [identity.siteName, identity.sourceName, normalizedName, address ?? "—"].join("|");
+  const observationId = `parameter:${hash([sourceIdentityKey, observedAt ?? "", context.receivedAt, rawText(reported), rawText(mappedSource.raw_data ?? mappedSource.rawValue ?? mappedSource.raw_value ?? rawValue)].join("|"))}`;
   return {
     observationId,
     signalKey,
@@ -209,17 +222,23 @@ function buildParameter(
     topic: context.topic,
     originalName,
     normalizedName,
-    displayLabel: firstText(source, ["display_name", "displayName", "label", "description"]) ?? displayLabel(originalName),
-    category: classifyDeviceParameter(source, originalName),
-    rawValue: rawText(source.raw_data ?? source.rawValue ?? source.raw_value ?? rawValue),
+    displayLabel: firstText(mappedSource, ["display_name", "displayName", "label", "description"]) ?? displayLabel(originalName),
+    category: classifyDeviceParameter(mappedSource, originalName),
+    rawValue: rawText(mappedSource.raw_data ?? mappedSource.rawValue ?? mappedSource.raw_value ?? rawValue),
+    reportedValue: rawText(reported),
+    reportedNumericValue: value,
     value,
-    unit: firstText(source, ["engineering_unit", "engineeringUnit", "unit", "units"]) ?? null,
+    unit: firstText(mappedSource, ["engineering_unit", "engineeringUnit", "unit", "units"]) ?? null,
+    sourceUnit: firstText(mappedSource, ["reported_unit", "reportedUnit", "customer_unit", "customerUnit", "source_unit", "sourceUnit", "engineering_unit", "engineeringUnit", "unit", "units"]) ?? null,
     address,
     sourceName: identity.sourceName,
+    sourceIdentity: sourceIdentityKey,
+    sourceMappingStatus,
+    sourceCounterRole: mappedSource.source_counter_role === "daily-counter" || mappedSource.source_counter_role === "cumulative-counter" ? mappedSource.source_counter_role : undefined,
     observedAt,
     receivedAt: context.receivedAt,
     provenance: context.provenance,
-    dataQuality: validated ? "validated" : value === null ? "source-reported" : "raw",
+    dataQuality: validated ? "validated" : sourceMappingStatus === "source-reported" || value === null ? "source-reported" : "raw",
     scalingStatus: validated ? "validated" : "raw",
   };
 }

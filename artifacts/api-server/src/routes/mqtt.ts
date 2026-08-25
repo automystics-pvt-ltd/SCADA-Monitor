@@ -662,6 +662,19 @@ function numericParameterValue(parameter: Record<string, unknown>) {
   return Number.isFinite(value) ? value : null;
 }
 
+function sourceReportedEvidence(parameter: Record<string, unknown>) {
+  const reportedValue = parameter.reported_value ?? parameter.reportedValue ?? parameter.customer_value ?? parameter.customerValue;
+  const reportedUnit = parameter.reported_unit ?? parameter.reportedUnit ?? parameter.customer_unit ?? parameter.customerUnit ?? parameter.source_unit ?? parameter.sourceUnit;
+  const transportRawValue = parameter.raw_data ?? parameter.rawValue ?? parameter.raw_value ?? parameter.source_raw_value ?? parameter.sourceRawValue;
+  return {
+    sourceReportedValue: reportedValue === undefined || reportedValue === null ? null : String(reportedValue),
+    sourceReportedUnit: reportedUnit === undefined || reportedUnit === null ? null : String(reportedUnit),
+    transportRawValue: transportRawValue === undefined || transportRawValue === null ? null : String(transportRawValue),
+    sourceIdentity: typeof parameter.source_identity === "string" ? parameter.source_identity : typeof parameter.sourceIdentity === "string" ? parameter.sourceIdentity : null,
+    isSourceReported: parameter.source_mapping_status === "source-reported" || parameter.sourceMappingStatus === "source-reported",
+  };
+}
+
 function parameterObservationTime(parameter: Record<string, unknown>) {
   const value = parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date;
   return sourceTimestampIso(value);
@@ -2712,7 +2725,8 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
         const numeric = numericParameterValue(parameter);
         const sourceStatus = sourceText(parameter, ["alarmStatus", "alarm_status", "status", "state", "severity"]);
         const alarm = category === "alarms";
-        const quality = alarm ? "source-reported" as const : sourceExplicitlyValidatesEngineeringValue(parameter) ? "validated" as const : "raw" as const;
+        const reportedEvidence = sourceReportedEvidence(parameter);
+        const quality = alarm ? "source-reported" as const : sourceExplicitlyValidatesEngineeringValue(parameter) ? "validated" as const : reportedEvidence.isSourceReported ? "source-reported" as const : "raw" as const;
         if (quality === "raw") {
           exclude("Raw or unvalidated engineering value excluded from report values.", sourceName, parameterName);
           continue;
@@ -2726,8 +2740,8 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
           deviceName: sourceText(parameter, ["inverter_name", "inverterName", "device_name", "deviceName"]) ?? null,
           parameter: parameterName,
           displayLabel: sourceText(parameter, ["display_name", "displayName", "label"]) ?? parameterName,
-          value: alarm ? null : numeric,
-          unit: alarm ? "" : String(parameter.engineering_unit ?? parameter.unit ?? "source units"),
+          value: quality === "validated" ? numeric : null,
+          unit: quality === "validated" ? String(parameter.engineering_unit ?? parameter.unit ?? "source units") : "",
           address,
           sourceName,
           observedAt,
@@ -2736,6 +2750,10 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
           quality,
           status: sourceStatus ?? null,
           reason: alarm ? sourceText(parameter, ["reason", "description", "message", "cause"]) ?? "Source-reported alarm/fault evidence." : null,
+          sourceReportedValue: reportedEvidence.sourceReportedValue,
+          sourceReportedUnit: reportedEvidence.sourceReportedUnit,
+          transportRawValue: reportedEvidence.transportRawValue,
+          sourceIdentity: reportedEvidence.sourceIdentity,
         });
       }
     }

@@ -157,6 +157,18 @@ function sourceUnit(parameter: Record<string, unknown>) {
     ?? "source units";
 }
 
+function sourceReportedMetadata(parameter: Record<string, unknown>) {
+  const reportedValue = parameter.reported_value ?? parameter.reportedValue ?? parameter.customer_value ?? parameter.customerValue;
+  const reportedUnit = parameter.reported_unit ?? parameter.reportedUnit ?? parameter.customer_unit ?? parameter.customerUnit ?? parameter.source_unit ?? parameter.sourceUnit;
+  return {
+    sourceReportedValue: reportedValue === undefined || reportedValue === null ? undefined : String(reportedValue),
+    sourceReportedUnit: reportedUnit === undefined || reportedUnit === null ? undefined : String(reportedUnit),
+    transportRawValue: parameter.raw_data ?? parameter.rawValue ?? parameter.raw_value ?? parameter.source_raw_value ?? parameter.sourceRawValue,
+    sourceIdentity: parameter.source_identity ?? parameter.sourceIdentity,
+    sourceMappingStatus: parameter.source_mapping_status ?? parameter.sourceMappingStatus,
+  };
+}
+
 function measurementKind(parameter: Record<string, unknown>, parameterName: string): InverterMeasurementKind {
   const declared = normalized(String(
     parameter.measurement_type
@@ -242,6 +254,7 @@ export function inverterEnergyObservationFromParameter(parameter: Record<string,
       serverId: parameter.server_id ?? parameter.serverId,
       sourceTimestamp: parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date,
       sourceMapping: "explicit-inverter-energy",
+      ...sourceReportedMetadata(parameter),
     },
   };
 }
@@ -291,6 +304,7 @@ export function inverterMeasurementObservationFromParameter(parameter: Record<st
       sourceTimestamp: parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date,
       sourceMapping: "explicit-inverter-measurement",
       activePowerSemantic: kind === "active-power" ? activePowerSemantic(parameter) : undefined,
+      ...sourceReportedMetadata(parameter),
     },
   };
 }
@@ -338,6 +352,7 @@ export function inverterActivePowerObservationFromParameter(parameter: Record<st
       serverId: parameter.server_id ?? parameter.serverId,
       sourceTimestamp: parameter.date_iso_8601 ?? parameter.timestamp ?? parameter.date,
       sourceMapping: "explicit-inverter-identity-active-power",
+      ...sourceReportedMetadata(parameter),
     },
   };
 }
