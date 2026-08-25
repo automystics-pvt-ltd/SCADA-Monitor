@@ -538,6 +538,305 @@
   background: color-mix(in srgb, #F43F5E 10%, var(--scada-surface));
   color: #FB7185;
 }
+.scada-dashboard-status-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: .55rem;
+}
+.scada-dashboard-status-card {
+  display: flex;
+  min-width: 0;
+  min-height: 5rem;
+  align-items: center;
+  gap: .72rem;
+  overflow: hidden;
+  border: 1px solid var(--scada-border);
+  border-radius: .75rem;
+  background: var(--scada-surface);
+  box-shadow: var(--scada-control-shadow);
+  padding: .7rem .78rem;
+}
+.scada-dashboard-status-card--neutral {
+  background: color-mix(in srgb, var(--scada-surface-raised) 82%, var(--scada-surface));
+}
+.scada-dashboard-status-card--freshness {
+  border-color: color-mix(in srgb, #A855F7 22%, var(--scada-border));
+  background: color-mix(in srgb, #A855F7 6%, var(--scada-surface));
+}
+.scada-dashboard-status-card--healthy {
+  border-color: color-mix(in srgb, #10B981 22%, var(--scada-border));
+  background: color-mix(in srgb, #10B981 5%, var(--scada-surface));
+}
+.scada-dashboard-status-card--attention {
+  border-color: color-mix(in srgb, #F59E0B 22%, var(--scada-border));
+  background: color-mix(in srgb, #F59E0B 5%, var(--scada-surface));
+}
+.scada-dashboard-status-icon {
+  display: inline-flex;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: 0 0 2.35rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: .72rem;
+}
+.scada-dashboard-status-icon--radio {
+  color: #34D399;
+  background: color-mix(in srgb, #10B981 14%, transparent);
+  border-color: color-mix(in srgb, #10B981 22%, transparent);
+}
+.scada-dashboard-status-icon--database {
+  color: #60A5FA;
+  background: color-mix(in srgb, #3B82F6 14%, transparent);
+  border-color: color-mix(in srgb, #3B82F6 22%, transparent);
+}
+.scada-dashboard-status-icon--clock {
+  color: #D946EF;
+  background: color-mix(in srgb, #A855F7 14%, transparent);
+  border-color: color-mix(in srgb, #A855F7 22%, transparent);
+}
+.scada-dashboard-status-icon--heartbeat {
+  color: #2DD4BF;
+  background: color-mix(in srgb, #14B8A6 14%, transparent);
+  border-color: color-mix(in srgb, #14B8A6 22%, transparent);
+}
+.scada-dashboard-status-label {
+  overflow: hidden;
+  color: var(--scada-muted);
+  font-size: .59rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.scada-dashboard-status-value {
+  display: block;
+  margin-top: .28rem;
+  overflow: hidden;
+  color: var(--scada-text);
+  font-size: .88rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-dashboard-status-card[class*="text-emerald"] .scada-dashboard-status-value,
+.scada-dashboard-status-card--healthy .scada-dashboard-status-value {
+  color: #34D399;
+}
+.scada-dashboard-status-card[class*="text-amber"] .scada-dashboard-status-value,
+.scada-dashboard-status-card--attention .scada-dashboard-status-value {
+  color: #FBBF24;
+}
+.scada-dashboard-status-card[class*="text-rose"] .scada-dashboard-status-value {
+  color: #FB7185;
+}
+.scada-dashboard-status-detail {
+  overflow: hidden;
+  margin-top: .28rem;
+  color: var(--scada-muted);
+  font-size: .62rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-dashboard-communication-bar {
+  border-color: var(--scada-border);
+  background: var(--scada-surface);
+  box-shadow: var(--scada-control-shadow);
+}
+.scada-dashboard-communication-details {
+  position: relative;
+  flex: none;
+}
+.scada-dashboard-communication-details summary {
+  display: flex;
+  align-items: center;
+  gap: .2rem;
+  cursor: pointer;
+  list-style: none;
+  border: 1px solid var(--scada-border);
+  border-radius: .42rem;
+  color: var(--scada-muted);
+  font-size: .62rem;
+  font-weight: 700;
+  padding: .3rem .45rem;
+}
+.scada-dashboard-communication-details summary::-webkit-details-marker {
+  display: none;
+}
+.scada-dashboard-communication-details summary svg {
+  transition: transform .16s ease;
+}
+.scada-dashboard-communication-details[open] summary svg {
+  transform: rotate(90deg);
+}
+.scada-dashboard-communication-detail-content {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + .4rem);
+  right: 0;
+  display: flex;
+  width: min(22rem, calc(100vw - 3rem));
+  flex-wrap: wrap;
+  gap: .35rem;
+  border: 1px solid var(--scada-border);
+  border-radius: .65rem;
+  background: var(--scada-surface-raised);
+  box-shadow: var(--scada-shadow);
+  padding: .5rem;
+}
+.scada-dashboard-communication-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .55rem .35rem;
+  margin-top: .7rem;
+}
+.scada-dashboard-communication-metrics > div {
+  min-width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--scada-border) 88%, transparent);
+  padding-left: .55rem;
+}
+.scada-dashboard-communication-metrics > div:nth-child(odd) {
+  border-left: 0;
+  padding-left: 0;
+}
+.scada-dashboard-communication-metrics p {
+  overflow: hidden;
+  color: var(--scada-muted);
+  font-size: .57rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.scada-dashboard-communication-metrics strong {
+  display: block;
+  overflow: hidden;
+  margin-top: .3rem;
+  color: var(--scada-text);
+  font-family: var(--app-font-mono);
+  font-size: .73rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-dashboard-system-strip {
+  display: grid;
+  gap: .75rem;
+  border-color: var(--scada-border);
+  background: var(--scada-surface);
+  box-shadow: var(--scada-control-shadow);
+  padding: .72rem .85rem;
+}
+.scada-dashboard-system-strip--healthy {
+  border-color: color-mix(in srgb, #10B981 18%, var(--scada-border));
+  background: color-mix(in srgb, #10B981 4%, var(--scada-surface));
+}
+.scada-dashboard-system-strip--attention {
+  border-color: color-mix(in srgb, #F59E0B 20%, var(--scada-border));
+  background: color-mix(in srgb, #F59E0B 5%, var(--scada-surface));
+}
+.scada-dashboard-system-primary,
+.scada-dashboard-system-metric {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: .65rem;
+}
+.scada-dashboard-system-icon {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, #10B981 25%, transparent);
+  border-radius: .62rem;
+  background: color-mix(in srgb, #10B981 12%, transparent);
+  color: #34D399;
+}
+.scada-dashboard-system-strip--attention .scada-dashboard-system-icon {
+  border-color: color-mix(in srgb, #F59E0B 28%, transparent);
+  background: color-mix(in srgb, #F59E0B 12%, transparent);
+  color: #FBBF24;
+}
+.scada-dashboard-system-primary strong,
+.scada-dashboard-system-metric strong {
+  display: block;
+  overflow: hidden;
+  color: var(--scada-text);
+  font-size: .72rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-dashboard-system-primary p,
+.scada-dashboard-system-metric p {
+  overflow: hidden;
+  margin-top: .2rem;
+  color: var(--scada-muted);
+  font-size: .6rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-dashboard-system-metric > span {
+  color: var(--scada-accent);
+}
+
+@media (min-width: 520px) {
+  .scada-dashboard-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .scada-dashboard-system-strip {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  }
+}
+@media (min-width: 768px) {
+  .scada-dashboard-communication-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .scada-dashboard-communication-metrics > div:nth-child(odd) {
+    border-left: 1px solid color-mix(in srgb, var(--scada-border) 88%, transparent);
+    padding-left: .65rem;
+  }
+  .scada-dashboard-communication-metrics > div:first-child,
+  .scada-dashboard-communication-metrics > div:nth-child(5) {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+@media (min-width: 1024px) {
+  .scada-dashboard-status-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .scada-dashboard-communication-metrics {
+    grid-template-columns: 1.15fr 1fr 1.35fr .9fr .9fr 1fr .85fr;
+    gap: 0;
+  }
+  .scada-dashboard-communication-metrics > div,
+  .scada-dashboard-communication-metrics > div:nth-child(odd) {
+    border-left: 1px solid color-mix(in srgb, var(--scada-border) 88%, transparent);
+    padding-left: .75rem;
+  }
+  .scada-dashboard-communication-metrics > div:first-child {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .scada-dashboard-system-strip {
+    grid-template-columns: minmax(0, 1.55fr) minmax(10rem, .75fr) minmax(11rem, .85fr);
+    align-items: center;
+  }
+  .scada-dashboard-system-metric {
+    border-left: 1px solid color-mix(in srgb, var(--scada-border) 88%, transparent);
+    padding-left: .85rem;
+  }
+}
 
 /* Premium interactions */
 button:not(:disabled),
