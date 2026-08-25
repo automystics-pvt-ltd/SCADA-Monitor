@@ -84,6 +84,17 @@ export function DashboardPowerFlow({
         : monitoringChannelActive
           ? 'Live channel monitoring'
           : flow.statusLabel;
+  const evidenceSummary = mode === 'demo'
+    ? 'Demonstration source'
+    : flow.rawLiveTelemetry
+    ? 'Raw source evidence'
+    : provenance === 'snapshot'
+      ? 'Last saved power record'
+      : flow.streaming
+        ? 'Fresh broker telemetry'
+        : monitoringChannelActive
+          ? 'Channel monitoring'
+          : 'Source unavailable';
 
   return (
     <section
@@ -98,7 +109,7 @@ export function DashboardPowerFlow({
     >
       <div className="scada-dashboard-flow-grid pointer-events-none absolute inset-0" />
       <div className="scada-dashboard-flow-glow pointer-events-none absolute inset-0" />
-      <div className="relative z-10 flex flex-wrap items-start justify-between gap-3">
+       <div className="scada-dashboard-flow-header relative z-10 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Plant energy lane</p>
           <p className="mt-1 text-sm font-bold text-slate-100">
@@ -123,7 +134,25 @@ export function DashboardPowerFlow({
         </span>
       </div>
 
-        <div className="relative z-10 mt-2.5 h-[168px] sm:h-[205px] lg:h-[225px]">
+      <div className="scada-dashboard-flow-callout-grid relative z-10 mt-3 grid grid-cols-1 gap-2 min-[540px]:grid-cols-3" aria-label="Power flow evidence summary">
+        <div className="scada-dashboard-flow-callout scada-dashboard-flow-callout--power">
+          <span>Plant power lane</span>
+          <strong className={quality === 'raw' ? 'scada-dashboard-flow-reading-value--raw' : 'scada-dashboard-flow-reading-value--verified'}>{reading}</strong>
+          <small>{evidenceSummary}</small>
+        </div>
+        <div className="scada-dashboard-flow-callout scada-dashboard-flow-callout--inverter">
+          <span>Inverter stage</span>
+          <strong>{inverterLabel}</strong>
+          <small>{statusLabel}</small>
+        </div>
+        <div className="scada-dashboard-flow-callout scada-dashboard-flow-callout--source">
+          <span>Telemetry source</span>
+          <strong title={sourceLabel}>{sourceLabel}</strong>
+          <small>{observationLabel} {timestampLabel}</small>
+        </div>
+      </div>
+
+        <div className="scada-dashboard-flow-stage relative z-10 mt-2.5 h-[168px] sm:h-[205px] lg:h-[225px]">
         <svg viewBox="0 0 1000 280" role="img" aria-label={`Power movement from solar array through inverter to grid: ${reading}`} className="h-full w-full">
            <path d="M300 120 H425 Q450 120 450 147 V158" fill="none" className={animatedPathClass} stroke={monitoringChannelActive ? animatedPathStroke : 'var(--dashboard-flow-idle)'} strokeDasharray={monitoringChannelActive ? '14 9' : undefined} strokeWidth="5" strokeLinecap="round" />
            <path d="M550 158 V147 Q550 120 575 120 H782" fill="none" className={monitoringChannelActive ? `${animatedPathClass} dashboard-flow-path-delayed` : ''} stroke={monitoringChannelActive ? animatedPathStroke : 'var(--dashboard-flow-idle)'} strokeDasharray={monitoringChannelActive ? '14 9' : undefined} strokeWidth="5" strokeLinecap="round" />

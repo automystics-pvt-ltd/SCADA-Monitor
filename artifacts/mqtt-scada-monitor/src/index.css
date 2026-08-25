@@ -359,7 +359,7 @@
 .scada-dashboard-flow-label-mark--inverter { background: #00E5FF; box-shadow: 0 0 8px rgba(0, 229, 255, .35); }
 .scada-dashboard-flow-label-mark--grid { background: #94A3B8; }
 .scada-dashboard-flow-label-mark--load { background: #F59E0B; }
-@media (min-width: 640px) {
+@container dashboard-flow (min-width: 680px) {
   .scada-dashboard-flow-label-grid {
     display: block;
     height: 27px;
@@ -3003,4 +3003,179 @@ button:not(:disabled):active,
   .environment-analysis-card { padding: .78rem; }
   .environment-metric-card { padding-left: .75rem; padding-right: .75rem; }
   .environment-metric-card__label { font-size: .53rem; }
+}
+
+/* Reference-inspired energy lane: animated only when evidence supports a
+   current flow, with the same visual hierarchy in the bright operator theme. */
+@keyframes dashboard-flow-grid-drift {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 25px 25px, 25px 25px; }
+}
+@keyframes dashboard-flow-sweep {
+  0% { opacity: 0; transform: translateX(-24%); }
+  24%, 72% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(24%); }
+}
+@keyframes dashboard-flow-node-breathe {
+  0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+  50% { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--scada-accent) 38%, transparent)); }
+}
+.scada-dashboard-flow {
+  --dashboard-flow-callout: color-mix(in srgb, var(--scada-surface-raised) 88%, transparent);
+  container-name: dashboard-flow;
+  container-type: inline-size;
+  position: relative;
+  border-color: color-mix(in srgb, var(--scada-border) 88%, var(--scada-accent));
+  background:
+    radial-gradient(46rem 17rem at 50% 30%, color-mix(in srgb, var(--scada-accent) 9%, transparent), transparent 64%),
+    linear-gradient(165deg, color-mix(in srgb, var(--scada-surface-raised) 32%, transparent), transparent 42%),
+    var(--scada-surface);
+  box-shadow: inset 0 1px 0 var(--scada-highlight), var(--scada-shadow);
+}
+.dark .scada-dashboard-flow {
+  --dashboard-flow-callout: rgba(15, 24, 35, .72);
+  background:
+    radial-gradient(42rem 17rem at 49% 38%, rgba(55, 157, 221, .10), transparent 64%),
+    radial-gradient(30rem 13rem at 18% 5%, rgba(209, 154, 62, .07), transparent 64%),
+    linear-gradient(165deg, rgba(31, 46, 63, .72), rgba(18, 27, 38, .95)),
+    var(--scada-surface);
+}
+.light .scada-dashboard-flow {
+  --dashboard-flow-callout: rgba(255, 255, 255, .82);
+  background:
+    radial-gradient(42rem 15rem at 49% 32%, rgba(37, 99, 235, .08), transparent 65%),
+    radial-gradient(26rem 12rem at 17% 0%, rgba(209, 154, 62, .09), transparent 66%),
+    linear-gradient(165deg, rgba(255, 255, 255, .96), rgba(247, 249, 252, .9)),
+    var(--scada-surface);
+}
+.scada-dashboard-flow-grid {
+  opacity: .26;
+  background-size: 25px 25px;
+  transition: opacity 260ms ease;
+}
+.scada-dashboard-flow[data-flow-state="streaming"] .scada-dashboard-flow-grid {
+  animation: dashboard-flow-grid-drift 5s linear infinite;
+  opacity: .34;
+}
+.scada-dashboard-flow[data-flow-state="monitoring"] .scada-dashboard-flow-grid {
+  animation: dashboard-flow-grid-drift 12s linear infinite;
+  opacity: .2;
+}
+.scada-dashboard-flow-glow {
+  opacity: 0;
+  transform: translateX(-24%);
+}
+.scada-dashboard-flow[data-flow-state="streaming"] .scada-dashboard-flow-glow {
+  animation: dashboard-flow-sweep 3.2s ease-in-out infinite;
+}
+.scada-dashboard-flow[data-flow-state="monitoring"] .scada-dashboard-flow-glow {
+  animation: dashboard-flow-sweep 5.2s ease-in-out infinite;
+  opacity: .34;
+}
+.scada-dashboard-flow[data-flow-state="streaming"] .scada-dashboard-flow-stage svg {
+  animation: dashboard-flow-node-breathe 3.2s ease-in-out infinite;
+}
+.scada-dashboard-flow-callout-grid {
+  align-items: stretch;
+}
+.scada-dashboard-flow-callout {
+  min-width: 0;
+  min-height: 3.65rem;
+  border: 1px solid color-mix(in srgb, var(--scada-border) 86%, transparent);
+  border-radius: .68rem;
+  background: var(--dashboard-flow-callout);
+  padding: .48rem .62rem;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--scada-highlight) 70%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.scada-dashboard-flow-callout span,
+.scada-dashboard-flow-callout small {
+  display: block;
+  overflow: hidden;
+  color: var(--scada-muted);
+  font-size: .51rem;
+  font-weight: 700;
+  letter-spacing: .11em;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.scada-dashboard-flow-callout strong {
+  display: block;
+  overflow: hidden;
+  margin: .16rem 0;
+  color: var(--scada-text);
+  font-family: var(--app-font-mono);
+  font-size: clamp(.68rem, 1vw, .86rem);
+  font-weight: 700;
+  letter-spacing: -.035em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scada-dashboard-flow-callout .scada-dashboard-flow-reading-value--raw {
+  color: #B45309;
+}
+.scada-dashboard-flow-callout .scada-dashboard-flow-reading-value--verified {
+  color: #0369A1;
+}
+.dark .scada-dashboard-flow-callout .scada-dashboard-flow-reading-value--raw {
+  color: #FBBF24;
+}
+.dark .scada-dashboard-flow-callout .scada-dashboard-flow-reading-value--verified {
+  color: #67E8F9;
+}
+.scada-dashboard-flow-callout small {
+  font-size: .5rem;
+  letter-spacing: .04em;
+  text-transform: none;
+}
+.scada-dashboard-flow-callout--power {
+  border-color: color-mix(in srgb, var(--scada-accent) 24%, var(--scada-border));
+}
+.scada-dashboard-flow-callout--inverter {
+  text-align: center;
+}
+.scada-dashboard-flow-callout--source {
+  text-align: right;
+}
+.scada-dashboard-flow-stage {
+  isolation: isolate;
+}
+.scada-dashboard-flow-stage::after {
+  content: "";
+  position: absolute;
+  inset: 9% 24% 15%;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--scada-accent) 8%, transparent), transparent 70%);
+  opacity: .8;
+  pointer-events: none;
+}
+.scada-dashboard-flow-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--scada-border) 78%, transparent);
+  padding-bottom: .58rem;
+}
+.scada-dashboard-flow[data-flow-state="saved"] .scada-dashboard-flow-callout--power,
+.scada-dashboard-flow[data-flow-state="paused"] .scada-dashboard-flow-callout--power,
+.scada-dashboard-flow[data-flow-state="zero"] .scada-dashboard-flow-callout--power {
+  border-style: dashed;
+}
+@media (max-width: 539px) {
+  .scada-dashboard-flow-callout-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .scada-dashboard-flow-callout--source {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scada-dashboard-flow-grid,
+  .scada-dashboard-flow-glow,
+  .scada-dashboard-flow-stage svg {
+    animation: none !important;
+  }
 }

@@ -15,6 +15,12 @@ For dashboard overviews, order the scan path as site and operational health, con
 
 **How to apply:** At laptop and tablet widths, favor full-width fleet and diagnostic surfaces over narrow side-by-side panels. Reserve dense multi-column KPI rows and split operational panels for content areas that are genuinely wide enough.
 
+For dashboard elements inside the shell, choose responsive breakpoints from the panel’s available inline size, not only the browser viewport.
+
+**Why:** The persistent navigation sidebar can reduce a seemingly wide tablet or laptop viewport to a narrow operator canvas; viewport-only rules can clip labels or crowd equipment cards.
+
+**How to apply:** Use a named container query for diagram labels and other tightly packed panel content. Keep compact, wrapping layouts until the panel itself has enough width for the wide arrangement.
+
 For weather workspaces, low-saturation icon tints may distinguish metric categories, but values and surfaces remain neutral and the tints must never imply an operational state.
 
 **Why:** Weather variables benefit from quick visual scanning, while the real weather source, freshness, cached state, and unavailable state must remain semantically unambiguous.
