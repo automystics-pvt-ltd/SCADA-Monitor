@@ -5,7 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
-import { isSourceReportedEvidence, sourceReportedTelemetryUnit, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
+import { approvedDisplayTelemetryUnit, approvedDisplayTelemetryValue, isSourceReportedEvidence, sourceReportedTelemetryUnit, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, rawMetricContext, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
@@ -216,20 +216,26 @@ function extractModbusRows(payload: JsonValue): ModbusRow[] {
   const rows: ModbusRow[] = [];
   const visited = new Set<unknown>();
   const appendRow = (candidate: Record<string, JsonValue>) => {
-    const name = candidate.name ?? candidate.parameter ?? candidate.tag ?? candidate.registerName;
-    const data = candidate.data ?? candidate.value ?? candidate.currentValue ?? candidate.current_value;
+    const name = candidate.name ?? candidate.parameter ?? candidate.tag ?? candidate.registerName ?? candidate.originalName;
+    const data = candidate.data ?? candidate.raw_data ?? candidate.rawValue ?? candidate.raw_value ?? candidate.value ?? candidate.currentValue ?? candidate.current_value;
     if (name === undefined || data === undefined) return;
+    const discoveredReportedValue = candidate.reportedNumericValue ?? (
+      candidate.rawValue !== undefined && candidate.value !== undefined ? candidate.value : undefined
+    );
     rows.push({
       ...candidate,
       name: String(name),
       data,
       raw_data: candidate.raw_data ?? candidate.rawValue ?? candidate.raw_value ?? data,
-      ...(candidate.reported_value !== undefined || candidate.reportedValue !== undefined || candidate.customer_value !== undefined || candidate.customerValue !== undefined || candidate.engineering_value !== undefined || candidate.engineeringValue !== undefined
-        ? { reported_value: candidate.reported_value ?? candidate.reportedValue ?? candidate.customer_value ?? candidate.customerValue ?? candidate.engineering_value ?? candidate.engineeringValue }
+      ...(candidate.reported_value !== undefined || candidate.reportedValue !== undefined || candidate.customer_value !== undefined || candidate.customerValue !== undefined || candidate.engineering_value !== undefined || candidate.engineeringValue !== undefined || discoveredReportedValue !== undefined
+        ? { reported_value: candidate.reported_value ?? candidate.reportedValue ?? candidate.customer_value ?? candidate.customerValue ?? candidate.engineering_value ?? candidate.engineeringValue ?? discoveredReportedValue }
         : {}),
-      reported_unit: candidate.reported_unit ?? candidate.reportedUnit ?? candidate.customer_unit ?? candidate.customerUnit ?? candidate.source_unit ?? candidate.sourceUnit,
+      reported_unit: candidate.reported_unit ?? candidate.reportedUnit ?? candidate.customer_unit ?? candidate.customerUnit ?? candidate.source_unit ?? candidate.sourceUnit ?? candidate.engineering_unit ?? candidate.engineeringUnit,
+      source_unit: candidate.source_unit ?? candidate.sourceUnit,
+      source_mapping_status: candidate.source_mapping_status ?? candidate.sourceMappingStatus,
+      source_identity: candidate.source_identity ?? candidate.sourceIdentity,
       full_addr: candidate.full_addr ?? candidate.address ?? candidate.register ?? candidate.addr,
-      server_name: candidate.server_name ?? candidate.source ?? candidate.device ?? candidate.server,
+      server_name: candidate.server_name ?? candidate.source ?? candidate.sourceName ?? candidate.device ?? candidate.server,
     });
   };
   const pending: JsonValue[] = [payload];
@@ -250,7 +256,7 @@ function extractModbusRows(payload: JsonValue): ModbusRow[] {
 }
 
 function sourceReportedValue(row: ModbusRow) {
-  return sourceReportedTelemetryValue(row) as JsonValue | undefined;
+  return (approvedDisplayTelemetryValue(row) ?? sourceReportedTelemetryValue(row)) as JsonValue | undefined;
 }
 
 function sourceTransportValue(row: ModbusRow) {
@@ -458,7 +464,7 @@ function telemetryCategory(row: ModbusRow) {
 }
 
 function telemetryUnit(row: ModbusRow) {
-  const sourceUnit = row.reported_unit ?? row.reportedUnit ?? row.customer_unit ?? row.customerUnit ?? row.source_unit ?? row.sourceUnit ?? row.engineering_unit ?? row.engineeringUnit ?? row.unit ?? row.units;
+  const sourceUnit = approvedDisplayTelemetryUnit(row) ?? sourceReportedTelemetryUnit(row) ?? row.reported_unit ?? row.reportedUnit ?? row.customer_unit ?? row.customerUnit ?? row.source_unit ?? row.sourceUnit ?? row.engineering_unit ?? row.engineeringUnit ?? row.unit ?? row.units;
   return typeof sourceUnit === 'string' && sourceUnit.trim() ? sourceUnit.trim() : 'Raw / not declared';
 }
 
@@ -1231,7 +1237,7 @@ function electricalEvidence(row: ModbusRow, index: number): ElectricalEvidence |
     rawValue: reportedRaw === undefined || reportedRaw === null ? 'Data unavailable' : formatValue(reportedRaw),
     rawNumericValue: Number.isFinite(reported) ? reported : null,
     transportRawValue: transportRaw === undefined || transportRaw === null ? 'Data unavailable' : formatValue(transportRaw),
-    unit: sourceReportedTelemetryUnit(row) ?? (typeof row.unit === 'string' && row.unit.trim() ? row.unit : telemetryUnit(row)),
+    unit: approvedDisplayTelemetryUnit(row) ?? sourceReportedTelemetryUnit(row) ?? (typeof row.unit === 'string' && row.unit.trim() ? row.unit : telemetryUnit(row)),
     timestamp,
     timestampLabel: dateTime.full,
     source: String(row.server_name || row.topic || 'Modbus'),
@@ -2365,7 +2371,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   };
   const exportExcel = () => {
     const title = `TRN246 Solar Plant — Detailed Live Data (${new Date().toLocaleString()})`;
-    const columns = ['Category', 'Parameter', 'Raw Value', 'Customer Value', 'Unit', 'Register Address', 'Data Quality', 'Source', 'Date', 'Time'];
+     const columns = ['Category', 'Parameter', 'Transport Raw Value', 'Customer Value', 'Unit', 'Register Address', 'Data Quality', 'Source', 'Date', 'Time'];
     const cell = (value: unknown) => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
     const reportRows = [
       `<Row>${cell(title)}</Row>`,
@@ -2457,8 +2463,8 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
           <thead className="bg-[#0b0f19]">
             <tr>
               {[
-                ['category', 'Category'], ['parameter', 'Parameter'], ['raw', 'Raw Value'], ['scaled', 'Reported Value'],
-                ['unit', 'Source Unit'], ['address', 'Register Address'], ['date', 'Date'], ['time', 'Time'], ['source', 'Source'],
+                 ['category', 'Category'], ['parameter', 'Parameter'], ['raw', 'Transport Raw Value'], ['scaled', 'Customer Value'],
+                 ['unit', 'Unit'], ['address', 'Register Address'], ['date', 'Date'], ['time', 'Time'], ['source', 'Source'],
               ].map(([key, label]) => <th key={key} className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">{sortButton(key as TelemetrySortKey, label)}</th>)}
               <th className="px-5 py-3 text-[9px] font-semibold uppercase tracking-wider text-slate-500">Data Quality</th>
             </tr>
@@ -2469,7 +2475,7 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
                const scaledValue = formatValue(sourceReportedValue(row) ?? '');
                const dateTime = telemetryDateTime(row);
                return (
-                   <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-live-data-${index}`} title={`${String(row.name || 'Parameter')}\nSource-reported value: ${scaledValue} ${telemetryUnit(row)}\nTransport raw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || row.source_mapping_status || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-[#1e293b]/40 transition-colors">
+                    <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-live-data-${index}`} title={`${String(row.name || 'Parameter')}\nCustomer value: ${scaledValue} ${telemetryUnit(row)}\nTransport raw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || row.source_mapping_status || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-[#1e293b]/40 transition-colors">
                    <td className="px-5 py-2.5 text-[11px] text-slate-300 flex items-center gap-2">
                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                       {telemetryCategory(row)}

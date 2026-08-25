@@ -15,13 +15,18 @@ type ActiveMapping = Pick<
   | "category"
   | "inverterIdentity"
   | "sourceUnit"
+  | "displayUnit"
+  | "scalingMultiplier"
+  | "scalingOffset"
+  | "scalingStatus"
   | "version"
   | "status"
 >;
 
 /**
- * Mapping is presentation and routing metadata only. It never substitutes a
- * source value, source unit, provenance, or scaling approval.
+ * Mapping resolves a separately labeled customer-facing display value. It
+ * never replaces raw transport or source-reported evidence, and it does not
+ * approve derived plant KPIs or energy calculations.
  */
 const categories = new Set<DeviceParameterCategory>([
   "Overview",
@@ -48,6 +53,10 @@ function categoryForMapping(
   return fallback;
 }
 
+function formatDisplayValue(value: number) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(15)));
+}
+
 export function applyActiveTelemetryMappings<T extends DiscoveredDeviceParameter>(
   parameters: T[],
   mappings: ActiveMapping[],
@@ -65,16 +74,34 @@ export function applyActiveTelemetryMappings<T extends DiscoveredDeviceParameter
     if (candidates.length !== 1) return parameter;
 
     const mapping = candidates[0]!;
+    const multiplier = mapping.scalingMultiplier;
+    const offset = mapping.scalingOffset;
+    const reported = parameter.reportedNumericValue;
+    const transformed = reported === null || !Number.isFinite(reported)
+      ? null
+      : reported * multiplier + offset;
+    const displayNumericValue = transformed !== null && Number.isFinite(transformed) ? transformed : null;
+    const validationStatus = reported === null
+      ? "not-numeric" as const
+      : displayNumericValue === null
+        ? "non-finite" as const
+        : "valid" as const;
     return {
       ...parameter,
       displayLabel: mapping.displayLabel,
       category: categoryForMapping(mapping.destination, mapping.category, parameter.category),
-      unit: parameter.unit ?? mapping.sourceUnit,
+      value: displayNumericValue ?? parameter.value,
+      unit: mapping.displayUnit ?? parameter.unit ?? mapping.sourceUnit,
       sourceUnit: parameter.sourceUnit ?? mapping.sourceUnit,
+      displayValue: displayNumericValue === null ? null : formatDisplayValue(displayNumericValue),
+      displayNumericValue,
+      displayUnit: mapping.displayUnit ?? parameter.sourceUnit ?? mapping.sourceUnit,
       adminMappingDestination: mapping.destination,
       adminMappingLabel: mapping.displayLabel,
       adminMappingCategory: mapping.category,
       adminMappingVersion: mapping.version,
+      adminMappingScalingStatus: mapping.scalingStatus,
+      adminMappingValidationStatus: validationStatus,
       inverterIdentity: mapping.inverterIdentity,
     } as T;
   });

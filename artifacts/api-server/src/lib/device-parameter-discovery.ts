@@ -26,6 +26,9 @@ export type DiscoveredDeviceParameter = {
   rawValue: string;
   reportedValue: string;
   reportedNumericValue: number | null;
+  displayValue?: string | null;
+  displayNumericValue?: number | null;
+  displayUnit?: string | null;
   value: number | null;
   unit: string | null;
   sourceUnit: string | null;
@@ -43,6 +46,8 @@ export type DiscoveredDeviceParameter = {
   adminMappingLabel?: string;
   adminMappingCategory?: string;
   adminMappingVersion?: number;
+  adminMappingScalingStatus?: "approved";
+  adminMappingValidationStatus?: "valid" | "not-numeric" | "non-finite";
   inverterIdentity?: string | null;
 };
 
@@ -232,6 +237,9 @@ function buildParameter(
     rawValue: rawText(mappedSource.raw_data ?? mappedSource.rawValue ?? mappedSource.raw_value ?? rawValue),
     reportedValue: rawText(reported),
     reportedNumericValue: value,
+    displayValue: null,
+    displayNumericValue: null,
+    displayUnit: null,
     value,
     unit: firstText(mappedSource, ["engineering_unit", "engineeringUnit", "unit", "units"]) ?? null,
     sourceUnit: firstText(mappedSource, ["reported_unit", "reportedUnit", "customer_unit", "customerUnit", "source_unit", "sourceUnit", "engineering_unit", "engineeringUnit", "unit", "units"]) ?? null,

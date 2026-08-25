@@ -30,4 +30,19 @@ export type PlatformTelemetryMappingInput = PlatformTelemetryMappingIdentity & (
      * @nullable
      */
   sourceUnit?: string | null;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  displayUnit: string | null;
+  /**
+     * @minimum -1000000000
+     * @maximum 1000000000
+     */
+  scalingMultiplier: number;
+  /**
+     * @minimum -1000000000
+     * @maximum 1000000000
+     */
+  scalingOffset: number;
 });

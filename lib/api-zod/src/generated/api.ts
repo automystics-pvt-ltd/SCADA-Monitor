@@ -265,6 +265,9 @@ export const ListPlatformTelemetryParametersResponse = zod.object({
   "rawValue": zod.string(),
   "reportedValue": zod.string(),
   "reportedNumericValue": zod.number().nullable(),
+  "displayValue": zod.string().nullable(),
+  "displayNumericValue": zod.number().nullable(),
+  "displayUnit": zod.string().nullable(),
   "sourceUnit": zod.string().nullable(),
   "address": zod.string().nullable(),
   "sourceName": zod.string(),
@@ -274,6 +277,7 @@ export const ListPlatformTelemetryParametersResponse = zod.object({
   "provenance": zod.enum(['live', 'retained', 'recovered', 'replay', 'snapshot']),
   "dataQuality": zod.enum(['validated', 'raw', 'source-reported']),
   "scalingStatus": zod.enum(['validated', 'raw']),
+  "mappingValidationStatus": zod.union([zod.literal('valid'),zod.literal('not-numeric'),zod.literal('non-finite'),zod.literal(null)]).nullable(),
   "freshness": zod.enum(['live', 'stale', 'saved', 'retained', 'recovered', 'replay']),
   "mapping": zod.union([zod.object({
   "id": zod.string(),
@@ -288,6 +292,10 @@ export const ListPlatformTelemetryParametersResponse = zod.object({
   "category": zod.string(),
   "inverterIdentity": zod.string().nullable(),
   "sourceUnit": zod.string().nullable(),
+  "displayUnit": zod.string().nullable(),
+  "scalingMultiplier": zod.number(),
+  "scalingOffset": zod.number(),
+  "scalingStatus": zod.enum(['approved']),
   "status": zod.enum(['active', 'cleared']),
   "version": zod.number().multipleOf(listPlatformTelemetryParametersResponseParametersItemMappingOneVersionMultipleOf),
   "updatedAt": zod.coerce.date()
@@ -328,6 +336,10 @@ export const ListPlatformTelemetryMappingsResponseItem = zod.object({
   "category": zod.string(),
   "inverterIdentity": zod.string().nullable(),
   "sourceUnit": zod.string().nullable(),
+  "displayUnit": zod.string().nullable(),
+  "scalingMultiplier": zod.number(),
+  "scalingOffset": zod.number(),
+  "scalingStatus": zod.enum(['approved']),
   "status": zod.enum(['active', 'cleared']),
   "version": zod.number().multipleOf(listPlatformTelemetryMappingsResponseVersionMultipleOf),
   "updatedAt": zod.coerce.date()
@@ -357,6 +369,16 @@ export const upsertPlatformTelemetryMappingBodyTwoInverterIdentityMax = 80;
 
 export const upsertPlatformTelemetryMappingBodyTwoSourceUnitMax = 80;
 
+export const upsertPlatformTelemetryMappingBodyTwoDisplayUnitMax = 80;
+
+export const upsertPlatformTelemetryMappingBodyTwoScalingMultiplierDefault = 1;
+export const upsertPlatformTelemetryMappingBodyTwoScalingMultiplierMin = -1000000000;
+export const upsertPlatformTelemetryMappingBodyTwoScalingMultiplierMax = 1000000000;
+
+export const upsertPlatformTelemetryMappingBodyTwoScalingOffsetDefault = 0;
+export const upsertPlatformTelemetryMappingBodyTwoScalingOffsetMin = -1000000000;
+export const upsertPlatformTelemetryMappingBodyTwoScalingOffsetMax = 1000000000;
+
 
 
 export const UpsertPlatformTelemetryMappingBody = zod.object({
@@ -370,7 +392,10 @@ export const UpsertPlatformTelemetryMappingBody = zod.object({
   "displayLabel": zod.string().min(1).max(upsertPlatformTelemetryMappingBodyTwoDisplayLabelMax),
   "category": zod.string().min(1).max(upsertPlatformTelemetryMappingBodyTwoCategoryMax),
   "inverterIdentity": zod.string().max(upsertPlatformTelemetryMappingBodyTwoInverterIdentityMax).nullish(),
-  "sourceUnit": zod.string().max(upsertPlatformTelemetryMappingBodyTwoSourceUnitMax).nullish()
+  "sourceUnit": zod.string().max(upsertPlatformTelemetryMappingBodyTwoSourceUnitMax).nullish(),
+  "displayUnit": zod.string().max(upsertPlatformTelemetryMappingBodyTwoDisplayUnitMax).nullable(),
+  "scalingMultiplier": zod.number().min(upsertPlatformTelemetryMappingBodyTwoScalingMultiplierMin).max(upsertPlatformTelemetryMappingBodyTwoScalingMultiplierMax).default(upsertPlatformTelemetryMappingBodyTwoScalingMultiplierDefault),
+  "scalingOffset": zod.number().min(upsertPlatformTelemetryMappingBodyTwoScalingOffsetMin).max(upsertPlatformTelemetryMappingBodyTwoScalingOffsetMax).default(upsertPlatformTelemetryMappingBodyTwoScalingOffsetDefault)
 }))
 
 export const upsertPlatformTelemetryMappingResponseVersionMultipleOf = 1;
@@ -390,6 +415,10 @@ export const UpsertPlatformTelemetryMappingResponse = zod.object({
   "category": zod.string(),
   "inverterIdentity": zod.string().nullable(),
   "sourceUnit": zod.string().nullable(),
+  "displayUnit": zod.string().nullable(),
+  "scalingMultiplier": zod.number(),
+  "scalingOffset": zod.number(),
+  "scalingStatus": zod.enum(['approved']),
   "status": zod.enum(['active', 'cleared']),
   "version": zod.number().multipleOf(upsertPlatformTelemetryMappingResponseVersionMultipleOf),
   "updatedAt": zod.coerce.date()
@@ -437,6 +466,10 @@ export const ClearPlatformTelemetryMappingResponse = zod.object({
   "category": zod.string(),
   "inverterIdentity": zod.string().nullable(),
   "sourceUnit": zod.string().nullable(),
+  "displayUnit": zod.string().nullable(),
+  "scalingMultiplier": zod.number(),
+  "scalingOffset": zod.number(),
+  "scalingStatus": zod.enum(['approved']),
   "status": zod.enum(['active', 'cleared']),
   "version": zod.number().multipleOf(clearPlatformTelemetryMappingResponseVersionMultipleOf),
   "updatedAt": zod.coerce.date()

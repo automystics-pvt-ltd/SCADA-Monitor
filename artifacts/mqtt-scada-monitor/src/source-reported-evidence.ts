@@ -37,6 +37,24 @@ export function sourceReportedTelemetryUnit(row: TelemetryEvidence) {
     ?? textValue(row.engineeringUnit);
 }
 
+/**
+ * An approved platform mapping has already been resolved by the API. Treat its
+ * transformed value as the customer-facing display value only when the server
+ * explicitly marked the calculation valid; source evidence remains available
+ * through the reported/raw helpers above.
+ */
+export function approvedDisplayTelemetryValue(row: TelemetryEvidence): unknown {
+  const approval = row.admin_mapping_scaling_status ?? row.adminMappingScalingStatus;
+  const validation = row.admin_mapping_validation_status ?? row.adminMappingValidationStatus;
+  if (approval !== "approved" || validation !== "valid") return undefined;
+  return row.display_value ?? row.displayValue ?? row.displayNumericValue;
+}
+
+export function approvedDisplayTelemetryUnit(row: TelemetryEvidence) {
+  if (approvedDisplayTelemetryValue(row) === undefined) return undefined;
+  return textValue(row.display_unit) ?? textValue(row.displayUnit);
+}
+
 export function transportRawTelemetryValue(row: TelemetryEvidence): unknown {
   return row.raw_data ?? row.rawValue ?? row.raw_value ?? row.source_raw_value ?? row.sourceRawValue ?? row.data;
 }

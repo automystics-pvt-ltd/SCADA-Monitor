@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PlatformTelemetryDestination } from './platformTelemetryDestination';
+import type { PlatformTelemetryMappingScalingStatus } from './platformTelemetryMappingScalingStatus';
 import type { PlatformTelemetryMappingStatus } from './platformTelemetryMappingStatus';
 
 export interface PlatformTelemetryMapping {
@@ -23,6 +24,11 @@ export interface PlatformTelemetryMapping {
   inverterIdentity: string | null;
   /** @nullable */
   sourceUnit: string | null;
+  /** @nullable */
+  displayUnit: string | null;
+  scalingMultiplier: number;
+  scalingOffset: number;
+  scalingStatus: PlatformTelemetryMappingScalingStatus;
   status: PlatformTelemetryMappingStatus;
   version: number;
   updatedAt: Date;

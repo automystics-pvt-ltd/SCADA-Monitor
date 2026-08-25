@@ -70,6 +70,7 @@ import {
   applyMqttConfiguration,
   broadcastSiteActivation,
   getMqttRuntimeStatus,
+  invalidateTelemetryMappingCache,
   listLiveTelemetryDevices,
   listLatestDeviceParameters,
   runLiveTelemetryTest,
@@ -133,6 +134,10 @@ function telemetryMappingResponse(mapping: typeof platformTelemetryMappingsTable
     category: mapping.category,
     inverterIdentity: mapping.inverterIdentity,
     sourceUnit: mapping.sourceUnit,
+    displayUnit: mapping.displayUnit,
+    scalingMultiplier: mapping.scalingMultiplier,
+    scalingOffset: mapping.scalingOffset,
+    scalingStatus: mapping.scalingStatus,
     status: mapping.status,
     version: mapping.version,
     updatedAt: mapping.updatedAt.toISOString(),
@@ -548,6 +553,9 @@ router.get("/platform-admin/telemetry/parameters", async (req: Request, res): Pr
         rawValue: parameter.rawValue,
         reportedValue: parameter.reportedValue,
         reportedNumericValue: parameter.reportedNumericValue,
+        displayValue: parameter.displayValue ?? null,
+        displayNumericValue: parameter.displayNumericValue ?? null,
+        displayUnit: parameter.displayUnit ?? null,
         sourceUnit: parameter.sourceUnit,
         address: parameter.address,
         sourceName: parameter.sourceName,
@@ -557,6 +565,7 @@ router.get("/platform-admin/telemetry/parameters", async (req: Request, res): Pr
         provenance: parameter.provenance,
         dataQuality: parameter.dataQuality,
         scalingStatus: parameter.scalingStatus,
+        mappingValidationStatus: parameter.adminMappingValidationStatus ?? null,
         freshness: parameter.freshness,
         mapping: mapping ? telemetryMappingResponse(mapping) : null,
       };
@@ -611,6 +620,17 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
     res.status(400).json({ error: "The source unit must match the unit currently reported by this parameter. Mapping cannot invent a unit." });
     return;
   }
+  const multiplier = data.data.scalingMultiplier ?? 1;
+  const offset = data.data.scalingOffset ?? 0;
+  if (!Number.isFinite(multiplier) || !Number.isFinite(offset) || Math.abs(multiplier) > 1_000_000_000 || Math.abs(offset) > 1_000_000_000) {
+    res.status(400).json({ error: "Scaling must use finite multiplier and offset values within the approved operational range." });
+    return;
+  }
+  const displayUnit = data.data.displayUnit?.trim() || parameter.sourceUnit || null;
+  if (data.data.displayUnit !== undefined && !displayUnit) {
+    res.status(400).json({ error: "Choose a display unit, or wait for the device to report its source unit." });
+    return;
+  }
   if (["inverter-identity", "active-power"].includes(data.data.destination) && !data.data.inverterIdentity?.trim()) {
     res.status(400).json({ error: "Choose an inverter identity when mapping an inverter identity or active-power signal." });
     return;
@@ -644,6 +664,10 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
     category: data.data.category.trim(),
     inverterIdentity: data.data.inverterIdentity?.trim() || null,
     sourceUnit: parameter.sourceUnit,
+    displayUnit,
+    scalingMultiplier: multiplier,
+    scalingOffset: offset,
+    scalingStatus: "approved",
     status: "active",
     createdBy: previous?.createdBy ?? req.platformAdmin!.userId,
     updatedBy: req.platformAdmin!.userId,
@@ -663,6 +687,10 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
       category: data.data.category.trim(),
       inverterIdentity: data.data.inverterIdentity?.trim() || null,
       sourceUnit: parameter.sourceUnit,
+      displayUnit,
+      scalingMultiplier: multiplier,
+      scalingOffset: offset,
+      scalingStatus: "approved",
       status: "active",
       updatedBy: req.platformAdmin!.userId,
       clearedAt: null,
@@ -675,8 +703,12 @@ router.put("/platform-admin/telemetry/mappings", async (req: Request, res): Prom
     sourceName: parameter.sourceName,
     destination: mapping.destination,
     sourceUnit: mapping.sourceUnit,
+    displayUnit: mapping.displayUnit,
+    scalingMultiplier: mapping.scalingMultiplier,
+    scalingOffset: mapping.scalingOffset,
     version: mapping.version,
   });
+  invalidateTelemetryMappingCache();
   res.json(UpsertPlatformTelemetryMappingResponse.parse(telemetryMappingResponse(mapping)));
 });
 
@@ -711,6 +743,7 @@ router.post("/platform-admin/telemetry/mappings/clear", async (req: Request, res
     address: mapping.address,
     version: mapping.version,
   });
+  invalidateTelemetryMappingCache();
   res.json(ClearPlatformTelemetryMappingResponse.parse(telemetryMappingResponse(mapping)));
 });
 

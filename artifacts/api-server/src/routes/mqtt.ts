@@ -13,6 +13,7 @@ import {
   platformSitesTable,
   plantCalibrationProfilesTable,
   plantLocationsTable,
+  platformTelemetryDiscoveriesTable,
   platformTelemetryMappingsTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -121,6 +122,26 @@ export type LiveTelemetryDevice = {
   deviceName: string;
   lastReceivedAt: string;
 };
+const activeTelemetryMappingCache = new Map<string, {
+  expiresAt: number;
+  mappings: typeof platformTelemetryMappingsTable.$inferSelect[];
+}>();
+
+/** Clears the short-lived resolver cache after an audited Admin map changes. */
+export function invalidateTelemetryMappingCache() {
+  activeTelemetryMappingCache.clear();
+}
+
+async function activeTelemetryMappingsForSite(siteName: string) {
+  const cached = activeTelemetryMappingCache.get(siteName);
+  if (cached && cached.expiresAt > Date.now()) return cached.mappings;
+  const mappings = await db.select().from(platformTelemetryMappingsTable).where(and(
+    eq(platformTelemetryMappingsTable.siteName, siteName),
+    eq(platformTelemetryMappingsTable.status, "active"),
+  ));
+  activeTelemetryMappingCache.set(siteName, { mappings, expiresAt: Date.now() + 5_000 });
+  return mappings;
+}
 export type LiveTelemetryTestResult = {
   result: "success" | "no-telemetry" | "error";
   brokerStatus: string;
@@ -1493,6 +1514,78 @@ export async function listLiveTelemetryDevices() {
     left.siteName.localeCompare(right.siteName) || left.deviceName.localeCompare(right.deviceName));
 }
 
+function discoveryCatalogParameter(discovery: typeof platformTelemetryDiscoveriesTable.$inferSelect): DiscoveredDeviceParameter {
+  return {
+    observationId: `catalog:${discovery.id}`,
+    signalKey: [discovery.siteName, discovery.deviceId, discovery.normalizedName, discovery.address].join("|"),
+    siteName: discovery.siteName,
+    deviceId: discovery.deviceId,
+    deviceName: discovery.deviceName,
+    topic: discovery.topic,
+    originalName: discovery.originalName,
+    normalizedName: discovery.normalizedName,
+    displayLabel: discovery.originalName,
+    category: "Discovered / Other Parameters",
+    rawValue: discovery.rawValue,
+    reportedValue: discovery.reportedValue,
+    reportedNumericValue: discovery.reportedNumericValue,
+    displayValue: null,
+    displayNumericValue: null,
+    displayUnit: null,
+    value: discovery.reportedNumericValue,
+    unit: discovery.sourceUnit,
+    sourceUnit: discovery.sourceUnit,
+    address: discovery.address === "—" ? null : discovery.address,
+    sourceName: discovery.sourceName,
+    sourceIdentity: discovery.sourceIdentity,
+    sourceMappingStatus: discovery.sourceMappingStatus,
+    observedAt: discovery.observedAt?.toISOString(),
+    receivedAt: discovery.receivedAt.toISOString(),
+    provenance: discovery.provenance,
+    dataQuality: discovery.dataQuality,
+    scalingStatus: discovery.scalingStatus,
+  };
+}
+
+async function persistDiscoveredParameterCatalog(parameters: DiscoveredDeviceParameter[]) {
+  if (!parameters.length) return;
+  const now = new Date();
+  await Promise.all(parameters.map((parameter) => {
+    const values = {
+      siteName: parameter.siteName,
+      deviceId: parameter.deviceId,
+      deviceName: parameter.deviceName,
+      topic: parameter.topic,
+      sourceIdentity: parameter.sourceIdentity,
+      sourceName: parameter.sourceName,
+      originalName: parameter.originalName,
+      normalizedName: parameter.normalizedName,
+      address: parameter.address ?? "—",
+      rawValue: parameter.rawValue,
+      reportedValue: parameter.reportedValue,
+      reportedNumericValue: parameter.reportedNumericValue,
+      sourceUnit: parameter.sourceUnit,
+      observedAt: parameter.observedAt ? new Date(parameter.observedAt) : null,
+      receivedAt: new Date(parameter.receivedAt),
+      provenance: parameter.provenance,
+      sourceMappingStatus: parameter.sourceMappingStatus,
+      dataQuality: parameter.dataQuality,
+      scalingStatus: parameter.scalingStatus,
+      lastSeenAt: now,
+    };
+    return db.insert(platformTelemetryDiscoveriesTable).values(values).onConflictDoUpdate({
+      target: [
+        platformTelemetryDiscoveriesTable.siteName,
+        platformTelemetryDiscoveriesTable.deviceId,
+        platformTelemetryDiscoveriesTable.sourceIdentity,
+        platformTelemetryDiscoveriesTable.normalizedName,
+        platformTelemetryDiscoveriesTable.address,
+      ],
+      set: values,
+    });
+  }));
+}
+
 /**
  * Returns the latest complete source evidence per stable parameter identity.
  * Both Platform Admin and SCADA consume this single aggregation so a mapping
@@ -1505,6 +1598,13 @@ export async function listLatestDeviceParameters(siteName: string, deviceId?: st
     const existing = latest.get(parameter.signalKey);
     if (latestDeviceParameterWins(existing, parameter)) latest.set(parameter.signalKey, parameter);
   };
+
+  const discoveryConditions = [eq(platformTelemetryDiscoveriesTable.siteName, siteName)];
+  if (deviceId) discoveryConditions.push(eq(platformTelemetryDiscoveriesTable.deviceId, deviceId));
+  const catalogDiscoveries = await db.select().from(platformTelemetryDiscoveriesTable)
+    .where(and(...discoveryConditions))
+    .orderBy(desc(platformTelemetryDiscoveriesTable.lastSeenAt));
+  for (const discovery of catalogDiscoveries) add(discoveryCatalogParameter(discovery));
 
   for (const message of messageHistory) {
     for (const parameter of message.discoveredParameters ?? []) add(parameter);
@@ -1519,14 +1619,7 @@ export async function listLatestDeviceParameters(siteName: string, deviceId?: st
     for (const parameter of snapshotDiscoveredParameters(snapshot, siteName)) add(parameter);
   }
 
-  const mappingConditions = [
-    eq(platformTelemetryMappingsTable.siteName, siteName),
-    eq(platformTelemetryMappingsTable.status, "active"),
-  ];
-  if (deviceId) mappingConditions.push(eq(platformTelemetryMappingsTable.deviceId, deviceId));
-  const mappings = await db.select()
-    .from(platformTelemetryMappingsTable)
-    .where(and(...mappingConditions));
+  const mappings = await activeTelemetryMappingsForSite(siteName);
   const now = Date.now();
   return applyActiveTelemetryMappings([...latest.values()]
     .sort((left, right) => {
@@ -1534,7 +1627,7 @@ export async function listLatestDeviceParameters(siteName: string, deviceId?: st
       const leftTime = Date.parse(left.observedAt ?? left.receivedAt);
       return rightTime - leftTime || left.displayLabel.localeCompare(right.displayLabel);
     })
-    .map((parameter) => ({ ...parameter, ...deviceParameterFreshness(parameter, now) })), mappings);
+    .map((parameter) => ({ ...parameter, ...deviceParameterFreshness(parameter, now) })), mappings.filter((mapping) => !deviceId || mapping.deviceId === deviceId));
 }
 
 export async function runLiveTelemetryTest(siteName: string, deviceId: string, timeoutSeconds: number): Promise<LiveTelemetryTestResult> {
@@ -1739,12 +1832,23 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
   const rawPayload = payload.toString("utf8");
   const parameter = parameterFromPayload(rawPayload);
   const receivedAt = new Date().toISOString();
-  const discoveredParameters = discoverDeviceParametersFromRawPayload(rawPayload, {
+  const rawDiscoveredParameters = discoverDeviceParametersFromRawPayload(rawPayload, {
     siteName: configuredMqttPlantSite,
     topic,
     receivedAt,
     provenance: retained ? "retained" : "live",
   });
+  let discoveredParameters = rawDiscoveredParameters;
+  try {
+    const mappings = await activeTelemetryMappingsForSite(configuredMqttPlantSite);
+    discoveredParameters = applyActiveTelemetryMappings(rawDiscoveredParameters, mappings);
+    await persistDiscoveredParameterCatalog(discoveredParameters);
+  } catch (error) {
+    // A database migration or mapping-service failure must not discard a raw
+    // MQTT delivery. The error is logged explicitly; the next delivery retries
+    // the durable catalog and authoritative mapping overlay.
+    logger.error({ err: error, siteName: configuredMqttPlantSite }, "Unable to persist or resolve centralized telemetry mapping");
+  }
   const inverterRecord = parameter
     ? inverterActivePowerObservationFromParameter(parameter, configuredMqttPlantSite)
     : undefined;

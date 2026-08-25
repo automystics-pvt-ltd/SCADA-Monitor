@@ -94,6 +94,13 @@ function cte(args: QueryArgs) {
     tm.source_unit
   )`;
   const snapshotHasReportedEvidence = sql`(${snapshotMappingStatus} <> 'raw' and ${snapshotReportedValue} is not null)`;
+  const snapshotApprovedDisplayValue = sql`case
+    when coalesce(p.value->>'adminMappingScalingStatus', p.value->>'admin_mapping_scaling_status', '') = 'approved'
+      and coalesce(p.value->>'adminMappingValidationStatus', p.value->>'admin_mapping_validation_status', '') = 'valid'
+      and coalesce(p.value->>'displayNumericValue', p.value->>'display_value', '') ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$'
+      then coalesce(p.value->>'displayNumericValue', p.value->>'display_value')::double precision
+    else null end`;
+  const snapshotApprovedDisplayUnit = sql`nullif(coalesce(p.value->>'displayUnit', p.value->>'display_unit', ''), '')`;
   const snapshotSourceObserved = sql`coalesce(p.value->>'date_iso_8601', p.value->>'timestamp', p.value->>'date')`;
   const snapshotObserved = sql`case
     when ${snapshotSourceObserved} ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$'
@@ -152,7 +159,8 @@ function cte(args: QueryArgs) {
     ),
     active_mappings as (
       select site_name, device_id, source_identity, source_name, normalized_name, address,
-        destination, display_label, source_unit
+        destination, display_label, source_unit, display_unit,
+        scaling_multiplier, scaling_offset, scaling_status
       from ${platformTelemetryMappingsTable}
       where status = 'active'
     ),
@@ -172,9 +180,12 @@ function cte(args: QueryArgs) {
         m.inverter_name as device_name, m.parameter,
         coalesce(nullif(tm.display_label, ''), m.display_label) as display_label,
         coalesce(tm.destination, m.measurement_kind) as measurement_kind,
-        m.value, coalesce(nullif(m.unit, ''), tm.source_unit) as unit, m.address, m.source_name, m.observed_at, m.received_at,
+        case when tm.scaling_status = 'approved' and m.value is not null
+             then m.value * tm.scaling_multiplier + tm.scaling_offset else m.value end,
+        coalesce(nullif(tm.display_unit, ''), nullif(m.unit, ''), tm.source_unit) as unit, m.address, m.source_name, m.observed_at, m.received_at,
         'historical-saved'::text as provenance,
         case when m.scaling_status = 'validated' then 'validated'
+             when tm.scaling_status = 'approved' and m.value is not null then 'source-reported'
              when nullif(m.metadata->>'sourceReportedValue', '') is not null then 'source-reported'
              else 'raw' end::text as quality,
         null::text as status, null::text as reason,
@@ -204,9 +215,13 @@ function cte(args: QueryArgs) {
         end,
         e.site_name, e.inverter_id,
         e.inverter_name, e.parameter, coalesce(nullif(tm.display_label, ''), e.parameter),
-        coalesce(tm.destination, 'energy'), e.value, coalesce(nullif(e.unit, ''), tm.source_unit), e.address,
+        coalesce(tm.destination, 'energy'),
+        case when tm.scaling_status = 'approved' and e.value is not null
+             then e.value * tm.scaling_multiplier + tm.scaling_offset else e.value end,
+        coalesce(nullif(tm.display_unit, ''), nullif(e.unit, ''), tm.source_unit), e.address,
         e.source_name, e.observed_at, e.received_at, 'historical-saved',
         case when e.scaling_status = 'validated' then 'validated'
+             when tm.scaling_status = 'approved' and e.value is not null then 'source-reported'
              when nullif(e.metadata->>'sourceReportedValue', '') is not null then 'source-reported'
              else 'raw' end,
         null::text, null::text,
@@ -273,12 +288,14 @@ function cte(args: QueryArgs) {
         coalesce(nullif(tm.display_label, ''), nullif(p.value->>'display_name', ''), nullif(p.value->>'displayName', ''), nullif(p.value->>'label', ''), ${snapshotParameter}),
         coalesce(tm.destination, 'snapshot'),
         case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then null
+             when ${snapshotApprovedDisplayValue} is not null then ${snapshotApprovedDisplayValue}
              when ${snapshotMappingStatus} = 'raw' then null
              when (lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') or ${snapshotHasReportedEvidence})
                  and coalesce(${snapshotReportedValue}, p.value->>'value', p.value->>'data', '') ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$'
                then coalesce(${snapshotReportedValue}, p.value->>'value', p.value->>'data')::double precision
              else null end,
         case when tm.destination in ('alarm', 'fault') or ${snapshotCategory} = 'alarms' then ''
+              when ${snapshotApprovedDisplayValue} is not null then coalesce(${snapshotApprovedDisplayUnit}, tm.display_unit, ${snapshotReportedUnit}, 'display units')
               when ${snapshotMappingStatus} = 'raw' then ''
               when lower(${snapshotValidated}) in ('true', 'validated', 'confirmed', 'approved') then coalesce(${snapshotReportedUnit}, p.value->>'unit', 'source units')
               when ${snapshotHasReportedEvidence} then coalesce(${snapshotReportedUnit}, 'source units')

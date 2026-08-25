@@ -46,6 +46,10 @@ function mapping(overrides: Partial<PlatformTelemetryMapping> = {}): PlatformTel
     category: "not-a-supported-category",
     inverterIdentity: "inv1",
     sourceUnit: "kW",
+    displayUnit: "kW",
+    scalingMultiplier: 1,
+    scalingOffset: 0,
+    scalingStatus: "approved",
     status: "active",
     version: 3,
     createdBy: "admin-1",
@@ -68,6 +72,43 @@ test("applies only one exact active map without altering the reported source evi
   assert.equal(resolved.rawValue, "18250");
   assert.equal(resolved.reportedValue, "18.25");
   assert.equal(resolved.scalingStatus, "raw");
+  assert.equal(resolved.displayValue, "18.25");
+  assert.equal(resolved.displayUnit, "kW");
+  assert.equal(resolved.adminMappingValidationStatus, "valid");
+});
+
+test("creates a separate approved display value without replacing raw or reported evidence", () => {
+  const [resolved] = applyActiveTelemetryMappings([parameter], [mapping({
+    displayUnit: "W",
+    scalingMultiplier: 1_000,
+    scalingOffset: 5,
+  })]);
+  assert.equal(resolved.rawValue, "18250");
+  assert.equal(resolved.reportedValue, "18.25");
+  assert.equal(resolved.displayValue, "18255");
+  assert.equal(resolved.displayUnit, "W");
+});
+
+test("uses the latest approved mapping for retained or reconnected evidence from the same identity", () => {
+  const retained = { ...parameter, provenance: "retained" as const };
+  const [beforeRevision] = applyActiveTelemetryMappings([retained], [mapping({
+    displayUnit: "kW",
+    scalingMultiplier: 1,
+    scalingOffset: 0,
+    version: 3,
+  })]);
+  const [afterRevision] = applyActiveTelemetryMappings([retained], [mapping({
+    displayUnit: "W",
+    scalingMultiplier: 1_000,
+    scalingOffset: 0,
+    version: 4,
+  })]);
+
+  assert.equal(beforeRevision.displayValue, "18.25");
+  assert.equal(afterRevision.displayValue, "18250");
+  assert.equal(afterRevision.displayUnit, "W");
+  assert.equal(afterRevision.adminMappingVersion, 4);
+  assert.equal(afterRevision.provenance, "retained");
 });
 
 test("refuses a mapping with a different source identity or device", () => {

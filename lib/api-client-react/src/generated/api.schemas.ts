@@ -212,6 +212,13 @@ export const PlatformTelemetryDestination = {
   'discovered-other': 'discovered-other',
 } as const;
 
+export type PlatformTelemetryMappingScalingStatus = typeof PlatformTelemetryMappingScalingStatus[keyof typeof PlatformTelemetryMappingScalingStatus];
+
+
+export const PlatformTelemetryMappingScalingStatus = {
+  approved: 'approved',
+} as const;
+
 export type PlatformTelemetryMappingStatus = typeof PlatformTelemetryMappingStatus[keyof typeof PlatformTelemetryMappingStatus];
 
 
@@ -235,6 +242,11 @@ export interface PlatformTelemetryMapping {
   inverterIdentity: string | null;
   /** @nullable */
   sourceUnit: string | null;
+  /** @nullable */
+  displayUnit: string | null;
+  scalingMultiplier: number;
+  scalingOffset: number;
+  scalingStatus: PlatformTelemetryMappingScalingStatus;
   status: PlatformTelemetryMappingStatus;
   version: number;
   updatedAt: string;
@@ -287,6 +299,21 @@ export type PlatformTelemetryMappingInput = PlatformTelemetryMappingIdentity & (
      * @nullable
      */
   sourceUnit?: string | null;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  displayUnit: string | null;
+  /**
+     * @minimum -1000000000
+     * @maximum 1000000000
+     */
+  scalingMultiplier: number;
+  /**
+     * @minimum -1000000000
+     * @maximum 1000000000
+     */
+  scalingOffset: number;
 });
 
 export type PlatformTelemetryParameterProvenance = typeof PlatformTelemetryParameterProvenance[keyof typeof PlatformTelemetryParameterProvenance];
@@ -317,6 +344,18 @@ export const PlatformTelemetryParameterScalingStatus = {
   raw: 'raw',
 } as const;
 
+/**
+ * @nullable
+ */
+export type PlatformTelemetryParameterMappingValidationStatus = typeof PlatformTelemetryParameterMappingValidationStatus[keyof typeof PlatformTelemetryParameterMappingValidationStatus] | null;
+
+
+export const PlatformTelemetryParameterMappingValidationStatus = {
+  valid: 'valid',
+  'not-numeric': 'not-numeric',
+  'non-finite': 'non-finite',
+} as const;
+
 export type PlatformTelemetryParameterFreshness = typeof PlatformTelemetryParameterFreshness[keyof typeof PlatformTelemetryParameterFreshness];
 
 
@@ -345,6 +384,12 @@ export interface PlatformTelemetryParameter {
   /** @nullable */
   reportedNumericValue: number | null;
   /** @nullable */
+  displayValue: string | null;
+  /** @nullable */
+  displayNumericValue: number | null;
+  /** @nullable */
+  displayUnit: string | null;
+  /** @nullable */
   sourceUnit: string | null;
   /** @nullable */
   address: string | null;
@@ -356,6 +401,8 @@ export interface PlatformTelemetryParameter {
   provenance: PlatformTelemetryParameterProvenance;
   dataQuality: PlatformTelemetryParameterDataQuality;
   scalingStatus: PlatformTelemetryParameterScalingStatus;
+  /** @nullable */
+  mappingValidationStatus: PlatformTelemetryParameterMappingValidationStatus;
   freshness: PlatformTelemetryParameterFreshness;
   mapping: PlatformTelemetryMapping | null;
 }

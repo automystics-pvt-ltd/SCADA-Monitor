@@ -8,6 +8,7 @@
 import type { PlatformTelemetryMapping } from './platformTelemetryMapping';
 import type { PlatformTelemetryParameterDataQuality } from './platformTelemetryParameterDataQuality';
 import type { PlatformTelemetryParameterFreshness } from './platformTelemetryParameterFreshness';
+import type { PlatformTelemetryParameterMappingValidationStatus } from './platformTelemetryParameterMappingValidationStatus';
 import type { PlatformTelemetryParameterProvenance } from './platformTelemetryParameterProvenance';
 import type { PlatformTelemetryParameterScalingStatus } from './platformTelemetryParameterScalingStatus';
 
@@ -27,6 +28,12 @@ export interface PlatformTelemetryParameter {
   /** @nullable */
   reportedNumericValue: number | null;
   /** @nullable */
+  displayValue: string | null;
+  /** @nullable */
+  displayNumericValue: number | null;
+  /** @nullable */
+  displayUnit: string | null;
+  /** @nullable */
   sourceUnit: string | null;
   /** @nullable */
   address: string | null;
@@ -38,6 +45,8 @@ export interface PlatformTelemetryParameter {
   provenance: PlatformTelemetryParameterProvenance;
   dataQuality: PlatformTelemetryParameterDataQuality;
   scalingStatus: PlatformTelemetryParameterScalingStatus;
+  /** @nullable */
+  mappingValidationStatus: PlatformTelemetryParameterMappingValidationStatus;
   freshness: PlatformTelemetryParameterFreshness;
   mapping: PlatformTelemetryMapping | null;
 }

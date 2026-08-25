@@ -48,6 +48,9 @@ function ParameterMappingRow({
   const [displayLabel, setDisplayLabel] = useState(m?.displayLabel || parameter.displayLabel || '');
   const [category, setCategory] = useState(m?.category || parameter.category || '');
   const [inverterIdentity, setInverterIdentity] = useState(m?.inverterIdentity || 'inv1');
+  const [displayUnit, setDisplayUnit] = useState(m?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '');
+  const [scalingMultiplier, setScalingMultiplier] = useState(m?.scalingMultiplier ?? 1);
+  const [scalingOffset, setScalingOffset] = useState(m?.scalingOffset ?? 0);
   
   const [lastSyncedUpdatedAt, setLastSyncedUpdatedAt] = useState(m?.updatedAt);
   const [isSaving, setIsSaving] = useState(false);
@@ -60,15 +63,21 @@ function ParameterMappingRow({
       setDisplayLabel(nm?.displayLabel || parameter.displayLabel || '');
       setCategory(nm?.category || parameter.category || '');
       setInverterIdentity(nm?.inverterIdentity || 'inv1');
+      setDisplayUnit(nm?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '');
+      setScalingMultiplier(nm?.scalingMultiplier ?? 1);
+      setScalingOffset(nm?.scalingOffset ?? 0);
       setLastSyncedUpdatedAt(nm?.updatedAt);
     }
-  }, [parameter.mapping, parameter.displayLabel, parameter.category, lastSyncedUpdatedAt]);
+  }, [parameter.mapping, parameter.displayLabel, parameter.category, parameter.displayUnit, parameter.sourceUnit, lastSyncedUpdatedAt]);
 
   const needsInverterIdentity = requiresInverterIdentity(destination);
   const isDirty = 
     destination !== (m?.destination || PlatformTelemetryDestination['discovered-other']) ||
     displayLabel !== (m?.displayLabel || parameter.displayLabel || '') ||
     category !== (m?.category || parameter.category || '') ||
+    displayUnit !== (m?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '') ||
+    scalingMultiplier !== (m?.scalingMultiplier ?? 1) ||
+    scalingOffset !== (m?.scalingOffset ?? 0) ||
     (needsInverterIdentity && inverterIdentity !== (m?.inverterIdentity || 'inv1'));
     
   const handleSave = async () => {
@@ -85,6 +94,9 @@ function ParameterMappingRow({
         category,
         inverterIdentity: inverterIdentityForMapping(destination, inverterIdentity),
         sourceUnit: parameter.sourceUnit || null,
+        displayUnit: displayUnit.trim() || null,
+        scalingMultiplier,
+        scalingOffset,
       });
     } catch (e) {
       // Ignored, handled by parent
@@ -145,6 +157,12 @@ function ParameterMappingRow({
         <div className="text-[10px] text-muted-foreground mt-1 font-mono truncate max-w-[180px] opacity-70" title={`RAW: ${parameter.rawValue}`}>
           RAW: {parameter.rawValue}
         </div>
+        {parameter.displayValue !== null && parameter.displayValue !== undefined && (
+          <div className="mt-1 text-[10px] font-medium text-primary">
+            Actual: <span className="font-mono">{parameter.displayValue}</span>{parameter.displayUnit ? ` ${parameter.displayUnit}` : ''}
+            {parameter.mappingValidationStatus === 'valid' ? ' · approved map' : ''}
+          </div>
+        )}
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
           <Badge variant="secondary" className={`text-[8px] h-3.5 px-1 rounded-sm leading-none font-medium uppercase tracking-wider ${parameter.dataQuality === 'validated' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
             {parameter.dataQuality}
@@ -206,6 +224,32 @@ function ParameterMappingRow({
             value={category}
             onChange={e => setCategory(e.target.value)}
           />
+          <div className="grid grid-cols-3 gap-1.5">
+            <Input
+              className="h-8 text-xs bg-background"
+              placeholder="Unit"
+              value={displayUnit}
+              onChange={e => setDisplayUnit(e.target.value)}
+              title="Customer-facing display unit"
+            />
+            <Input
+              className="h-8 text-xs bg-background"
+              type="number"
+              step="any"
+              value={scalingMultiplier}
+              onChange={e => setScalingMultiplier(Number(e.target.value))}
+              title="Multiplier in Actual = reported × multiplier + offset"
+            />
+            <Input
+              className="h-8 text-xs bg-background"
+              type="number"
+              step="any"
+              value={scalingOffset}
+              onChange={e => setScalingOffset(Number(e.target.value))}
+              title="Offset in Actual = reported × multiplier + offset"
+            />
+          </div>
+          <p className="text-[9px] text-muted-foreground font-mono">Actual = reported × {scalingMultiplier} + {scalingOffset}</p>
         </div>
       </TableCell>
 
@@ -343,8 +387,8 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
             </CardTitle>
             <CardDescription className="mt-1.5">
               Map inbound telemetry variables to standardized platform destinations. 
-              <span className="inline-block font-medium text-amber-600 dark:text-amber-500 md:ml-1 mt-1 md:mt-0 bg-amber-500/10 px-1.5 py-0.5 rounded-sm">
-                Note: Mapping does not imply or approve engineering scaling/calibration.
+                <span className="inline-block font-medium text-emerald-600 dark:text-emerald-500 md:ml-1 mt-1 md:mt-0 bg-emerald-500/10 px-1.5 py-0.5 rounded-sm">
+                  Approved mapping transforms produce the labeled Actual value; raw evidence and KPI calibration remain separate.
               </span>
             </CardDescription>
           </div>

@@ -697,10 +697,14 @@ components:
         category: { type: string }
         inverterIdentity: { type: [string, "null"] }
         sourceUnit: { type: [string, "null"] }
+        displayUnit: { type: [string, "null"] }
+        scalingMultiplier: { type: number }
+        scalingOffset: { type: number }
+        scalingStatus: { type: string, enum: [approved] }
         status: { type: string, enum: [active, cleared] }
         version: { type: number, multipleOf: 1 }
         updatedAt: { type: string, format: date-time }
-      required: [id, siteName, deviceId, sourceIdentity, sourceName, normalizedName, address, destination, displayLabel, category, inverterIdentity, sourceUnit, status, version, updatedAt]
+      required: [id, siteName, deviceId, sourceIdentity, sourceName, normalizedName, address, destination, displayLabel, category, inverterIdentity, sourceUnit, displayUnit, scalingMultiplier, scalingOffset, scalingStatus, status, version, updatedAt]
     PlatformTelemetryMappingIdentity:
       type: object
       properties:
@@ -720,7 +724,10 @@ components:
             category: { type: string, minLength: 1, maxLength: 120 }
             inverterIdentity: { type: [string, "null"], maxLength: 80 }
             sourceUnit: { type: [string, "null"], maxLength: 80 }
-          required: [destination, displayLabel, category]
+            displayUnit: { type: [string, "null"], maxLength: 80 }
+            scalingMultiplier: { type: number, minimum: -1000000000, maximum: 1000000000, default: 1 }
+            scalingOffset: { type: number, minimum: -1000000000, maximum: 1000000000, default: 0 }
+          required: [destination, displayLabel, category, displayUnit, scalingMultiplier, scalingOffset]
     PlatformTelemetryParameter:
       type: object
       properties:
@@ -737,6 +744,9 @@ components:
         rawValue: { type: string }
         reportedValue: { type: string }
         reportedNumericValue: { type: [number, "null"] }
+        displayValue: { type: [string, "null"] }
+        displayNumericValue: { type: [number, "null"] }
+        displayUnit: { type: [string, "null"] }
         sourceUnit: { type: [string, "null"] }
         address: { type: [string, "null"] }
         sourceName: { type: string }
@@ -746,9 +756,10 @@ components:
         provenance: { type: string, enum: [live, retained, recovered, replay, snapshot] }
         dataQuality: { type: string, enum: [validated, raw, source-reported] }
         scalingStatus: { type: string, enum: [validated, raw] }
+        mappingValidationStatus: { type: [string, "null"], enum: [valid, not-numeric, non-finite, null] }
         freshness: { type: string, enum: [live, stale, saved, retained, recovered, replay] }
         mapping: { anyOf: [{ $ref: "#/components/schemas/PlatformTelemetryMapping" }, { type: "null" }] }
-      required: [observationId, signalKey, siteName, deviceId, deviceName, topic, originalName, normalizedName, displayLabel, category, rawValue, reportedValue, reportedNumericValue, sourceUnit, address, sourceName, sourceIdentity, observedAt, receivedAt, provenance, dataQuality, scalingStatus, freshness, mapping]
+      required: [observationId, signalKey, siteName, deviceId, deviceName, topic, originalName, normalizedName, displayLabel, category, rawValue, reportedValue, reportedNumericValue, displayValue, displayNumericValue, displayUnit, sourceUnit, address, sourceName, sourceIdentity, observedAt, receivedAt, provenance, dataQuality, scalingStatus, mappingValidationStatus, freshness, mapping]
     PlatformTelemetryParameterList:
       type: object
       properties:

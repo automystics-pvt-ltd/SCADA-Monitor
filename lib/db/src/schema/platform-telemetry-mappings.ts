@@ -1,14 +1,15 @@
 import { sql } from "drizzle-orm";
-import { index, integer, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { doublePrecision, index, integer, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./auth";
 import { platformSitesTable } from "./platform-admin";
 
 /**
- * A semantic/display map for one source-reported signal. This deliberately
- * contains no multiplier or engineering conversion: calibration profiles stay
- * the only route by which raw evidence becomes a verified KPI.
+ * The approved display contract for one exact device signal. Raw transport and
+ * source-reported evidence never change; the linear transform produces a
+ * separate customer-facing display value. Plant calibration profiles remain
+ * the authority for derived engineering KPIs and energy calculations.
  */
 export const platformTelemetryMappingsTable = pgTable(
   "platform_telemetry_mappings",
@@ -31,6 +32,10 @@ export const platformTelemetryMappingsTable = pgTable(
     category: varchar("category", { length: 120 }).notNull(),
     inverterIdentity: varchar("inverter_identity", { length: 80 }),
     sourceUnit: varchar("source_unit", { length: 80 }),
+    displayUnit: varchar("display_unit", { length: 80 }),
+    scalingMultiplier: doublePrecision("scaling_multiplier").notNull().default(1),
+    scalingOffset: doublePrecision("scaling_offset").notNull().default(0),
+    scalingStatus: varchar("scaling_status", { enum: ["approved"] }).notNull().default("approved"),
     status: varchar("status", { enum: ["active", "cleared"] }).notNull().default("active"),
     version: integer("version").notNull().default(1),
     createdBy: varchar("created_by").notNull().references(() => usersTable.id, { onDelete: "restrict" }),
