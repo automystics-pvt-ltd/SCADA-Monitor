@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectDashboardSavedEvidence, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation } from "./verified-kpis.ts";
 
 test("selects the newest named raw register and keeps replay provenance", () => {
@@ -203,6 +203,51 @@ test("fresh live telemetry takes precedence over an eligible saved snapshot", ()
   });
   assert.equal(selection.source, "live");
   assert.equal(selection.snapshot?.id, snapshot.id);
+});
+
+test("keeps the latest confirmed saved snapshot as dashboard evidence even after live freshness expires", () => {
+  const snapshot = parseSavedKpiSnapshot({
+    id: 14,
+    topic: "trn246/modbus",
+    windowStartedAt: "2026-08-24T03:45:00.000Z",
+    windowEndedAt: "2026-08-24T04:00:00.000Z",
+    scheduledFor: "2026-08-24T04:00:00.000Z",
+    capturedAt: "2026-08-24T04:00:00.000Z",
+    saveStatus: "saved",
+    messageCount: 8,
+    parameterCount: 1,
+    parameters: [{ name: "actpow", data: 44, full_addr: "305031" }],
+    metrics: { activePower: null, dailyEnergy: null, totalEnergy: null, specificYield: null },
+  });
+
+  assert.ok(snapshot);
+  assert.equal(selectSavedKpiEvidence(snapshot, {
+    now: Date.parse("2026-08-24T08:00:00.000Z"),
+    liveTelemetryFresh: false,
+  }).source, "unavailable");
+  const dashboardSelection = selectDashboardSavedEvidence(snapshot);
+  assert.equal(dashboardSelection.source, "saved");
+  assert.equal(dashboardSelection.snapshot?.id, snapshot.id);
+});
+
+test("excludes incomplete, empty, and malformed records from dashboard saved evidence", () => {
+  const base = {
+    id: 15,
+    topic: "trn246/modbus",
+    windowStartedAt: "2026-08-24T03:45:00.000Z",
+    windowEndedAt: "2026-08-24T04:00:00.000Z",
+    scheduledFor: "2026-08-24T04:00:00.000Z",
+    capturedAt: "2026-08-24T04:00:00.000Z",
+    messageCount: 8,
+    parameterCount: 1,
+    parameters: [{ name: "actpow", data: 44, full_addr: "305031" }],
+    metrics: { activePower: null, dailyEnergy: null, totalEnergy: null, specificYield: null },
+  };
+  const snapshot = (overrides: Record<string, unknown>) => parseSavedKpiSnapshot({ ...base, saveStatus: "saved", ...overrides });
+
+  assert.equal(selectDashboardSavedEvidence(snapshot({ saveStatus: "incomplete" })).source, "unavailable");
+  assert.equal(selectDashboardSavedEvidence(snapshot({ parameters: [] })).source, "unavailable");
+  assert.equal(selectDashboardSavedEvidence(snapshot({ capturedAt: "bad timestamp" })).source, "unavailable");
 });
 
 test("sums inverter power tags while rejecting an isolated communication outlier", () => {
@@ -435,6 +480,7 @@ test("keeps snapshot provenance and never replaces a live verified calculation",
       startedAt: "2026-08-24T04:00:00.000Z",
       endedAt: "2026-08-24T04:15:00.000Z",
       scheduledFor: "2026-08-24T04:15:00.000Z",
+      capturedAt: "2026-08-24T04:15:42.000Z",
     },
   });
   const live = calculateVerifiedScadaKpis([
@@ -443,6 +489,7 @@ test("keeps snapshot provenance and never replaces a live verified calculation",
 
   assert.equal(snapshot.acPower.provenance, "snapshot");
   assert.equal(snapshot.acPower.snapshotWindow?.scheduledFor, "2026-08-24T04:15:00.000Z");
+  assert.equal(snapshot.acPower.snapshotWindow?.capturedAt, "2026-08-24T04:15:42.000Z");
   assert.equal(selectVerifiedCalculation(live.acPower, snapshot.acPower).value, 2);
 });
 

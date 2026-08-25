@@ -6,7 +6,7 @@ import { Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceTelemetryRow, telemetryDeliveryIdentity, type TelemetryProvenance } from './telemetry-provenance';
 import { approvedDisplayTelemetryUnit, approvedDisplayTelemetryValue, isSourceReportedEvidence, sourceReportedTelemetryUnit, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, selectSavedKpiEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
+import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, selectDashboardSavedEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
@@ -1354,9 +1354,9 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
   const [kindFilter, setKindFilter] = useState<'all' | ElectricalKind>('all');
   const isHistorical = appliedRange.preset !== 'live';
   const savedRows = useMemo(() => (savedSnapshot?.parameters ?? []) as ModbusRow[], [savedSnapshot]);
-  const showingSavedFallback = mode === 'live' && !isHistorical && liveState !== 'fresh' && savedRows.length > 0;
+  const showingSavedRecord = mode === 'live' && !isHistorical && savedRows.length > 0;
   const savedAtLabel = savedSnapshot
-    ? formatInPlantTimezone(savedSnapshot.scheduledFor || savedSnapshot.capturedAt, savedSnapshot.timezone)
+    ? formatInPlantTimezone(savedSnapshot.capturedAt, savedSnapshot.timezone)
     : 'not available';
 
   useEffect(() => {
@@ -1392,24 +1392,23 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     };
   }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory, siteName]);
 
-  // The live view prefers fresh SSE evidence. When delivery is not fresh, the
-  // immutable latest saved snapshot replaces the cleared/stale browser buffer.
-  // History remains supplemental traceability rather than a substitute for the
-  // explicit latest-record fallback.
+  // Dashboard electrical cards start from immutable backend-confirmed evidence.
+  // Direct MQTT rows remain available in Live Data, but must not overwrite the
+  // saved dashboard source or be mislabeled as a persisted record.
   const sourceRows = useMemo(() => {
     if (mode !== 'live') return [];
     const deduplicated = new Map<string, ModbusRow>();
-    const currentRows = liveState === 'fresh' ? rows : savedRows;
+    const currentRows = savedRows.length ? savedRows : rows;
     for (const row of isHistorical ? historyRows : [...historyRows, ...currentRows]) {
       deduplicated.set(electricalRowIdentity(row), row);
     }
     return [...deduplicated.values()];
-  }, [historyRows, isHistorical, liveState, mode, rows, savedRows]);
+  }, [historyRows, isHistorical, mode, rows, savedRows]);
 
   // Raw evidence remains inspectable across replay/stale states. Only explicitly
   // validated, fresh telemetry is eligible for engineering cards and health metrics.
   const discoveries = useMemo(() => sourceRows.map(electricalEvidence).filter(Boolean) as ElectricalEvidence[], [sourceRows]);
-  const validated = useMemo(() => discoveries.filter((item) => item.status === 'Validated' && (isHistorical || liveState === 'fresh')), [discoveries, isHistorical, liveState]);
+  const validated = useMemo(() => discoveries.filter((item) => item.status === 'Validated' && (isHistorical || liveState === 'fresh' || showingSavedRecord)), [discoveries, isHistorical, liveState, showingSavedRecord]);
   const chartEvidence = useMemo(() => discoveries.filter((item) => item.rawNumericValue !== null), [discoveries]);
   const phaseVoltage = useMemo(() => latestEvidence(chartEvidence, ['vab', 'vbc', 'vca', 'va', 'vb', 'vc']), [chartEvidence]);
   const phaseCurrent = useMemo(() => latestEvidence(chartEvidence, ['ia', 'ib', 'ic']), [chartEvidence]);
@@ -1430,7 +1429,9 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     const average = values.reduce((sum, value) => sum + value, 0) / values.length;
     return average ? Math.max(...values.map((value) => Math.abs(value - average))) / average * 100 : null;
   }, [phaseVoltage]);
-  const rangeLabel = appliedRange.preset === 'live' ? 'Live telemetry' : `${new Date(appliedRange.from).toLocaleString()} — ${new Date(appliedRange.to).toLocaleString()}`;
+  const rangeLabel = appliedRange.preset === 'live'
+    ? showingSavedRecord ? `Saved backend record · ${savedAtLabel}` : 'Live telemetry'
+    : `${new Date(appliedRange.from).toLocaleString()} — ${new Date(appliedRange.to).toLocaleString()}`;
   const applyRange = () => {
     if (draftRange.preset !== 'live' && (!draftRange.from || !draftRange.to || new Date(draftRange.from) > new Date(draftRange.to))) {
       setHistoryState({ loading: false, error: 'Choose a valid start and end time before applying the range.' });
@@ -1490,7 +1491,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
       frequency: 'Grid frequency · latest reported readings',
       other: 'Electrical source parameter · latest reported readings',
     };
-    const rangeDescription = isHistorical ? 'Selected time range' : showingSavedFallback ? `Last saved snapshot · ${savedAtLabel}` : 'Recent saved snapshots + live MQTT';
+    const rangeDescription = isHistorical ? 'Selected time range' : showingSavedRecord ? `Saved backend record · ${savedAtLabel}` : 'Direct live MQTT only';
     return <div className="scada-chart-surface rounded-xl border border-[#1E293B] bg-[#0b0f19] p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1511,7 +1512,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     <section className="scada-interactive-card relative flex h-full flex-col overflow-hidden rounded-xl border border-[#1E293B] bg-[#090B13] p-4 sm:p-5" data-testid="section-electrical-parameters">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent" />
       <header className="relative z-10 mb-4 flex flex-col gap-4 border-b border-[#1E293B] pb-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400"><PlugZap size={16} /></span><div><h3 className="text-sm font-bold text-slate-100">Electrical Parameters</h3><p className="mt-0.5 text-[11px] text-slate-500">Live MQTT and recent saved Modbus evidence</p></div></div><p className="mt-3 max-w-2xl text-[11px] leading-5 text-slate-400">The Live view combines current MQTT messages with recent backend snapshots. Values remain raw until the telemetry source explicitly confirms engineering scaling.</p>{!isHistorical && mode === 'live' && liveState !== 'fresh' && <p role="status" data-testid="status-electrical-saved-fallback" className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] leading-5 text-amber-300">{showingSavedFallback ? `Live Data Temporarily Unavailable — Showing Last Saved. Last Saved: ${savedAtLabel}.` : 'No Valid Data Available. Awaiting a fresh MQTT payload or a successfully saved backend record.'}</p>}</div>
+        <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400"><PlugZap size={16} /></span><div><h3 className="text-sm font-bold text-slate-100">Electrical Parameters</h3><p className="mt-0.5 text-[11px] text-slate-500">Saved backend evidence with separate direct-live monitoring</p></div></div><p className="mt-3 max-w-2xl text-[11px] leading-5 text-slate-400">Dashboard electrical values come from the latest confirmed backend record. Direct MQTT values stay in Live Data. Values remain raw until the telemetry source explicitly confirms engineering scaling.</p>{!isHistorical && mode === 'live' && <p role="status" data-testid="status-electrical-saved-record" className={`mt-3 rounded-lg border px-3 py-2 text-[11px] leading-5 ${showingSavedRecord ? 'border-blue-500/20 bg-blue-500/5 text-blue-200' : 'border-amber-500/20 bg-amber-500/5 text-amber-300'}`}>{showingSavedRecord ? `Saved backend record · ${savedAtLabel}. ${liveState === 'fresh' ? 'Direct live telemetry is available separately in Live Data.' : 'Live Data is unavailable or stale; this saved record remains historical evidence.'}` : 'No successfully saved backend record is available. Direct MQTT values, if received, remain available only in Live Data.'}</p>}</div>
         <CustomBadge tone={mode !== 'live' ? 'warning' : validated.length ? 'success' : discoveries.length ? 'warning' : 'neutral'}>{mode !== 'live' ? 'Demo mode — not operational' : validated.length ? `${validated.length} validated value${validated.length === 1 ? '' : 's'}` : discoveries.length ? `${discoveries.length} recent raw sample${discoveries.length === 1 ? '' : 's'}` : 'Awaiting source data'}</CustomBadge>
       </header>
 
@@ -1852,7 +1853,7 @@ function WorkspaceHeader({ eyebrow, title, description, action, onBack }: {
   );
 }
 
-function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, calculations, savedSnapshot, validatedFleet, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now, energyStream }: {
+function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, calculations, savedSnapshot, validatedFleet, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now, energyStream, lastLiveDataTimestamp }: {
   section: string;
   devices: Device[];
   rows: ModbusRow[];
@@ -1876,16 +1877,17 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
   weather: WeatherState;
   now: number;
   energyStream: LiveEnergySample[];
+  lastLiveDataTimestamp?: string;
 }) {
-  const commonAction = <span className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400">{liveState === 'fresh' ? 'Live source connected' : mode === 'demo' ? 'Demo source' : 'Awaiting fresh source data'}</span>;
+  const commonAction = <span className={`rounded-lg border px-3 py-2 text-xs font-semibold ${liveState === 'fresh' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>{liveState === 'fresh' ? `Live · ${formatInPlantTimezone(lastLiveDataTimestamp, persistence.timezone)}` : mode === 'demo' ? 'Demo source' : `Live unavailable · last received ${formatInPlantTimezone(lastLiveDataTimestamp, persistence.timezone)}`}</span>;
   const savedSnapshotRows = (savedSnapshot?.parameters ?? []) as ModbusRow[];
-  const usingSavedSnapshot = mode === 'live' && liveState !== 'fresh' && savedSnapshotRows.length > 0;
+  const usingSavedSnapshot = mode === 'live' && savedSnapshotRows.length > 0;
   const evidenceRows = usingSavedSnapshot ? savedSnapshotRows : rows;
   const workspaceRawFallbacks = rawKpiFallbacks(evidenceRows);
   const workspaceRawInverters = rawInverterSignals(evidenceRows);
   const workspaceRawInverterIdentities = rawInverterIdentitySignals(evidenceRows);
   const workspaceSavedLabel = usingSavedSnapshot && savedSnapshot
-    ? formatInPlantTimezone(savedSnapshot.scheduledFor || savedSnapshot.capturedAt, savedSnapshot.timezone)
+    ? formatInPlantTimezone(savedSnapshot.capturedAt, savedSnapshot.timezone)
     : undefined;
   if (section === 'inverters') return (
     <div data-testid="screen-inverters">
@@ -1894,19 +1896,19 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
         {[
           ['Mapped assets', devices.filter((device) => device.type === 'Power inverter').length || '—', 'Explicitly identified inverter assets'],
           ['Mapped reporting', devices.filter((device) => device.type === 'Power inverter' && device.status === 'online').length || '—', 'Only validated device status is counted'],
-          ['Telemetry rows', rows.length.toLocaleString(), 'Raw Modbus parameters available'],
+          ['Saved rows', evidenceRows.length.toLocaleString(), usingSavedSnapshot ? 'Confirmed backend record only' : 'No confirmed saved record'],
         ].map(([label, value, detail]) => <div key={label} className="scada-interactive-card rounded-xl border border-[#1E293B] bg-[#090B13] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p><p className="mt-2 text-xl font-bold text-slate-100">{value}</p><p className="mt-1 text-[10px] text-slate-500">{detail}</p></div>)}
       </div>
       {mode === 'live' && <div className="mb-5"><InverterHealthHeatmap fleet={validatedFleet} onOpenInverter={(record) => onOpenInverter(sourceBackedInverterDevice(record, siteName))} /></div>}
       <div className="w-full">
-        <InverterOverviewTable devices={devices} rows={rows} onOpenInverter={onOpenInverter} />
+        <InverterOverviewTable devices={devices} rows={evidenceRows} onOpenInverter={onOpenInverter} />
       </div>
     </div>
   );
-  if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Search, sort, filter, and export the latest Modbus telemetry while preserving raw values, timestamps, and source provenance." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
+  if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Inspect only direct MQTT/SSE telemetry. Saved, replayed, retained, and queued evidence never appears in this view." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} lastReceivedAt={lastLiveDataTimestamp} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
   if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={workspaceRawFallbacks.dailyEnergy} savedLabel={workspaceSavedLabel} liveState={liveState} streamSamples={energyStream} now={now} /><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><div className="xl:col-span-2"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} rawInverters={workspaceRawInverters} rawInverterIdentities={workspaceRawInverterIdentities} validatedFleet={validatedFleet} mode={mode} savedLabel={workspaceSavedLabel} onOpenInverter={(record) => onOpenInverter(sourceBackedInverterDevice(record, siteName))} /></div></div></div>;
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
-  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} /><InverterFaultBoard devices={devices} rows={rows} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => isMappedAlarmOrFault(row) || /alarm|fault|error|warning/i.test(telemetrySourceParameter(row)))} persistence={persistence} /></div></div>;
+  if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} />{usingSavedSnapshot && <p role="status" className="mb-4 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-200">Saved backend alarm evidence · {workspaceSavedLabel}. Current alarm state requires direct live telemetry.</p>}<InverterFaultBoard devices={devices} rows={evidenceRows} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => isMappedAlarmOrFault(row) || /alarm|fault|error|warning/i.test(telemetrySourceParameter(row)))} persistence={persistence} lastReceivedAt={lastLiveDataTimestamp} /></div></div>;
   if (section === 'raw-data') return <Suspense fallback={<div role="status" className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-[#334155] bg-[#090B13] text-sm text-slate-400">Loading Report Center…</div>}><ReportCenter siteName={siteName} sites={sites} devices={devices} parameters={Array.from(new Set([...rows, ...savedSnapshotRows].map((row) => String(row.name ?? row.parameter ?? '').trim()).filter(Boolean))).sort()} /></Suspense>;
   return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-5 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} siteName={siteName} /></div></div>;
 }
@@ -2391,7 +2393,30 @@ function InverterFaultBoard({ devices, rows = [], onOpenInverter }: { devices: D
   </section>;
 }
 
-function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persistence: PersistenceStatus }) {
+function SavedBackendDataPanel({ snapshot, persistence }: { snapshot: SavedKpiSnapshot | null; persistence: PersistenceStatus }) {
+  const rows = (snapshot?.parameters ?? []) as ModbusRow[];
+  const savedAt = snapshot
+    ? formatInPlantTimezone(snapshot.capturedAt, snapshot.timezone ?? persistence.timezone)
+    : 'Not available';
+  return (
+    <section data-testid="panel-saved-backend-record" className="mt-6 overflow-hidden rounded-xl border border-[#1E293B] bg-[#090B13]">
+      <div className="flex flex-col gap-3 border-b border-[#1E293B] p-5 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2"><Database size={16} className="text-blue-300" /><h3 className="text-sm font-bold text-slate-200">Saved Data</h3></div>
+          <p className="mt-1 text-xs text-slate-500">Latest successfully saved backend record only. Queued, incomplete, missing, and direct live telemetry are excluded.</p>
+        </div>
+        <span data-testid="saved-data-record-timestamp" className="rounded border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-200">Saved · {savedAt}</span>
+      </div>
+      {snapshot ? <div className="p-4">
+        <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500"><span><strong className="text-slate-300">Captured:</strong> {formatInPlantTimezone(snapshot.capturedAt, snapshot.timezone ?? persistence.timezone)}</span><span><strong className="text-slate-300">Window:</strong> {formatInPlantTimezone(snapshot.windowStartedAt, snapshot.timezone ?? persistence.timezone)} – {formatInPlantTimezone(snapshot.windowEndedAt, snapshot.timezone ?? persistence.timezone)}</span><span><strong className="text-slate-300">Parameters:</strong> {snapshot.parameterCount}</span></div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{rows.slice(0, 8).map((row, index) => <div key={`${modbusRowKey(row)}-${index}`} className="rounded-lg border border-[#1E293B] bg-[#0b0f19] px-3 py-2"><p className="truncate text-[10px] font-semibold text-slate-400" title={telemetryDisplayLabel(row)}>{telemetryDisplayLabel(row)}</p><p className="mt-1 truncate font-mono text-xs text-slate-200">{formatValue(sourceReportedValue(row) ?? sourceTransportValue(row) ?? row.data ?? '—')}</p><p className="mt-1 truncate text-[10px] text-slate-500">{telemetryUnit(row)} · {telemetryDateTime(row).full}</p></div>)}</div>
+        {rows.length > 8 && <p className="mt-3 text-[10px] text-slate-500">Showing 8 of {rows.length} saved source parameters. Electrical analysis retains the complete saved record.</p>}
+      </div> : <div className="px-5 py-8 text-center text-xs text-slate-500">No successfully saved backend record is available for this site yet. Direct MQTT remains available only in Live Data.</div>}
+    </section>
+  );
+}
+
+function DetailedLiveDataTable({ rows, persistence, lastReceivedAt }: { rows: ModbusRow[]; persistence: PersistenceStatus; lastReceivedAt?: string }) {
   const [filter, setFilter] = useState('');
   const [filterCategory, setFilterCategory] = useState('All categories');
   const [filterSource, setFilterSource] = useState('All sources');
@@ -2446,6 +2471,9 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
   const lastSnapshotLabel = persistence.lastSnapshotAt
     ? `${persistence.lastSnapshotStatus === 'missing' ? 'Missing window' : 'Saved'} · ${formatInPlantTimezone(persistence.lastSnapshotScheduledFor ?? persistence.lastSnapshotAt, persistence.timezone)}`
     : 'No scheduled snapshot recorded yet';
+  const lastReceivedLabel = lastReceivedAt
+    ? formatInPlantTimezone(lastReceivedAt, persistence.timezone)
+    : 'No direct live telemetry received';
   const resetFilters = () => {
     setFilter('');
     setFilterCategory('All categories');
@@ -2500,10 +2528,10 @@ function DetailedLiveDataTable({ rows, persistence }: { rows: ModbusRow[]; persi
             <Database size={16} className="text-slate-400" />
             <h3 className="text-sm font-bold text-slate-200">Detailed Live Data</h3>
           </div>
-          <p className="text-xs text-slate-500">Live MQTT/SSE data updates 24/7. Historical data includes only scheduled, persisted snapshots.</p>
+          <p className="text-xs text-slate-500">Direct MQTT/SSE telemetry only. Saved, replayed, retained, and queued evidence is excluded from this view.</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <span data-testid="status-live-telemetry" className="rounded bg-sky-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-sky-300">Live · 24/7</span>
+          <span data-testid="status-live-telemetry" className="rounded bg-sky-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-sky-300">Live · last received {lastReceivedLabel}</span>
           <span className={`rounded px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${persistence.error ? 'bg-rose-500/10 text-rose-400' : 'bg-[#1e293b] text-slate-300'}`}>
             {historicalStorageStatus}
           </span>
@@ -3591,18 +3619,15 @@ function AppShell() {
       : communication?.deviceCommunication === 'stale' || (telemetryAge !== null && telemetryAge <= DEVICE_STALE_MAX_AGE_MS)
         ? 'stale'
         : 'unavailable';
-  const savedEvidence = selectSavedKpiEvidence(savedKpiSnapshot, {
-    now,
-    liveTelemetryFresh: mode === 'live' && electricalLiveState === 'fresh',
-  });
-  const eligibleSavedSnapshot = savedEvidence.snapshot;
-  const hasValidSavedSnapshot = eligibleSavedSnapshot !== null;
+  const savedEvidence = selectDashboardSavedEvidence(savedKpiSnapshot);
+  const dashboardSavedSnapshot = savedEvidence.snapshot;
+  const hasValidSavedSnapshot = dashboardSavedSnapshot !== null;
   const savedSnapshotRows = useMemo(() => (savedKpiSnapshot?.parameters ?? []) as ModbusRow[], [savedKpiSnapshot]);
   const currentLiveRows = useMemo(() => modbusRows.filter((row) => row.provenance === 'live'), [modbusRows]);
   const showingSavedRecord = mode === 'live' && savedEvidence.source === 'saved';
   const dashboardEvidenceRows = showingSavedRecord ? savedSnapshotRows : currentLiveRows;
   const lastSavedLabel = hasValidSavedSnapshot
-    ? formatInPlantTimezone(savedKpiSnapshot!.scheduledFor || savedKpiSnapshot!.capturedAt, savedKpiSnapshot!.timezone ?? persistence.timezone)
+    ? formatInPlantTimezone(savedKpiSnapshot!.capturedAt, savedKpiSnapshot!.timezone ?? persistence.timezone)
     : 'not available';
   const operationalDevices = useMemo(() => devices.map((device) => ({ ...device, status: statusAt(device, now, mode) })), [devices, mode, now]);
   const rawInverterAssessment = useMemo(() => assessValidatedLiveInverterFleet(
@@ -3686,8 +3711,9 @@ function AppShell() {
       return evidence ? `${evidence.sourceName ?? ''}|${evidence.address.toLowerCase()}|${evidence.inverterId ?? evidence.parameter.toLowerCase()}` : '';
     };
     const validatedSources = new Set(validatedInverterDevices.map(sourceIdentity));
+    if (showingSavedRecord) return sourceTagInverters;
     return [...operationalDevices, ...validatedInverterDevices, ...sourceTagInverters.filter((device) => !validatedSources.has(sourceIdentity(device)))];
-  }, [operationalDevices, sourceTagInverters, validatedInverterDevices]);
+  }, [operationalDevices, showingSavedRecord, sourceTagInverters, validatedInverterDevices]);
   const inverters = useMemo(() => operationalDevices.filter(d => d.type === 'Power inverter'), [operationalDevices]);
   const onlinePowerReadings = useMemo(() => electricalLiveState === 'fresh' ? inverters.filter((device) => device.status === 'online').map((device) => {
     const power = numberFrom(device, ['power', 'active_kw'], NaN);
@@ -3723,6 +3749,7 @@ function AppShell() {
         startedAt: savedKpiSnapshot.windowStartedAt,
         endedAt: savedKpiSnapshot.windowEndedAt,
         scheduledFor: savedKpiSnapshot.scheduledFor,
+        capturedAt: savedKpiSnapshot.capturedAt,
       },
       calibrationProfile: savedKpiSnapshot.calibrationProfile ?? null,
     } : undefined,
@@ -3747,7 +3774,7 @@ function AppShell() {
   const calculationContext = (calculation: VerifiedKpiCalculation) => {
     if (calculation.quality !== 'verified') return calculation.readiness;
     const outliers = calculation.excluded.length ? ` · ${calculation.excluded.length} outlier${calculation.excluded.length === 1 ? '' : 's'} excluded` : '';
-    const saved = calculation.snapshotWindow ? ` · saved ${formatInPlantTimezone(calculation.snapshotWindow.scheduledFor, persistence.timezone)}` : '';
+    const saved = calculation.snapshotWindow ? ` · saved ${formatInPlantTimezone(calculation.snapshotWindow.capturedAt, persistence.timezone)}` : '';
     return `${calculation.method.replaceAll('-', ' ')} · ${calculation.inputs.length} approved source input${calculation.inputs.length === 1 ? '' : 's'} · ${calculation.profileVersion}${outliers}${saved}`;
   };
   const calculationCard = (calculation: VerifiedKpiCalculation, rawFallback: RawKpiFallback) => {
@@ -3778,8 +3805,12 @@ function AppShell() {
   const specificYieldCard = calculationCard(calculations.specificYield, rawFallbacks.specificYield);
   const discoveredInverterTotal = rawKpis.inverters.length;
   const onlineInverterCount = electricalLiveState === 'fresh' ? validatedInverterFleet.records.length : 0;
-  const inverterCardValue = discoveredInverterTotal ? `${onlineInverterCount} / ${discoveredInverterTotal}` : '0 / Total';
-  const inverterAvailability = discoveredInverterTotal ? `${Math.round((onlineInverterCount / discoveredInverterTotal) * 100)}%` : '—';
+  const inverterCardValue = showingSavedRecord
+    ? discoveredInverterTotal ? `— / ${discoveredInverterTotal}` : '— / Total'
+    : discoveredInverterTotal ? `${onlineInverterCount} / ${discoveredInverterTotal}` : '0 / Total';
+  const inverterAvailability = showingSavedRecord
+    ? 'Saved record'
+    : discoveredInverterTotal ? `${Math.round((onlineInverterCount / discoveredInverterTotal) * 100)}%` : '—';
   const displayedActiveAlarmCount = rawKpis.alarms?.value === 0 ? 0 : activeAlarms;
   const activeAlarmCardCount = mode === 'demo' ? activeAlarms : displayedActiveAlarmCount;
   const inverterCard = mode === 'demo'
@@ -3795,11 +3826,15 @@ function AppShell() {
     : {
       value: inverterCardValue,
       availability: inverterAvailability,
-      status: discoveredInverterTotal ? 'Source-backed inverter status' : 'Awaiting inverter mapping',
+      status: showingSavedRecord
+        ? discoveredInverterTotal ? `Saved inventory · ${lastSavedLabel}` : 'Saved record has no mapped inverter source'
+        : discoveredInverterTotal ? 'Source-backed inverter status' : 'Awaiting inverter mapping',
       help: discoveredInverterTotal
-        ? `Inverters Online. ${onlineInverterCount} verified live inverter${onlineInverterCount === 1 ? '' : 's'} out of ${discoveredInverterTotal} discovered source record${discoveredInverterTotal === 1 ? '' : 's'}.`
+        ? showingSavedRecord
+          ? `Inverters Online. The latest saved record identifies ${discoveredInverterTotal} inverter source record${discoveredInverterTotal === 1 ? '' : 's'}, but cannot verify current online state. Saved: ${lastSavedLabel}.`
+          : `Inverters Online. ${onlineInverterCount} verified live inverter${onlineInverterCount === 1 ? '' : 's'} out of ${discoveredInverterTotal} discovered source record${discoveredInverterTotal === 1 ? '' : 's'}.`
         : 'No approved inverter status mapping has reported a total yet.',
-      tone: onlineInverterCount ? 'green' : discoveredInverterTotal ? 'amber' : 'slate',
+      tone: showingSavedRecord ? discoveredInverterTotal ? 'amber' : 'slate' : onlineInverterCount ? 'green' : discoveredInverterTotal ? 'amber' : 'slate',
     };
   const latestApprovedPlantPower = useMemo(() => dashboardEvidenceRows
     .filter((row) => {
@@ -3861,7 +3896,7 @@ function AppShell() {
         inverterCount: onlinePowerReadings.length || undefined,
       };
     }
-    if (validatedInverterFleet.records.length) {
+    if (!showingSavedRecord && validatedInverterFleet.records.length) {
       const contributingRows = validatedInverterFleet.records.map((record) => ({ date_iso_8601: record.sourceTimestamp }));
       return {
         value: validatedInverterFleet.totalKw,
@@ -4019,7 +4054,7 @@ function AppShell() {
       ? 'Loading'
       : '—';
   const dashboardSavedDetail = savedKpiSnapshot
-    ? `${savedKpiSnapshot.parameterCount} source parameter${savedKpiSnapshot.parameterCount === 1 ? '' : 's'} · ${hasValidSavedSnapshot ? 'fallback eligible' : 'historical'}${persistenceResumeMessage(persistence.savingActive) ? ` · ${persistenceResumeMessage(persistence.savingActive)}` : ''}`
+    ? `${savedKpiSnapshot.parameterCount} source parameter${savedKpiSnapshot.parameterCount === 1 ? '' : 's'} · confirmed dashboard record${persistenceResumeMessage(persistence.savingActive) ? ` · ${persistenceResumeMessage(persistence.savingActive)}` : ''}`
     : savedSnapshotLoadState === 'error'
       ? `Refresh failed; record protected${persistenceResumeMessage(persistence.savingActive) ? ` · ${persistenceResumeMessage(persistence.savingActive)}` : ''}`
       : `No confirmed backend record${persistenceResumeMessage(persistence.savingActive) ? ` · ${persistenceResumeMessage(persistence.savingActive)}` : ''}`;
@@ -4054,16 +4089,13 @@ function AppShell() {
       : error || persistence.error || dashboardLiveStatusDetail;
   const dashboardNextSaveAt = persistence.nextScheduledAt ? Date.parse(persistence.nextScheduledAt) : Number.NaN;
   const dashboardNextSaveCountdown = persistenceNextSaveLabel(persistence.savingActive, persistence.nextScheduledAt, now, persistence.intervalMinutes, formatCountdown);
-  const dashboardSourceValue = electricalLiveState === 'fresh'
-    ? 'Live'
-    : hasValidSavedSnapshot
-      ? 'Saved'
-      : 'Unavailable';
-  const dashboardSourceDetail = electricalLiveState === 'fresh'
-    ? communication?.brokerTransport === 'subscribed'
-      ? 'Topic subscribed'
-      : 'MQTT transport'
-    : dashboardDataStatus.title;
+  const dashboardSourceValue = hasValidSavedSnapshot ? 'Saved' : 'Unavailable';
+  const dashboardSourceDetail = hasValidSavedSnapshot
+    ? `Dashboard record · ${lastSavedLabel}`
+    : 'No successfully saved backend record';
+  const dashboardKpiSourceLabel = showingSavedRecord
+    ? `Saved record · ${lastSavedLabel}`
+    : 'No saved backend record';
   const dashboardCommunicationSummary = mode === 'demo'
     ? 'Demo'
     : connected && deviceCommunication === 'live'
@@ -4085,7 +4117,7 @@ function AppShell() {
           {scadaSession.authenticated && scadaAccessState === 'unavailable' && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-rose-500/30 bg-rose-500/[.04] p-8 text-center"><div className="max-w-md"><AlertCircle size={28} className="mx-auto mb-4 text-rose-400" /><h1 className="text-lg font-bold text-slate-100">SCADA access unavailable</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error}</p></div></section>}
           {scadaSession.authenticated && (scadaAccessState === 'denied' || (scadaAccessState === 'ready' && !plantSiteName)) && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-amber-400" /><h1 className="text-lg font-bold text-slate-100">{inactiveAssignedSites.length ? 'Assigned site awaiting activation' : 'No SCADA site assigned'}</h1><p className="mt-2 text-sm leading-6 text-slate-400">{siteAccessState.error || (inactiveAssignedSites.length ? `${inactiveAssignedSites.join(', ')} is assigned to you, but live SCADA access remains blocked until a platform administrator completes a successful telemetry test and activates the site.` : 'Your account does not have an active site assignment. Ask a platform administrator to grant access before viewing live telemetry.')}</p></div></section>}
           {scadaSession.authenticated && scadaAccessState === 'ready' && plantSiteName && <><div className="scada-dashboard-site-bar mb-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-1.5 text-[10px]"><span className="font-medium text-slate-500">Assigned site</span><strong className="min-w-0 max-w-[min(42vw,18rem)] truncate text-blue-300">{plantSiteName}</strong><span className="scada-dashboard-site-status rounded-full border px-2 py-0.5 font-bold uppercase tracking-[0.12em]">Active</span>{siteAccessState.roles[plantSiteName] && <span className="truncate rounded-full border border-slate-700 px-2 py-0.5 uppercase tracking-[0.1em] text-slate-500">{siteAccessState.roles[plantSiteName]}</span>}</div>
-          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={currentLiveRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={eligibleSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} energyStream={energyStream} /></div>}
+          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={currentLiveRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={dashboardSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} energyStream={energyStream} lastLiveDataTimestamp={lastLiveDataTimestamp} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scroll-mt-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -4105,7 +4137,7 @@ function AppShell() {
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--radio"><Radio size={18} aria-hidden="true" /></span>
                   <div className="min-w-0"><p className="scada-dashboard-status-label">Data source</p><strong className="scada-dashboard-status-value">{dashboardSourceValue}</strong><p className="scada-dashboard-status-detail">{dashboardSourceDetail}</p></div>
                 </article>
-                <article data-testid="panel-saved-data" aria-label="Saved backend data" title={savedKpiSnapshot ? `Persisted ${formatInPlantTimezone(savedKpiSnapshot.scheduledFor || savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone ?? persistence.timezone)}. ${dashboardSavedDetail}.` : dashboardSavedDetail} className="scada-dashboard-status-card scada-dashboard-status-card--neutral">
+                <article data-testid="panel-saved-data" aria-label="Saved backend data" title={savedKpiSnapshot ? `Persisted ${formatInPlantTimezone(savedKpiSnapshot.capturedAt, savedKpiSnapshot.timezone ?? persistence.timezone)}. ${dashboardSavedDetail}.` : dashboardSavedDetail} className="scada-dashboard-status-card scada-dashboard-status-card--neutral">
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--database"><Database size={18} aria-hidden="true" /></span>
                   <div className="min-w-0" data-testid="saved-data-status"><p className="scada-dashboard-status-label">Latest saved</p><strong className="scada-dashboard-status-value truncate">{dashboardSavedValue}</strong><p className="scada-dashboard-status-detail">{persistence.offlineQueuedSnapshots ? `Queued sync: ${persistence.offlineQueuedSnapshots}${dashboardPersistenceResumeMessage ? ` · ${dashboardPersistenceResumeMessage}` : ''}` : dashboardSavedDetail}</p></div>
                 </article>
@@ -4154,22 +4186,22 @@ function AppShell() {
               </section>}
             <DashboardPowerFlow {...dashboardFlowReading} mode={mode} monitoringStatus={deviceCommunication} />
               <div className="scada-dashboard-kpis grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} footerIcon={Activity} tone="blue" subtext={mode === 'demo' ? 'Live plant output' : acPowerCard.value === 'Not reported' ? 'Output unavailable' : 'Live plant output'} onClick={() => navigateTo('power')} help={`Total AC Power. ${acPowerCard.details}`} />
-              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} footerIcon={Sun} tone="amber" subtext={mode === 'demo' ? 'Day total' : dailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : 'Day total'} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${dailyEnergyCard.details}`} />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} footerIcon={Database} tone="violet" subtext={mode === 'demo' ? 'Lifetime generation' : totalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : 'Lifetime'} onClick={() => navigateTo('energy')} help={`Total Energy. ${totalEnergyCard.details}`} />
-              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} footerIcon={Activity} tone="green" subtext={mode === 'demo' ? 'Today' : specificYieldCard.value === 'Not reported' ? 'Performance unavailable' : 'Today'} onClick={() => navigateTo('power')} help={`Specific Yield. ${specificYieldCard.details}`} />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} footerIcon={Activity} tone="blue" subtext={mode === 'demo' ? 'Live plant output' : acPowerCard.value === 'Not reported' ? 'Output unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('power')} help={`Total AC Power. ${acPowerCard.details}`} />
+              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} footerIcon={Sun} tone="amber" subtext={mode === 'demo' ? 'Day total' : dailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${dailyEnergyCard.details}`} />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} footerIcon={Database} tone="violet" subtext={mode === 'demo' ? 'Lifetime generation' : totalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Total Energy. ${totalEnergyCard.details}`} />
+              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} footerIcon={Activity} tone="green" subtext={mode === 'demo' ? 'Today' : specificYieldCard.value === 'Not reported' ? 'Performance unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('power')} help={`Specific Yield. ${specificYieldCard.details}`} />
               <KpiCard title="Inverters Online" value={inverterCard.value} icon={Check} footerIcon={Check} tone={inverterCard.tone} variant="inverter" availability={inverterCard.availability} subtext={inverterCard.status} onClick={() => navigateTo('inverters')} help={inverterCard.help} />
-              <KpiCard title="Active Alarms" value={activeAlarmCardCount.toString()} icon={AlertTriangle} footerIcon={activeAlarmCardCount ? AlertTriangle : Check} tone={activeAlarmCardCount ? 'red' : 'green'} variant="alarm" subtext={activeAlarmCardCount ? 'Requires attention' : 'No active alarms'} onClick={() => navigateTo('alarms')} help={rawKpis.alarms ? `Active Alarms. Latest source alarm value: ${rawKpis.alarms.value}${rawKpis.alarms.sourceUnit ? ` ${rawKpis.alarms.sourceUnit}` : ''}.` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
+              <KpiCard title="Active Alarms" value={activeAlarmCardCount.toString()} icon={AlertTriangle} footerIcon={activeAlarmCardCount ? AlertTriangle : Check} tone={activeAlarmCardCount ? 'red' : 'green'} variant="alarm" subtext={showingSavedRecord ? `Saved record · verify live` : activeAlarmCardCount ? 'Requires attention' : 'No active alarms'} onClick={() => navigateTo('alarms')} help={rawKpis.alarms ? `Active Alarms. Latest source alarm value: ${rawKpis.alarms.value}${rawKpis.alarms.sourceUnit ? ` ${rawKpis.alarms.sourceUnit}` : ''}.${showingSavedRecord ? ` Saved: ${lastSavedLabel}; current alarm state requires live telemetry.` : ''}` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
             </div>
           </section>
           
           <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
-            <ElectricalParametersChart rows={currentLiveRows} mode={mode} liveState={electricalLiveState} savedSnapshot={eligibleSavedSnapshot} siteName={plantSiteName} />
+            <ElectricalParametersChart rows={currentLiveRows} mode={mode} liveState={electricalLiveState} savedSnapshot={dashboardSavedSnapshot} siteName={plantSiteName} />
           </div>
 
               <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,1.2fr)_minmax(0,1.8fr)]">
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
-              <InverterOverviewTable devices={inverterDisplayDevices} rows={currentLiveRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
+              <InverterOverviewTable devices={inverterDisplayDevices} rows={dashboardEvidenceRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
             <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6">
               <SidePanels devices={operationalDevices} rows={currentLiveRows} liveState={electricalLiveState} savedRows={showingSavedRecord ? savedSnapshotRows : []} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} onOpenAlarms={() => navigateTo('alarms')} />
@@ -4190,7 +4222,8 @@ function AppShell() {
 
            <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} onRefresh={refreshWeather} onSiteChange={changeActiveSite} />
 
-          <DetailedLiveDataTable rows={currentLiveRows} persistence={persistence} />
+          <DetailedLiveDataTable rows={currentLiveRows} persistence={persistence} lastReceivedAt={lastLiveDataTimestamp} />
+          <SavedBackendDataPanel snapshot={dashboardSavedSnapshot} persistence={persistence} />
 
           <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={handleCopy} />
           

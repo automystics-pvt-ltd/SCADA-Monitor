@@ -90,6 +90,10 @@ export type SavedKpiEvidenceSelection = {
   source: SavedKpiEvidenceSource;
   snapshot: SavedKpiSnapshot | null;
 };
+export type DashboardSavedEvidenceSelection = {
+  source: "saved" | "unavailable";
+  snapshot: SavedKpiSnapshot | null;
+};
 
 export type CalculationKey = "acPower" | "dailyEnergy" | "totalEnergy" | "specificYield";
 export type CalculationQuality = "verified" | "awaiting-validation";
@@ -123,7 +127,7 @@ export type VerifiedKpiCalculation = {
   provenance: "live" | "replay" | "snapshot" | "unavailable";
   profileVersion: string;
   readiness: string;
-  snapshotWindow?: { startedAt: string; endedAt: string; scheduledFor: string };
+  snapshotWindow?: { startedAt: string; endedAt: string; scheduledFor: string; capturedAt: string };
 };
 
 export type VerifiedScadaKpis = Record<CalculationKey, VerifiedKpiCalculation>;
@@ -226,6 +230,25 @@ export function isEligibleSavedKpiSnapshot(
 
   const age = Math.max(0, now - capturedAt);
   return age <= maximumAgeMs;
+}
+
+/**
+ * The dashboard starts from the last confirmed backend record, even when it is
+ * no longer fresh enough to stand in for current plant operation. Callers must
+ * label this selection as saved evidence and keep direct live telemetry
+ * separate.
+ */
+export function selectDashboardSavedEvidence(snapshot: SavedKpiSnapshot | null): DashboardSavedEvidenceSelection {
+  const capturedAt = snapshot ? Date.parse(snapshot.capturedAt) : NaN;
+  if (
+    !snapshot
+    || snapshot.saveStatus !== "saved"
+    || snapshot.parameters.length === 0
+    || !Number.isFinite(capturedAt)
+  ) {
+    return { source: "unavailable", snapshot: null };
+  }
+  return { source: "saved", snapshot };
 }
 
 export function selectSavedKpiEvidence(
