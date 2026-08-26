@@ -17,7 +17,7 @@ import { selectDashboardEvidenceSource } from './dashboard-evidence-selection';
 import { createTelemetryMappingStore, mappedTelemetryDestination, mappedTelemetryDisplayLabel, type ScadaTelemetryMapping } from './telemetry-mappings';
 import { uniqueInverterInventorySignals } from './inverter-inventory';
 import { clearConfirmedSnapshotCache, readConfirmedSnapshotCache, writeConfirmedSnapshotCache } from './confirmed-snapshot-cache';
-import { persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-persistence';
+import { persistenceNextSaveHeading, persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-persistence';
 import type { JsonValue } from './json-value';
 import { formatInPlantTimezone } from './plant-timezone';
 import { telemetryDateTime, telemetryEpoch } from './telemetry-time';
@@ -4602,6 +4602,7 @@ function AppShell() {
     : '';
   const dashboardNextSaveAt = persistence.nextScheduledAt ? Date.parse(persistence.nextScheduledAt) : Number.NaN;
   const dashboardNextSaveCountdown = persistenceNextSaveLabel(persistence.savingActive, persistence.nextScheduledAt, now, persistence.intervalMinutes, formatCountdown);
+  const dashboardNextSaveHeading = persistenceNextSaveHeading(persistence.savingActive);
   const dashboardSourceValue = hasValidSavedSnapshot ? 'Saved' : 'Unavailable';
   const dashboardSourceDetail = hasValidSavedSnapshot
     ? `Dashboard record · ${lastSavedLabel}`
@@ -4716,7 +4717,7 @@ function AppShell() {
               </section>
               {mode === 'live' && <section role="status" aria-label="System operation and persistence status" className={`scada-dashboard-system-strip mb-2 rounded-xl border ${dashboardSystemHealthy ? 'scada-dashboard-system-strip--healthy' : 'scada-dashboard-system-strip--attention'}`}>
                 <div className="scada-dashboard-system-primary"><span className="scada-dashboard-system-icon"><Check size={17} aria-hidden="true" /></span><div className="min-w-0"><strong>{dashboardSystemTitle}</strong><p title={dashboardSystemDetail}>{dashboardSystemDetail}</p></div></div>
-                <div className="scada-dashboard-system-metric" title={persistence.nextScheduledAt ? `${dashboardPersistenceResumeMessage ? `${dashboardPersistenceResumeMessage}. ` : ''}Next scheduled save: ${formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}.` : 'The next save window is not available.'}><span><RefreshCw size={15} aria-hidden="true" /></span><div><p>Next save in</p><strong>{dashboardNextSaveCountdown}</strong></div></div>
+                <div className="scada-dashboard-system-metric" title={persistence.nextScheduledAt ? `${dashboardPersistenceResumeMessage ? `${dashboardPersistenceResumeMessage}. ` : ''}Next scheduled save: ${formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}.` : 'The next save window is not available.'}><span><RefreshCw size={15} aria-hidden="true" /></span><div><p>{dashboardNextSaveHeading}</p><strong>{dashboardNextSaveCountdown}</strong></div></div>
                 <div className="scada-dashboard-system-metric" title={persistence.savingActive ? `Historical snapshots save every ${persistence.intervalMinutes} minutes.` : dashboardPersistenceResumeMessage ?? 'Historical saving is paused.'}><span><Database size={15} aria-hidden="true" /></span><div><p>Persistence</p><strong>{persistence.savingActive ? `Auto every ${persistence.intervalMinutes} min` : 'Saving paused'}</strong></div></div>
               </section>}
               {mode === 'live' && (persistence.recentGapCount ?? 0) > 0 && <section role="status" aria-label="Scheduled telemetry save gaps" data-testid="snapshot-gap-banner" className="scada-dashboard-system-strip scada-dashboard-system-strip--attention mb-2 rounded-xl border">

@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HISTORICAL_SAVING_RESUME_MESSAGE, persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-persistence.ts';
+import { HISTORICAL_SAVING_RESUME_MESSAGE, persistenceNextSaveHeading, persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-persistence.ts';
 
 test('labels paused historical saving without relabeling live telemetry', () => {
   assert.equal(persistenceResumeMessage(false), HISTORICAL_SAVING_RESUME_MESSAGE);
   assert.equal(persistenceResumeMessage(true), undefined);
   assert.equal(persistenceResumeMessage(undefined), undefined);
+});
+
+test('relabels the countdown as a resume time while historical saving is paused, so it never reads as contradicting "Saving paused"', () => {
+  assert.equal(persistenceNextSaveHeading(false), 'Resumes in');
+  assert.equal(persistenceNextSaveHeading(true), 'Next save in');
+  assert.equal(persistenceNextSaveHeading(undefined), 'Next save in');
 });
 
 test('keeps the next daytime save visible while historical saving is paused', () => {

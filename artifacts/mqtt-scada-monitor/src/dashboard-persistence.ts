@@ -4,6 +4,10 @@ export function persistenceResumeMessage(savingActive: boolean | undefined) {
   return savingActive === false ? HISTORICAL_SAVING_RESUME_MESSAGE : undefined;
 }
 
+export function persistenceNextSaveHeading(savingActive: boolean | undefined) {
+  return savingActive === false ? 'Resumes in' : 'Next save in';
+}
+
 export function persistenceNextSaveLabel(
   savingActive: boolean | undefined,
   nextScheduledAt: string | undefined,

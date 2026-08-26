@@ -42,3 +42,4 @@
 - [SCADA fixture vs Dashboard KPI field mismatch](scada-fixture-kpi-field-mismatch.md) — exact `data`/timestamp/identity/calibration-profile fields a fixture row needs to drive real numeric KPI/inverter cards.
 - [E2E live telemetry injection](e2e-live-telemetry-injection.md) — Patch the browser's EventSource to inject a distinctive synthetic live message; proves saved-only guards are real without touching the broker.
 - [Saved fallback label parity](saved-fallback-label-parity.md) — Saved-record fallback labels must distinguish unmapped raw evidence from no evidence at all, not describe both the same way.
+- [Persistence widget label consistency](persistence-widget-label-consistency.md) — Keep forward-looking countdown headings from contradicting an adjacent "Saving paused" widget.
