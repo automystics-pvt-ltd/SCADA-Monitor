@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link, useLocation } from "wouter"
 import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import {
   Activity,
   Building2,
@@ -12,6 +13,7 @@ import {
   LogOut,
   Mail,
   MapPin,
+  Menu,
   Moon,
   Radio,
   Server,
@@ -178,6 +180,103 @@ function PlatformAdminSignIn({ theme, setTheme }: { theme: string; setTheme: (th
   )
 }
 
+type SidebarContentProps = {
+  location: string
+  theme: string
+  setTheme: (theme: "light" | "dark") => void
+  authUserName?: string
+  authUserEmail?: string
+  healthStatus?: string
+  onNavigate?: () => void
+}
+
+function SidebarContent({
+  location,
+  theme,
+  setTheme,
+  authUserName,
+  authUserEmail,
+  healthStatus,
+  onNavigate,
+}: SidebarContentProps) {
+  return (
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+      <div className="h-16 flex items-center px-6 border-b border-sidebar-border flex-shrink-0">
+        <Activity className="h-6 w-6 text-sidebar-primary mr-3" />
+        <span className="font-semibold tracking-tight text-lg">SCADA Admin</span>
+      </div>
+
+      <div className="p-4 flex-1 flex flex-col gap-1 overflow-y-auto">
+        <div className="flex-1 space-y-1">
+          {navigation.map((item) => {
+            const isActive = location === item.href
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                onClick={onNavigate}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                {item.name}
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="p-4 border-t border-sidebar-border space-y-4 flex-shrink-0">
+        <div className="flex items-center gap-3 px-3 py-2">
+          <div className="bg-sidebar-accent rounded-full p-1.5 flex-shrink-0">
+            <User className="h-4 w-4 text-sidebar-accent-foreground" />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="text-sm font-medium truncate">
+              {authUserName || 'Administrator'}
+            </span>
+            <span className="text-xs text-sidebar-foreground/60 truncate">
+              {authUserEmail || 'admin@platform'}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {theme === "dark" ? "Light Mode" : "Dark Mode"}
+          </button>
+          <a
+            href="/api/platform-admin/logout?returnTo=/platform-admin/"
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </a>
+        </div>
+
+        <div className="px-3 pt-2 flex items-center justify-between text-xs text-sidebar-foreground/50">
+          <span>API Status</span>
+          <div className="flex items-center gap-1.5">
+            <div className={cn(
+              "w-2 h-2 rounded-full",
+              healthStatus === 'ok' ? "bg-emerald-500" : "bg-destructive animate-pulse"
+            )} />
+            <span className="uppercase">{healthStatus || 'check'}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation()
   const { theme, setTheme } = useTheme()
@@ -185,6 +284,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { data: health } = useHealthCheck(
     { query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 30000 } }
   )
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   if (isAuthLoading) {
     return (
@@ -196,86 +296,64 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   if (!authUser?.admin) return <PlatformAdminSignIn theme={theme} setTheme={setTheme} />
 
+  const currentNavItem = navigation.find((item) => item.href === location)
+
   return (
     <div className="min-h-[100dvh] flex flex-col md:flex-row bg-background">
-      {/* Sidebar */}
-      <aside className="w-full md:w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col">
-        <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
-          <Activity className="h-6 w-6 text-sidebar-primary mr-3" />
-          <span className="font-semibold tracking-tight text-lg">SCADA Admin</span>
-        </div>
-        
-        <div className="p-4 flex-1 flex flex-col gap-1 overflow-y-auto">
-          <div className="flex-1 space-y-1">
-            {navigation.map((item) => {
-              const isActive = location === item.href
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.name}
-                </Link>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="p-4 border-t border-sidebar-border space-y-4">
-          <div className="flex items-center gap-3 px-3 py-2">
-            <div className="bg-sidebar-accent rounded-full p-1.5 flex-shrink-0">
-              <User className="h-4 w-4 text-sidebar-accent-foreground" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-sm font-medium truncate">
-                {authUser?.user?.name || 'Administrator'}
-              </span>
-              <span className="text-xs text-sidebar-foreground/60 truncate">
-                {authUser?.user?.email || 'admin@platform'}
-              </span>
-            </div>
-          </div>
-          
-          <div className="space-y-1">
-            <button
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-            >
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              {theme === "dark" ? "Light Mode" : "Dark Mode"}
-            </button>
-            <a
-              href="/api/platform-admin/logout?returnTo=/platform-admin/"
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-            >
-              <LogOut className="h-4 w-4" />
-              Sign Out
-            </a>
-          </div>
-
-          <div className="px-3 pt-2 flex items-center justify-between text-xs text-sidebar-foreground/50">
-            <span>API Status</span>
-            <div className="flex items-center gap-1.5">
-              <div className={cn(
-                "w-2 h-2 rounded-full",
-                health?.status === 'ok' ? "bg-emerald-500" : "bg-destructive animate-pulse"
-              )} />
-              <span className="uppercase">{health?.status || 'check'}</span>
-            </div>
-          </div>
-        </div>
+      {/* Desktop sidebar */}
+      <aside className="hidden md:flex md:w-64 flex-shrink-0 border-r border-sidebar-border">
+        <SidebarContent
+          location={location}
+          theme={theme}
+          setTheme={setTheme}
+          authUserName={authUser?.user?.name}
+          authUserEmail={authUser?.user?.email}
+          healthStatus={health?.status}
+        />
       </aside>
+
+      {/* Mobile top bar */}
+      <header className="flex md:hidden h-14 flex-shrink-0 items-center gap-3 border-b border-sidebar-border bg-sidebar px-4 text-sidebar-foreground">
+        <button
+          type="button"
+          onClick={() => setMobileNavOpen(true)}
+          aria-label="Open navigation menu"
+          className="flex h-9 w-9 items-center justify-center rounded-md text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        <Activity className="h-5 w-5 text-sidebar-primary flex-shrink-0" />
+        <span className="min-w-0 flex-1 truncate font-semibold tracking-tight">
+          {currentNavItem?.name || "SCADA Admin"}
+        </span>
+        <div
+          className={cn(
+            "h-2 w-2 flex-shrink-0 rounded-full",
+            health?.status === 'ok' ? "bg-emerald-500" : "bg-destructive animate-pulse"
+          )}
+          aria-label={`API status: ${health?.status || 'check'}`}
+        />
+      </header>
+
+      {/* Mobile navigation drawer */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="w-72 max-w-[85vw] border-sidebar-border bg-sidebar p-0 text-sidebar-foreground">
+          <SheetTitle className="sr-only">Navigation menu</SheetTitle>
+          <SidebarContent
+            location={location}
+            theme={theme}
+            setTheme={setTheme}
+            authUserName={authUser?.user?.name}
+            authUserEmail={authUser?.user?.email}
+            healthStatus={health?.status}
+            onNavigate={() => setMobileNavOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-6 md:p-8">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
           <div className="mx-auto max-w-6xl">
             {children}
           </div>
