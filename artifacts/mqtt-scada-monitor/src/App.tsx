@@ -12,6 +12,7 @@ import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calc
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import { dashboardAccessState } from './scada-access';
+import { selectDashboardEvidenceSource } from './dashboard-evidence-selection';
 import { discoveryDeviceIdFromSourceRecord } from './device-discovery-identity';
 import { createTelemetryMappingStore, mappedTelemetryDestination, mappedTelemetryDisplayLabel, type ScadaTelemetryMapping } from './telemetry-mappings';
 import { inverterInventoryKey, uniqueInverterInventorySignals } from './inverter-inventory';
@@ -3797,8 +3798,13 @@ function AppShell() {
   const hasValidSavedSnapshot = dashboardSavedSnapshot !== null;
   const savedSnapshotRows = useMemo(() => (savedKpiSnapshot?.parameters ?? []) as ModbusRow[], [savedKpiSnapshot]);
   const currentLiveRows = useMemo(() => modbusRows.filter((row) => row.provenance === 'live'), [modbusRows]);
-  const showingSavedRecord = mode === 'live' && savedEvidence.source === 'saved';
-  const dashboardEvidenceRows = showingSavedRecord ? savedSnapshotRows : currentLiveRows;
+  const dashboardEvidenceSelection = selectDashboardEvidenceSource({
+    mode,
+    liveState: electricalLiveState,
+    hasSavedEvidence: savedEvidence.source === 'saved',
+  });
+  const showingSavedRecord = dashboardEvidenceSelection === 'saved';
+  const dashboardEvidenceRows = dashboardEvidenceSelection === 'saved' ? savedSnapshotRows : currentLiveRows;
   const lastSavedLabel = hasValidSavedSnapshot
     ? formatInPlantTimezone(savedKpiSnapshot!.capturedAt, savedKpiSnapshot!.timezone ?? persistence.timezone)
     : 'not available';
@@ -4151,33 +4157,28 @@ function AppShell() {
       && rawFallbacks.acPower.inputs.every((input, index) => input.provenance === 'live' && isFreshSourceRow(rawInputRows[index]));
     const liveRawInputRow = sourceRowForRawInput(liveRawInput);
     if (liveRawInput && liveRawInputRow && isFreshSourceRow(liveRawInputRow) && !showingSavedRecord) {
-      const isLiveInverterAggregate = rawFallbacks.acPower.method === 'inverter sum' && allRawInputsFresh;
       return {
-        value: isLiveInverterAggregate ? rawFallbacks.acPower.value : liveRawInput.value,
-        unit: liveRawInput.sourceUnit ?? 'raw',
-        quality: liveRawInput.sourceReported ? 'reported' as const : 'raw' as const,
+        value: null,
+        unit: '',
+        quality: 'unavailable' as const,
         provenance: 'live' as const,
-        status: electricalLiveState === 'fresh' ? 'online' as const : 'stale' as const,
-        sourceLabel: isLiveInverterAggregate
-          ? `Live ${liveRawInput.sourceReported ? 'source-reported' : 'raw'} inverter aggregate · ${rawFallbacks.acPower.inputs.length} registers`
-          : `Live ${liveRawInput.sourceReported ? 'source-reported' : 'raw'} ${liveRawInput.parameter} register · ${liveRawInput.address}`,
-        observedAt: isLiveInverterAggregate ? observationRange(rawInputRows) : telemetryDateTime(liveRawInputRow).full,
-        observationLabel: isLiveInverterAggregate ? 'Contributing timestamps' : 'Observed',
-        inverterCount: isLiveInverterAggregate ? rawFallbacks.acPower.inputs.length : undefined,
+        status: 'stale' as const,
+        sourceLabel: `Live raw ${liveRawInput.parameter} evidence received · approved power mapping and scaling required`,
+        observedAt: telemetryDateTime(liveRawInputRow).full,
+        observationLabel: 'Observed raw evidence',
       };
     }
-    const liveInputs = rawFallbacks.acPower.inputs.length > 0 && rawFallbacks.acPower.inputs.every((input) => input.provenance === 'live');
-    const rawInput = rawFallbacks.acPower.inputs[0];
     return {
-      value: rawFallbacks.acPower.value,
-      unit: rawFallbacks.acPower.unit,
-      quality: rawFallbacks.acPower.value === null ? 'unavailable' as const : 'raw' as const,
-      provenance: showingSavedRecord ? 'snapshot' as const : liveInputs ? 'live' as const : rawInput?.provenance,
-      status: !showingSavedRecord && allRawInputsFresh && electricalLiveState === 'fresh' ? 'online' as const : rawFallbacks.acPower.value === null ? 'offline' as const : 'stale' as const,
-      sourceLabel: showingSavedRecord ? `Last saved raw evidence · ${rawFallbacks.acPower.method}` : rawFallbacks.acPower.method,
+      value: null,
+      unit: '',
+      quality: 'unavailable' as const,
+      provenance: showingSavedRecord ? 'snapshot' as const : undefined,
+      status: rawFallbacks.acPower.value === null ? 'offline' as const : 'stale' as const,
+      sourceLabel: showingSavedRecord
+        ? 'Saved raw power evidence · approved engineering mapping required'
+        : 'No approved live AC-power source',
       observedAt: showingSavedRecord ? savedSnapshotTime : observationRange(rawInputRows),
-      observationLabel: showingSavedRecord ? 'Saved snapshot' : rawInputRows.length > 1 ? 'Contributing timestamps' : 'Observed',
-      inverterCount: rawFallbacks.acPower.method === 'inverter sum' ? rawFallbacks.acPower.inputs.length : undefined,
+      observationLabel: showingSavedRecord ? 'Saved snapshot evidence' : rawInputRows.length > 1 ? 'Raw evidence timestamps' : 'Observed raw evidence',
     };
   }, [calculations.acPower, dashboardEvidenceRows, electricalLiveState, latestApprovedPlantPower, mode, now, onlinePowerReadings.length, rawFallbacks.acPower, savedKpiSnapshot, showingSavedRecord, totalAcPower, validatedInverterFleet]);
   const deviceCommunication = mode === 'demo'
