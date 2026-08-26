@@ -69,7 +69,7 @@ function reportTypeCondition(type: ScadaReportType) {
   }
 }
 
-function cte(args: QueryArgs) {
+function cte(args: Omit<QueryArgs, "page" | "pageSize">) {
   const snapshotSite = sql`coalesce(nullif(p.value->>'site_name', ''), nullif(p.value->>'siteName', ''), nullif(p.value->>'plant_name', ''), nullif(p.value->>'plantName', ''), ${args.defaultSite})`;
   const snapshotParameter = sql`coalesce(nullif(p.value->>'name', ''), nullif(p.value->>'parameter', ''), 'register')`;
   const snapshotCategory = sql`case
@@ -372,6 +372,58 @@ function mapRecord(row: RecordRow): ScadaReportRecord {
     category: row.category,
     observedAt: asIso(row.observedAt),
     receivedAt: asIso(row.receivedAt),
+  };
+}
+
+export type CompleteQueryArgs = Omit<QueryArgs, "page" | "pageSize">;
+
+function aggregateSelect() {
+  return sql`
+      select count(*)::integer as total_records,
+        count(*) filter (where quality = 'validated')::integer as validated_records,
+        count(*) filter (where quality = 'source-reported')::integer as source_reported_records,
+        count(distinct device_id) filter (where device_id is not null)::integer as unique_devices,
+        count(*) filter (where record_type = 'alarm')::integer as alarms,
+        count(*) filter (where record_type = 'alarm' and status = 'active')::integer as active_alarms,
+        count(*) filter (where record_type = 'communication')::integer as communication_events,
+        count(*) filter (where record_type = 'communication' and status = 'warning')::integer as communication_warnings,
+        (select count(*)::integer from candidate_records where quality = 'raw') as excluded_raw,
+        (select count(*)::integer from snapshot_scope
+          where coalesce(data->>'saveStatus',
+            case when message_count = 0 then 'missing' when parameter_count = 0 then 'incomplete' else 'saved' end) <> 'saved') as excluded_snapshots,
+        max(observed_at) as latest_observed_at, max(received_at) as latest_received_at
+      from filtered_records`;
+}
+
+function recordColumnsSelect() {
+  return sql`
+      select id, record_type as "recordType", category, site_name as "siteName",
+        device_id as "deviceId", device_name as "deviceName", parameter,
+        display_label as "displayLabel", measurement_kind as "measurementKind",
+        value, unit, address, source_name as "sourceName", observed_at as "observedAt",
+         received_at as "receivedAt", provenance, quality, status, reason,
+         source_reported_value as "sourceReportedValue", source_reported_unit as "sourceReportedUnit",
+         transport_raw_value as "transportRawValue", source_identity as "sourceIdentity"
+      from filtered_records`;
+}
+
+/**
+ * Returns the exact same filtered/categorized/quality-scored evidence relation as
+ * queryBoundedScadaReport, but complete (no LIMIT/OFFSET). Complete exports must be
+ * built from this single shared relation rather than a second, independently
+ * maintained assembly of records, or a preview filter and its export can silently
+ * disagree on which rows and values qualify.
+ */
+export async function queryCompleteScadaReport(args: CompleteQueryArgs) {
+  const base = cte(args);
+  const [countResult, recordsResult] = await Promise.all([
+    db.execute(sql`${base}${aggregateSelect()}`),
+    db.execute(sql`${base}${recordColumnsSelect()}
+      order by observed_at desc, received_at desc, record_type asc, id asc`),
+  ]);
+  return {
+    aggregate: countResult.rows[0] as Record<string, unknown>,
+    records: (recordsResult.rows as unknown as RecordRow[]).map(mapRecord),
   };
 }
 
