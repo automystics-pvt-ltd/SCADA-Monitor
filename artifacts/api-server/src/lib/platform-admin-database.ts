@@ -223,14 +223,14 @@ export async function createApplicationBackup() {
   };
 }
 
-async function parseRestrictedReadOnlyQuery(query: string) {
+export async function parseRestrictedReadOnlyQuery(query: string) {
   const normalized = query.trim();
   if (!/^select\b/i.test(normalized)) throw new Error("Only a SELECT query is allowed.");
   if (normalized.length > 5_000) throw new Error("Query must be 5,000 characters or fewer.");
   if (/[;$]|--|\/\*|\*\/|\\/.test(normalized)) {
     throw new Error("Query comments, delimiters, and multiple statements are not allowed.");
   }
-  const match = /^select\s+(\*|(?:"?[a-z_][a-z0-9_]*"?\s*)(?:,\s*"?[a-z_][a-z0-9_]*"?\s*)*)from\s+"?([a-z_][a-z0-9_]*)"?\s*(?:limit\s+([0-9]{1,4}))?$/i.exec(normalized);
+  const match = /^select\s+(\*|(?:"?[a-z_][a-z0-9_]*"?\s*)(?:,\s*"?[a-z_][a-z0-9_]*"?\s*)*)\s*from\s+"?([a-z_][a-z0-9_]*)"?\s*(?:limit\s+([0-9]{1,4}))?$/i.exec(normalized);
   if (!match) {
     throw new Error("Use SELECT columns FROM approved_table with an optional numeric LIMIT. Joins, filters, functions, and aliases are not allowed.");
   }
@@ -241,7 +241,7 @@ async function parseRestrictedReadOnlyQuery(query: string) {
   const columns = requestedColumns === "*"
     ? ["*"]
     : requestedColumns.split(",").map((column) => column.trim().replaceAll('"', "").toLowerCase());
-  if (columns.some((column) => !availableColumns.has(column))) {
+  if (columns[0] !== "*" && columns.some((column) => !availableColumns.has(column))) {
     throw new Error("Query only columns exposed by the selected approved table.");
   }
   const limit = Math.min(Math.max(Number(requestedLimit ?? MAX_QUERY_ROWS), 1), MAX_QUERY_ROWS);

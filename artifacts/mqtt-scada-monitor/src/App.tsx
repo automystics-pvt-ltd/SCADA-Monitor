@@ -1488,7 +1488,10 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
   const [kindFilter, setKindFilter] = useState<'all' | ElectricalKind>('all');
   const isHistorical = appliedRange.preset !== 'live';
   const savedRows = useMemo(() => (savedSnapshot?.parameters ?? []) as ModbusRow[], [savedSnapshot]);
-  const showingSavedRecord = mode === 'live' && !isHistorical && savedRows.length > 0;
+  // A saved snapshot is a fallback for when direct live telemetry is stale or
+  // unavailable, never a permanent replacement for fresh live evidence -- this
+  // must mirror the sitewide selectDashboardEvidenceSource policy.
+  const showingSavedRecord = mode === 'live' && !isHistorical && liveState !== 'fresh' && savedRows.length > 0;
   const savedAtLabel = savedSnapshot
     ? formatInPlantTimezone(savedSnapshot.capturedAt, savedSnapshot.timezone)
     : 'not available';
@@ -1526,18 +1529,19 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     };
   }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory, siteName]);
 
-  // Dashboard electrical cards start from immutable backend-confirmed evidence.
-  // Direct MQTT rows remain available in Live Data, but must not overwrite the
-  // saved dashboard source or be mislabeled as a persisted record.
+  // Direct live telemetry is the primary source whenever it is fresh. A saved
+  // backend record only stands in when live telemetry is stale or unavailable,
+  // and it must never silently keep overriding telemetry that has since become
+  // fresh again.
   const sourceRows = useMemo(() => {
     if (mode !== 'live') return [];
     const deduplicated = new Map<string, ModbusRow>();
-    const currentRows = savedRows.length ? savedRows : rows;
+    const currentRows = showingSavedRecord ? savedRows : rows;
     for (const row of isHistorical ? historyRows : [...historyRows, ...currentRows]) {
       deduplicated.set(electricalRowIdentity(row), row);
     }
     return [...deduplicated.values()];
-  }, [historyRows, isHistorical, mode, rows, savedRows]);
+  }, [historyRows, isHistorical, mode, rows, savedRows, showingSavedRecord]);
 
   // Raw evidence remains inspectable across replay/stale states. Only explicitly
   // validated, fresh telemetry is eligible for engineering cards and health metrics.
@@ -1646,7 +1650,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     <section className="scada-electrical-section scada-interactive-card relative flex h-full flex-col overflow-hidden rounded-xl border border-scada-border bg-scada-surface p-3 sm:p-3" data-testid="section-electrical-parameters">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent" />
       <header className="relative z-10 mb-3 flex flex-col gap-2.5 border-b border-scada-border pb-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-md border border-blue-500/20 bg-blue-500/10 text-blue-400" title="Source-backed electrical analysis"><PlugZap size={14} /></span><div className="min-w-0"><h3 className="text-sm font-bold text-scada-text">Electrical Parameters</h3><p className="truncate text-[10px] text-scada-muted">Saved backend evidence · direct-live monitoring separate</p></div><details className="relative shrink-0"><summary className="grid h-5 w-5 cursor-pointer list-none place-items-center rounded-full border border-scada-border text-[10px] font-bold text-scada-muted hover:border-blue-500/40 hover:text-blue-400" title="Show evidence rules">i</summary><p className="absolute left-0 top-7 z-30 w-72 rounded-lg border border-scada-border bg-scada-surface p-2.5 text-[10px] leading-4 text-scada-muted shadow-xl">Dashboard values use the latest confirmed backend record. Direct MQTT values remain in Live Data. Engineering units are shown only after explicit scaling validation.</p></details></div>{!isHistorical && mode === 'live' && <p role="status" data-testid="status-electrical-saved-record" className={`rounded-md border px-2.5 py-1.5 text-[10px] leading-4 xl:max-w-[28rem] ${showingSavedRecord ? 'border-blue-500/20 bg-blue-500/5 text-blue-200' : 'border-amber-500/20 bg-amber-500/5 text-amber-300'}`}>{showingSavedRecord ? `Saved backend record · ${savedAtLabel}. ${liveState === 'fresh' ? 'Direct live telemetry is available in Live Data.' : 'Live Data unavailable or stale; this remains historical evidence.'}` : 'No saved backend record. Direct MQTT values remain available only in Live Data.'}</p>}</div>
+        <div className="min-w-0"><div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-md border border-blue-500/20 bg-blue-500/10 text-blue-400" title="Source-backed electrical analysis"><PlugZap size={14} /></span><div className="min-w-0"><h3 className="text-sm font-bold text-scada-text">Electrical Parameters</h3><p className="truncate text-[10px] text-scada-muted">Saved backend evidence · direct-live monitoring separate</p></div><details className="relative shrink-0"><summary className="grid h-5 w-5 cursor-pointer list-none place-items-center rounded-full border border-scada-border text-[10px] font-bold text-scada-muted hover:border-blue-500/40 hover:text-blue-400" title="Show evidence rules">i</summary><p className="absolute left-0 top-7 z-30 w-72 rounded-lg border border-scada-border bg-scada-surface p-2.5 text-[10px] leading-4 text-scada-muted shadow-xl">Dashboard values use the latest confirmed backend record. Direct MQTT values remain in Live Data. Engineering units are shown only after explicit scaling validation.</p></details></div>{!isHistorical && mode === 'live' && <p role="status" data-testid="status-electrical-saved-record" className={`rounded-md border px-2.5 py-1.5 text-[10px] leading-4 xl:max-w-[28rem] ${showingSavedRecord ? 'border-blue-500/20 bg-blue-500/5 text-blue-200' : 'border-amber-500/20 bg-amber-500/5 text-amber-300'}`}>{showingSavedRecord ? `Saved backend record · ${savedAtLabel}. Live Data unavailable or stale; this remains historical evidence.` : 'No saved backend record. Direct MQTT values remain available only in Live Data.'}</p>}</div>
         <CustomBadge tone={mode !== 'live' ? 'warning' : validated.length ? 'success' : discoveries.length ? 'warning' : 'neutral'}>{mode !== 'live' ? 'Demo mode — not operational' : validated.length ? `${validated.length} validated value${validated.length === 1 ? '' : 's'}` : discoveries.length ? `${discoveries.length} recent raw sample${discoveries.length === 1 ? '' : 's'}` : 'Awaiting source data'}</CustomBadge>
       </header>
 
@@ -1725,17 +1729,21 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
     const value = paths.map((path) => numberFrom(inverter, path, NaN)).find(Number.isFinite);
     return value === undefined ? 'Not reported' : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`;
   };
-  const powerValue = (inverter: Device) => inverter.sourceEvidence?.signalKind === 'identity'
-    ? `${inverter.sourceEvidence.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} raw`
+  const isIdentityOnly = (inverter: Device) => inverter.sourceEvidence?.signalKind === 'identity';
+  const isRawWarning = (inverter: Device) => inverter.sourceEvidence?.scalingStatus === 'raw' && !isIdentityOnly(inverter);
+  const powerValue = (inverter: Device) => isIdentityOnly(inverter)
+    ? inverter.sourceEvidence!.value.toLocaleString(undefined, { maximumFractionDigits: 2 })
     : inverter.sourceEvidence
     ? `${inverter.sourceEvidence.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${inverter.sourceEvidence.scalingStatus === 'validated' ? inverter.sourceEvidence.unit ?? 'kW' : 'raw'}`
     : metricValue(inverter, [['power', 'active_kw'], ['power', 'activePower']], 'kW');
-  const powerLabel = (inverter: Device) => inverter.sourceEvidence?.signalKind === 'identity'
-    ? 'Source identity reading'
+  const powerLabel = (inverter: Device) => isIdentityOnly(inverter)
+    ? 'Asset identity tag'
     : inverter.sourceEvidence?.scalingStatus === 'validated'
       ? 'Active power'
       : 'Source reading';
-  const dailyEnergyValue = (inverter: Device) => metricValue(inverter, [['energy', 'daily_mwh']], 'MWh');
+  const dailyEnergyValue = (inverter: Device) => isIdentityOnly(inverter)
+    ? '—'
+    : metricValue(inverter, [['energy', 'daily_mwh']], 'MWh');
   const deviceFaults = (inverter: Device) => collectAlarmFaultEvidence(inverter.telemetry).faults;
   const deviceAlarms = (inverter: Device) => collectAlarmFaultEvidence(inverter.telemetry).alarms;
   const deviceIdentity = (inverter: Device) => inverter.sourceEvidence
@@ -1785,9 +1793,19 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
               <div className="min-w-0"><h4 className="truncate text-sm font-bold text-[var(--scada-text)]">{inverter.name}</h4><p className="mt-1 truncate font-mono text-[10px] text-[var(--scada-muted)]" title={deviceIdentity(inverter)}>{deviceIdentity(inverter)}</p></div>
               <span className={`scada-inverter-status shrink-0 rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}><span className="scada-inverter-status-dot" />{statusLabel(inverter)}</span>
             </div>
-              <div className="scada-inverter-tile-metrics mt-4 grid grid-cols-2 overflow-hidden rounded-lg border">
-               <div className="scada-inverter-tile-metric min-w-0 border-r px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--scada-muted)]">Daily generation</p><p className="mt-1 break-words font-mono text-sm font-bold text-[var(--scada-text)]">{dailyEnergyValue(inverter)}</p></div>
-               <div className="scada-inverter-tile-metric min-w-0 px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--scada-muted)]">{powerLabel(inverter)}</p><p className={`mt-1 break-words font-mono text-sm font-bold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-500 dark:text-amber-300' : 'text-[var(--scada-text)]'}`}>{powerValue(inverter)}</p></div>
+              <div className="scada-inverter-tile-metrics mt-4 overflow-hidden rounded-lg border">
+               {isIdentityOnly(inverter) ? (
+                 <div className="min-w-0 px-3 py-2.5">
+                   <p className="text-[9px] font-bold uppercase tracking-wide text-[var(--scada-muted)]">{powerLabel(inverter)}</p>
+                   <p className="mt-1 break-words font-mono text-sm font-bold text-[var(--scada-text)]">{powerValue(inverter)}</p>
+                   <p className="mt-1.5 text-[9px] leading-4 text-[var(--scada-muted)]">This source reports one identity code per asset; per-asset power and generation are not separately metered here.</p>
+                 </div>
+               ) : (
+                 <div className="grid grid-cols-2">
+                   <div className="scada-inverter-tile-metric min-w-0 border-r px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--scada-muted)]">Daily generation</p><p className="mt-1 break-words font-mono text-sm font-bold text-[var(--scada-text)]">{dailyEnergyValue(inverter)}</p></div>
+                   <div className="scada-inverter-tile-metric min-w-0 px-3 py-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-[var(--scada-muted)]">{powerLabel(inverter)}</p><p className={`mt-1 break-words font-mono text-sm font-bold ${isRawWarning(inverter) ? 'text-amber-500 dark:text-amber-300' : 'text-[var(--scada-text)]'}`}>{powerValue(inverter)}</p></div>
+                 </div>
+               )}
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px]">
               <span className={`scada-inverter-issue rounded-full px-2 py-1 font-bold ${hasIssue ? 'scada-inverter-issue--alert' : 'scada-inverter-issue--clear'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span>
@@ -1799,7 +1817,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
       </div>}
       {inverters.length > 0 && view === 'grid' && <div data-testid="inverter-fleet-grid" className="scada-inverter-fleet-grid max-w-full flex-1 overflow-x-auto scrollbar-thin">
         <table className="min-w-[1040px] w-full text-left">
-           <thead className="border-b border-[var(--scada-border)] text-[9px] font-bold uppercase tracking-wider text-[var(--scada-muted)]"><tr><th className="px-3 py-3">Inverter</th><th className="px-3 py-3">Reporting state</th><th className="px-3 py-3">Last observation</th><th className="px-3 py-3">Daily generation</th><th className="px-3 py-3">Active power / source reading</th><th className="px-3 py-3">Alarm / fault</th><th className="px-3 py-3 text-right">Details</th></tr></thead>
+           <thead className="border-b border-[var(--scada-border)] text-[9px] font-bold uppercase tracking-wider text-[var(--scada-muted)]"><tr><th className="px-3 py-3">Inverter</th><th className="px-3 py-3">Reporting state</th><th className="px-3 py-3">Last observation</th><th className="px-3 py-3">Daily generation</th><th className="px-3 py-3">Active power / identity tag</th><th className="px-3 py-3">Alarm / fault</th><th className="px-3 py-3 text-right">Details</th></tr></thead>
           <tbody className="divide-y divide-[#1E293B]/70">{inverters.map((inverter) => {
             const faults = deviceFaults(inverter);
             const alarms = deviceAlarms(inverter);
@@ -1809,7 +1827,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
                <td className="px-3 py-3"><span className={`scada-inverter-status inline-flex rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${statusClass(inverter)}`}><span className="scada-inverter-status-dot" />{statusLabel(inverter)}</span></td>
                <td className="px-3 py-3 text-[10px] text-[var(--scada-muted)]">{observedLabel(inverter)}</td>
                <td className="px-3 py-3 font-mono text-xs font-semibold text-[var(--scada-text)]">{dailyEnergyValue(inverter)}</td>
-               <td className={`px-3 py-3 font-mono text-xs font-semibold ${inverter.sourceEvidence?.scalingStatus === 'raw' ? 'text-amber-500 dark:text-amber-300' : 'text-[var(--scada-text)]'}`}>{powerValue(inverter)}</td>
+               <td className={`px-3 py-3 font-mono text-xs font-semibold ${isRawWarning(inverter) ? 'text-amber-500 dark:text-amber-300' : 'text-[var(--scada-text)]'}`}>{powerValue(inverter)}{isIdentityOnly(inverter) && <span className="ml-1.5 text-[9px] font-normal uppercase tracking-wide text-[var(--scada-muted)]">identity tag</span>}</td>
                <td className="px-3 py-3"><span className={`scada-inverter-issue font-semibold ${hasIssue ? 'scada-inverter-issue--alert' : 'scada-inverter-issue--clear'}`}>{hasIssue ? `${faults.length} fault${faults.length === 1 ? '' : 's'} · ${alarms.length} alarm${alarms.length === 1 ? '' : 's'}` : 'No reported faults'}</span></td>
                <td className="px-3 py-3 text-right text-xs font-semibold text-[var(--scada-accent)]">Open <ChevronRight size={13} className="inline-block align-[-2px]" /></td>
             </tr>;
