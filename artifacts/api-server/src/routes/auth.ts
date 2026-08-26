@@ -12,6 +12,7 @@ import {
   getSessionId,
   normalizeScadaUsername,
   setScadaSessionCookie,
+  toAuthUser,
   verifyScadaPassword,
   SESSION_COOKIE,
   SESSION_TTL_MS,
@@ -88,11 +89,14 @@ async function upsertUser(claims: Record<string, unknown>): Promise<AuthUser> {
     updatedAt: new Date(),
   }).where(eq(usersTable.id, existing.id)).returning();
   if (!saved) throw new Error("The provisioned SCADA account could not be loaded.");
-  return saved;
+  return toAuthUser(saved);
 }
 
 router.get("/auth/user", (req, res) => {
-  const user = req.isAuthenticated() ? req.user : null;
+  // req.user is already narrowed to AuthUser by authMiddleware (no
+  // passwordHash/passwordSetAt), but re-narrow here too so this response
+  // can never leak credential material even if that invariant changes.
+  const user = req.isAuthenticated() ? toAuthUser(req.user) : null;
   res.set("Cache-Control", "no-store").json({
     user,
     canUpdatePlantLocations: isPlantLocationAdministrator(user ?? undefined),
@@ -100,7 +104,7 @@ router.get("/auth/user", (req, res) => {
 });
 
 router.get("/scada-auth/user", (req, res) => {
-  const user = req.isScadaAuthenticated() ? req.scadaUser : null;
+  const user = req.isScadaAuthenticated() ? toAuthUser(req.scadaUser) : null;
   res.set("Cache-Control", "no-store").json({
     user,
     canUpdatePlantLocations: isPlantLocationAdministrator(user ?? undefined),

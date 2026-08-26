@@ -14,6 +14,29 @@ export type AuthUser = {
   accountStatus?: "active" | "inactive" | "deleted";
 };
 
+// Narrows a full `users` DB row (which carries `passwordHash`/`passwordSetAt`
+// credential material) down to the fields that are safe to hold on
+// req.user/req.scadaUser and safe to ever serialize back to a browser.
+// Always build AuthUser values through this so a route can't accidentally
+// leak credential fields by forwarding the raw DB row.
+export function toAuthUser(row: {
+  id: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  profileImageUrl: string | null;
+  accountStatus?: "active" | "inactive" | "deleted" | null;
+}): AuthUser {
+  return {
+    id: row.id,
+    email: row.email,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    profileImageUrl: row.profileImageUrl,
+    accountStatus: row.accountStatus ?? undefined,
+  };
+}
+
 export type SessionData = {
   user: AuthUser;
   accessToken: string;

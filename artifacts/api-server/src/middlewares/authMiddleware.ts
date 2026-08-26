@@ -11,6 +11,7 @@ import {
   getSession,
   getSessionId,
   setScadaSessionCookie,
+  toAuthUser,
   updateSession,
   type AuthUser,
   type SessionData,
@@ -60,7 +61,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     if (refreshed) {
       const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, refreshed.user.id)).limit(1);
       if (currentUser?.accountStatus === "active") {
-        req.user = currentUser;
+        req.user = toAuthUser(currentUser);
       }
     }
     if (!req.user) await clearSession(res, oidcSid);
@@ -73,8 +74,8 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       ? await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1)
       : [];
     if (currentUser?.accountStatus === "active") {
-      req.scadaUser = currentUser;
-      req.user ??= currentUser;
+      req.scadaUser = toAuthUser(currentUser);
+      req.user ??= req.scadaUser;
       // Keep the persistent operator session alive while the app is actively
       // being used, without sharing or extending the Platform Admin session.
       setScadaSessionCookie(res, scadaSid);
