@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildVerifiedAcPowerFlowReading } from './flow-reading.ts';
+import { buildUnverifiedSavedAcPowerFlowReading, buildVerifiedAcPowerFlowReading } from './flow-reading.ts';
 import type { VerifiedKpiCalculation } from './telemetry-kpis.ts';
 
 function verifiedAcPower(overrides: Partial<VerifiedKpiCalculation> = {}): VerifiedKpiCalculation {
@@ -58,4 +58,34 @@ test('inverterCount is only populated for the inverter-sum method', () => {
 test('an unverified value is reported as unavailable quality', () => {
   const reading = buildVerifiedAcPowerFlowReading(verifiedAcPower({ value: null }), { live: true, saved: false });
   assert.equal(reading.quality, 'unavailable');
+});
+
+test('unverified saved reading with unmapped raw evidence reports stale status and evidence-present label', () => {
+  const reading = buildUnverifiedSavedAcPowerFlowReading({
+    hasSavedRecord: true,
+    hasRawEvidence: true,
+    savedSnapshotTime: '2026-08-26T04:45:00.000Z',
+  });
+  assert.equal(reading.status, 'stale');
+  assert.equal(reading.provenance, 'snapshot');
+  assert.equal(reading.sourceLabel, 'Saved raw power evidence · approved engineering mapping required');
+  assert.equal(reading.observedAt, '2026-08-26T04:45:00.000Z');
+});
+
+test('unverified saved reading with a saved record but no raw evidence reports offline status and says so explicitly', () => {
+  const reading = buildUnverifiedSavedAcPowerFlowReading({
+    hasSavedRecord: true,
+    hasRawEvidence: false,
+    savedSnapshotTime: '2026-08-26T04:45:00.000Z',
+  });
+  assert.equal(reading.status, 'offline');
+  assert.equal(reading.provenance, 'snapshot');
+  assert.equal(reading.sourceLabel, 'No approved active-power evidence in the saved record');
+});
+
+test('unverified saved reading with no saved record at all reports no provenance and a distinct label', () => {
+  const reading = buildUnverifiedSavedAcPowerFlowReading({ hasSavedRecord: false, hasRawEvidence: false });
+  assert.equal(reading.status, 'offline');
+  assert.equal(reading.provenance, undefined);
+  assert.equal(reading.sourceLabel, 'No saved backend record yet');
 });

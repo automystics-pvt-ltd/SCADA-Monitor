@@ -23,7 +23,7 @@ import { formatInPlantTimezone } from './plant-timezone';
 import { telemetryDateTime, telemetryEpoch } from './telemetry-time';
 import { buildCalculationCard, type KpiCardContext, type RawKpiFallback } from './kpi-card-formatting';
 import { buildInverterSourceDevice } from './inverter-source-devices';
-import { buildVerifiedAcPowerFlowReading } from './flow-reading';
+import { buildVerifiedAcPowerFlowReading, buildUnverifiedSavedAcPowerFlowReading } from './flow-reading';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, History, Layers3, LayoutDashboard,
@@ -4362,17 +4362,24 @@ function AppShell() {
         observationLabel: 'Observed raw evidence',
       };
     }
+    if (showingSavedRecord) {
+      // Matches the saved-only Overview's fallback exactly: distinguish "raw
+      // evidence saved but unmapped" from "saved record has no power
+      // evidence at all" instead of describing both the same way.
+      return buildUnverifiedSavedAcPowerFlowReading({
+        hasSavedRecord: true,
+        hasRawEvidence: rawFallbacks.acPower.value !== null,
+        savedSnapshotTime,
+      });
+    }
     return {
       value: null,
       unit: '',
       quality: 'unavailable' as const,
-      provenance: showingSavedRecord ? 'snapshot' as const : undefined,
       status: rawFallbacks.acPower.value === null ? 'offline' as const : 'stale' as const,
-      sourceLabel: showingSavedRecord
-        ? 'Saved raw power evidence · approved engineering mapping required'
-        : 'No approved live AC-power source',
-      observedAt: showingSavedRecord ? savedSnapshotTime : observationRange(rawInputRows),
-      observationLabel: showingSavedRecord ? 'Saved snapshot evidence' : rawInputRows.length > 1 ? 'Raw evidence timestamps' : 'Observed raw evidence',
+      sourceLabel: 'No approved live AC-power source',
+      observedAt: observationRange(rawInputRows),
+      observationLabel: rawInputRows.length > 1 ? 'Raw evidence timestamps' : 'Observed raw evidence',
     };
   }, [calculations.acPower, dashboardEvidenceRows, electricalLiveState, latestApprovedPlantPower, mode, now, onlinePowerReadings.length, rawFallbacks.acPower, savedKpiSnapshot, showingSavedRecord, totalAcPower, validatedInverterFleet]);
 
@@ -4480,29 +4487,11 @@ function AppShell() {
     if (acPower.quality === 'verified') {
       return buildVerifiedAcPowerFlowReading(acPower, { live: false, saved: true, savedSnapshotTime: savedSnapshotTimestamp });
     }
-    const rawFallback = overviewRawFallbacks.acPower;
-    if (rawFallback.value !== null) {
-      return {
-        value: null,
-        unit: '',
-        quality: 'unavailable' as const,
-        provenance: 'snapshot' as const,
-        status: 'stale' as const,
-        sourceLabel: 'Saved raw power evidence · approved engineering mapping required',
-        observedAt: savedSnapshotTimestamp,
-        observationLabel: 'Saved snapshot evidence',
-      };
-    }
-    return {
-      value: null,
-      unit: '',
-      quality: 'unavailable' as const,
-      provenance: overviewHasSavedRecord ? 'snapshot' as const : undefined,
-      status: 'offline' as const,
-      sourceLabel: overviewHasSavedRecord ? 'No approved active-power evidence in the saved record' : 'No saved backend record yet',
-      observedAt: savedSnapshotTimestamp,
-      observationLabel: 'Saved snapshot',
-    };
+    return buildUnverifiedSavedAcPowerFlowReading({
+      hasSavedRecord: overviewHasSavedRecord,
+      hasRawEvidence: overviewRawFallbacks.acPower.value !== null,
+      savedSnapshotTime: savedSnapshotTimestamp,
+    });
   }, [dashboardFlowReading, mode, overviewCalculations.acPower, overviewHasSavedRecord, overviewRawFallbacks.acPower, savedKpiSnapshot]);
 
   const deviceCommunication = mode === 'demo'

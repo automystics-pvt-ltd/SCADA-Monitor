@@ -41,3 +41,4 @@
 - [Extracting shared live/saved shaping logic](shared-shaping-extraction.md) — Pull only true behavior-preserving duplication into pure helpers; keep JSON-value types centralized so cross-module row types stay assignable.
 - [SCADA fixture vs Dashboard KPI field mismatch](scada-fixture-kpi-field-mismatch.md) — QA fixture's `value` field doesn't feed the Dashboard's numeric KPI/inverter pipeline; pick calibration-independent assertions instead.
 - [E2E live telemetry injection](e2e-live-telemetry-injection.md) — Patch the browser's EventSource to inject a distinctive synthetic live message; proves saved-only guards are real without touching the broker.
+- [Saved fallback label parity](saved-fallback-label-parity.md) — Saved-record fallback labels must distinguish unmapped raw evidence from no evidence at all, not describe both the same way.
