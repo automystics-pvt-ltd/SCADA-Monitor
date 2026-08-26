@@ -28,6 +28,8 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 _Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
 
+- Dashboard/Overview's telemetry-value sections (KPI cards, electrical chart, inverter table, alarms/data-quality panels, energy/power charts) are saved-record-only by design, but the top-of-page connection/status widgets are a deliberate exception and stay live-sourced: the "Data Source / Latest Saved / Data Freshness / Live Status" status-grid cards, the "Communication Health" panel, and the save-scheduler strip ("Live monitoring active" / "Next save in" / missed-save banner) in `artifacts/mqtt-scada-monitor/src/App.tsx`. These widgets report on the live MQTT/broker connection and the save scheduler itself, not on a telemetry value, so there is no saved-record analog to freeze to — e.g. "Next save in" is an inherently forward-looking countdown, and "Live status"/"Communication health" exist specifically so an operator can diagnose *why* the rest of the Dashboard may currently be showing saved-only evidence. Freezing them would hide a live outage behind a stale "healthy" reading and remove the only on-screen tool for diagnosing that outage.
+
 ## Product
 
 _Describe the high-level user-facing capabilities of this app once they exist._

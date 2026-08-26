@@ -4875,6 +4875,14 @@ function AppShell() {
               </div>
             </div>
             {error && <div role="alert" data-testid="alert-telemetry-error" className="mb-4 flex flex-col items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/5 p-3 text-sm text-rose-400 sm:flex-row"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div className="min-w-0 flex-1"><strong className="font-semibold">Telemetry needs attention.</strong><p className="mt-1 break-words text-rose-300">{error}</p></div><button type="button" onClick={refreshTelemetry} className="shrink-0 text-xs font-semibold underline focus-ring">Retry connection</button></div>}
+              {/*
+                Deliberate scope boundary (see replit.md "Architecture decisions"): unlike the
+                telemetry-value sections below (KPIs, electrical chart, inverter table, alarms,
+                energy/power charts), the status grid, Communication Health panel, and save-scheduler
+                strip below stay live-sourced. They report on the live MQTT/broker connection and the
+                save scheduler itself, not a telemetry value, so there is no saved-record analog to
+                freeze to, and freezing them would hide a live outage behind a stale "healthy" reading.
+              */}
               {mode === 'live' && <section className="scada-dashboard-status-grid mb-2" aria-label="Plant status summary">
                 <article role="status" data-testid="status-dashboard-data-source" title={dashboardDataStatus.detail} className={`scada-dashboard-status-card ${dashboardDataStatus.tone}`}>
                   <span className="scada-dashboard-status-icon scada-dashboard-status-icon--radio"><Radio size={18} aria-hidden="true" /></span>
