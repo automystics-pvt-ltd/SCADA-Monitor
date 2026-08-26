@@ -1,19 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
-const baseUrl = process.env.SCADA_E2E_BASE_URL;
-
-async function signIn(page: Page) {
-  if (!baseUrl) throw new Error("SCADA_E2E_BASE_URL is required for the SCADA e2e suite.");
-  const username = process.env.SCADA_E2E_USERNAME;
-  const password = process.env.SCADA_E2E_PASSWORD;
-  if (!username || !password) throw new Error("global-setup.ts must run before this spec (missing SCADA_E2E_USERNAME/PASSWORD).");
-  await page.goto(baseUrl);
-  await page.addStyleTag({ content: "#replit-dev-banner { display: none !important; }" });
-  await expect(page.getByRole("heading", { name: "Sign in to SCADA" })).toBeVisible();
-  await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in to SCADA" }).click();
-}
+import { signIn } from "./support";
 
 async function assertAnalyticsSections(page: Page) {
   const analytics = page.getByTestId("saved-parameter-analytics");
