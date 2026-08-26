@@ -247,6 +247,17 @@ type SnapshotOfflinePayload = {
   };
 };
 type SnapshotSaveStatus = "saved" | "missing" | "incomplete";
+/**
+ * A scheduled window's queryable gap state. "absent" means no database row
+ * exists at all for the window (a fully silent skip, e.g. the process was
+ * offline); "missing"/"incomplete" mirror a row that was saved but recorded
+ * no usable telemetry. Never populated with fabricated parameter values.
+ */
+type SnapshotGapEntry = {
+  scheduledFor: string;
+  saveStatus: SnapshotSaveStatus | "absent";
+  missingReason?: string;
+};
 type SavedKpiMetric = {
   parameter: string;
   value: number;
@@ -376,6 +387,13 @@ let lastSnapshotScheduledFor: string | undefined;
 let lastSnapshotStatus: SnapshotSaveStatus | undefined;
 let snapshotError: string | undefined;
 let reconciledScheduleDate: string | undefined;
+let gapBackfillCompletedThroughDate: string | undefined;
+let recentSnapshotGaps: SnapshotGapEntry[] = [];
+let recentSnapshotGapCount = 0;
+let lastGapSummaryComputedAt = 0;
+const GAP_BACKFILL_LOOKBACK_DAYS = 14;
+const GAP_SUMMARY_WINDOW_HOURS = 24;
+const GAP_SUMMARY_REFRESH_MS = 5 * 60_000;
 let scheduleRun: Promise<void> | undefined;
 const snapshotOfflineQueue = new SnapshotOfflineQueue<SnapshotOfflinePayload>(
   process.env.SCADA_SNAPSHOT_QUEUE_PATH
@@ -1322,6 +1340,20 @@ function localBoundary(parts: ZonedParts, minuteOfDay: number) {
   }, plantTimezone);
 }
 
+/**
+ * Every 15-minute save boundary a fully-scheduled day is expected to produce,
+ * from the 06:00 start through the 18:00 close. Shared by same-day
+ * reconciliation and the historical/queryable gap detectors below so both
+ * agree on exactly which windows should exist.
+ */
+export function dailyWindowBoundaries(local: ZonedParts) {
+  const boundaries: Date[] = [];
+  for (let minute = PERSISTENCE_START_MINUTE; minute <= PERSISTENCE_END_MINUTE; minute += PERSISTENCE_INTERVAL_MINUTES) {
+    boundaries.push(localBoundary(local, minute));
+  }
+  return boundaries;
+}
+
 function completedWindowBoundaries(now: Date) {
   const schedule = persistenceSchedule(now);
   const lastCompletedBoundary = schedule.minutes < PERSISTENCE_START_MINUTE
@@ -1331,11 +1363,7 @@ function completedWindowBoundaries(now: Date) {
       : schedule.currentSlotStart;
   if (!lastCompletedBoundary) return { schedule, boundaries: [] as Date[] };
 
-  const boundaries: Date[] = [];
-  for (let minute = PERSISTENCE_START_MINUTE; minute <= PERSISTENCE_END_MINUTE; minute += PERSISTENCE_INTERVAL_MINUTES) {
-    const boundary = localBoundary(schedule.local, minute);
-    if (boundary <= lastCompletedBoundary) boundaries.push(boundary);
-  }
+  const boundaries = dailyWindowBoundaries(schedule.local).filter((boundary) => boundary <= lastCompletedBoundary);
   return { schedule, boundaries };
 }
 
@@ -1602,6 +1630,167 @@ export function pageSavedParameterHistory(
   };
 }
 
+async function earliestRecordedSnapshotWindow(topic: string) {
+  const [row] = await db
+    .select({ windowEndedAt: mqttSnapshotsTable.windowEndedAt })
+    .from(mqttSnapshotsTable)
+    .where(and(eq(mqttSnapshotsTable.topic, topic), sql`(${mqttSnapshotsTable.data} ->> 'schemaVersion') = '4'`))
+    .orderBy(asc(mqttSnapshotsTable.windowEndedAt))
+    .limit(1);
+  return row?.windowEndedAt;
+}
+
+/**
+ * Enumerates every scheduled 06:00-18:00 window that should exist between
+ * `from` and `to` (never beyond `now`, so a window still in progress is
+ * never flagged) and diffs it against what is actually persisted. This is
+ * the single source of truth both the dashboard banner and the historical
+ * backfill rely on -- it never fabricates parameter values, it only reports
+ * which scheduled saves are absent or recorded as missing/incomplete.
+ */
+export async function snapshotGapsInRange(now: Date, from: Date, to: Date, topic: string) {
+  const rangeEnd = to < now ? to : now;
+  if (from > rangeEnd) return { gaps: [] as SnapshotGapEntry[], gapCount: 0, expectedWindows: 0 };
+
+  const existingRows = await db
+    .select({
+      windowEndedAt: mqttSnapshotsTable.windowEndedAt,
+      data: mqttSnapshotsTable.data,
+      messageCount: mqttSnapshotsTable.messageCount,
+      parameterCount: mqttSnapshotsTable.parameterCount,
+    })
+    .from(mqttSnapshotsTable)
+    .where(and(
+      eq(mqttSnapshotsTable.topic, topic),
+      gte(mqttSnapshotsTable.windowEndedAt, from),
+      lte(mqttSnapshotsTable.windowEndedAt, rangeEnd),
+      sql`(${mqttSnapshotsTable.data} ->> 'schemaVersion') = '4'`,
+    ));
+  const byWindow = new Map<number, { saveStatus: SnapshotSaveStatus; missingReason?: string }>();
+  for (const row of existingRows) {
+    const data = isRecord(row.data) ? row.data : {};
+    byWindow.set(row.windowEndedAt.getTime(), {
+      saveStatus: snapshotSaveStatus(data, row.messageCount, row.parameterCount),
+      missingReason: typeof data.missingReason === "string" ? data.missingReason : undefined,
+    });
+  }
+
+  const gaps: SnapshotGapEntry[] = [];
+  let expectedWindows = 0;
+  let dayLocal = zonedParts(from, plantTimezone);
+  const lastDayKey = dateKey(zonedParts(rangeEnd, plantTimezone));
+  for (let guard = 0; guard < 400; guard += 1) {
+    for (const boundary of dailyWindowBoundaries(dayLocal)) {
+      if (boundary < from || boundary > rangeEnd) continue;
+      expectedWindows += 1;
+      const existing = byWindow.get(boundary.getTime());
+      if (!existing) {
+        gaps.push({
+          scheduledFor: boundary.toISOString(),
+          saveStatus: "absent",
+          missingReason: "No scheduled snapshot was recorded for this window.",
+        });
+      } else if (existing.saveStatus !== "saved") {
+        gaps.push({ scheduledFor: boundary.toISOString(), saveStatus: existing.saveStatus, missingReason: existing.missingReason });
+      }
+    }
+    if (dateKey(dayLocal) === lastDayKey) break;
+    dayLocal = zonedParts(new Date(localBoundary(dayLocal, 12 * 60).getTime() + 24 * 60 * 60_000), plantTimezone);
+  }
+  gaps.sort((left, right) => left.scheduledFor.localeCompare(right.scheduledFor));
+  return { gaps, gapCount: gaps.length, expectedWindows };
+}
+
+/**
+ * Same-day gaps are already backfilled as "missing" rows by
+ * reconcileCompletedWindows. A multi-day outage (process down across a
+ * date change) never gets that same-day pass, so without this the whole
+ * outage would stay permanently silent -- no row, no signal, nothing for a
+ * report to find. Runs at most once per calendar day; every insert is
+ * idempotent (onConflictDoNothing) so real saved data always wins.
+ */
+export async function backfillHistoricalSnapshotGaps(now: Date) {
+  const todayKey = persistenceSchedule(now).localDate;
+  if (gapBackfillCompletedThroughDate === todayKey) return;
+  try {
+    const earliestWindow = await earliestRecordedSnapshotWindow(subscriptionTopic);
+    if (!earliestWindow) {
+      // Nothing has ever been saved for this feed yet -- there is no prior
+      // history to reconcile, and inventing "missing" rows before the plant
+      // ever reported would fabricate a false record.
+      gapBackfillCompletedThroughDate = todayKey;
+      return;
+    }
+    const lookbackStart = new Date(now.getTime() - GAP_BACKFILL_LOOKBACK_DAYS * 24 * 60 * 60_000);
+    const backfillFrom = earliestWindow > lookbackStart ? earliestWindow : lookbackStart;
+    const todayStart = localBoundary(persistenceSchedule(now).local, 0);
+    if (backfillFrom >= todayStart) {
+      gapBackfillCompletedThroughDate = todayKey;
+      return;
+    }
+    const backfillTo = new Date(todayStart.getTime() - 1);
+    const { gaps } = await snapshotGapsInRange(now, backfillFrom, backfillTo, subscriptionTopic);
+    const absentGaps = gaps.filter((gap) => gap.saveStatus === "absent");
+    for (const gap of absentGaps) {
+      const scheduledFor = new Date(gap.scheduledFor);
+      const windowStartedAt = new Date(scheduledFor.getTime() - PERSISTENCE_INTERVAL_MINUTES * 60_000);
+      await db.insert(mqttSnapshotsTable).values({
+        windowStartedAt,
+        windowEndedAt: scheduledFor,
+        capturedAt: now,
+        topic: subscriptionTopic,
+        messageCount: 0,
+        parameterCount: 0,
+        data: {
+          schemaVersion: 4,
+          recordType: "scheduled-telemetry-snapshot",
+          saveStatus: "missing",
+          missingReason: "No scheduled snapshot was recorded for this window. The collection service may have been offline or restarted before it could save.",
+          scheduledFor: scheduledFor.toISOString(),
+          capturedAt: now.toISOString(),
+          timezone: plantTimezone,
+          messages: [],
+          latestParameters: [],
+          latestDiscoveredParameters: [],
+          calibrationProfile: null,
+        },
+      }).onConflictDoNothing({
+        target: [mqttSnapshotsTable.topic, mqttSnapshotsTable.windowEndedAt],
+        where: sql`(${mqttSnapshotsTable.data} ->> 'schemaVersion') = '4'`,
+      });
+    }
+    gapBackfillCompletedThroughDate = todayKey;
+    if (absentGaps.length) {
+      logger.warn(
+        { topic: subscriptionTopic, backfilledGaps: absentGaps.length },
+        "Backfilled historical snapshot gap markers for prior scheduled windows with no recorded save",
+      );
+    }
+  } catch (error) {
+    logger.error({ err: error }, "Historical snapshot gap backfill failed");
+  }
+}
+
+/**
+ * Keeps an in-memory, dashboard-ready summary of recent gaps so `status()`
+ * can stay synchronous. Recomputed at most every GAP_SUMMARY_REFRESH_MS from
+ * the snapshot schedule tick; a stale-by-minutes count is an acceptable
+ * trade for never blocking the hot status path on a database round trip.
+ */
+async function refreshRecentSnapshotGaps(now: Date) {
+  if (now.getTime() - lastGapSummaryComputedAt < GAP_SUMMARY_REFRESH_MS) return;
+  lastGapSummaryComputedAt = now.getTime();
+  try {
+    const from = new Date(now.getTime() - GAP_SUMMARY_WINDOW_HOURS * 60 * 60_000);
+    const { gaps, gapCount } = await snapshotGapsInRange(now, from, now, subscriptionTopic);
+    recentSnapshotGaps = gaps.slice(-10).reverse();
+    recentSnapshotGapCount = gapCount;
+    broadcast("status", status());
+  } catch (error) {
+    logger.error({ err: error }, "Recent snapshot gap summary refresh failed");
+  }
+}
+
 async function reconcileCompletedWindows(now = new Date()) {
   const { schedule, boundaries } = completedWindowBoundaries(now);
   if (!schedule.collecting) return;
@@ -1662,6 +1851,8 @@ async function runSnapshotSchedule(now = new Date()) {
     snapshotBuffer = undefined;
   }
   await reconcileCompletedWindows(now);
+  await backfillHistoricalSnapshotGaps(now);
+  await refreshRecentSnapshotGaps(now);
   broadcast("status", status());
 }
 
@@ -1898,6 +2089,9 @@ function status() {
       lastSnapshotScheduledFor,
       lastSnapshotStatus,
       error: snapshotError,
+      gapWindowHours: GAP_SUMMARY_WINDOW_HOURS,
+      recentGapCount: recentSnapshotGapCount,
+      recentGaps: recentSnapshotGaps,
     },
   };
 }
@@ -2647,6 +2841,36 @@ router.get("/mqtt/saved-parameters", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error, siteName }, "Saved MQTT parameter history query failed");
     res.status(500).json({ message: "Unable to load saved parameter evidence." });
+  }
+});
+
+router.get("/mqtt/snapshot-gaps", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.query.siteName);
+  const now = new Date();
+  const defaultFrom = new Date(now.getTime() - GAP_SUMMARY_WINDOW_HOURS * 60 * 60_000);
+  const requestedFrom = typeof req.query.from === "string" ? new Date(req.query.from) : defaultFrom;
+  const requestedTo = typeof req.query.to === "string" ? new Date(req.query.to) : now;
+  const from = Number.isFinite(requestedFrom.getTime()) ? requestedFrom : defaultFrom;
+  const to = Number.isFinite(requestedTo.getTime()) ? requestedTo : now;
+  if (!siteName || siteName.length > 160 || from > to || to.getTime() - from.getTime() > 31 * 24 * 60 * 60_000) {
+    res.status(400).json({ message: "Use an assigned site and a valid gap-check range up to 31 days." });
+    return;
+  }
+  if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSitePermission(req, res, siteName, "historical-data")) return;
+  try {
+    const { gaps, gapCount, expectedWindows } = await snapshotGapsInRange(now, from, to, subscriptionTopic);
+    res.set("Cache-Control", "no-store").json({
+      siteName,
+      range: { from: from.toISOString(), to: to.toISOString() },
+      expectedWindows,
+      gapCount,
+      gaps,
+      checkedAt: now.toISOString(),
+    });
+  } catch (error) {
+    req.log.error({ err: error, siteName }, "Snapshot gap query failed");
+    res.status(500).json({ message: "Unable to compute snapshot save gaps for this site." });
   }
 });
 

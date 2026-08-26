@@ -50,6 +50,7 @@ const namedEvidenceReads = [
   ["report", `/mqtt/reports?siteName=${encodeURIComponent(otherSite)}&${validReportQuery}`],
   ["communication evidence", `/mqtt/communication-events?siteName=${encodeURIComponent(otherSite)}`],
   ["telemetry stream", `/mqtt/stream?siteName=${encodeURIComponent(otherSite)}`],
+  ["snapshot gaps", `/mqtt/snapshot-gaps?siteName=${encodeURIComponent(otherSite)}`],
 ] as const;
 
 const unscopedEvidenceReads = [

@@ -77,6 +77,13 @@ type PersistenceStatus = {
   lastSnapshotScheduledFor?: string;
   lastSnapshotStatus?: 'saved' | 'missing' | 'incomplete';
   error?: string;
+  gapWindowHours?: number;
+  recentGapCount?: number;
+  recentGaps?: Array<{
+    scheduledFor: string;
+    saveStatus: 'saved' | 'missing' | 'incomplete' | 'absent';
+    missingReason?: string;
+  }>;
 };
 type CommunicationHealth = {
   brokerTransport: 'subscribed' | 'connected' | 'disconnected' | 'standby';
@@ -4394,6 +4401,10 @@ function AppShell() {
     : dashboardSystemHealthy
       ? 'Live data is active and backend records are up to date.'
       : error || persistence.error || dashboardLiveStatusDetail;
+  const dashboardMostRecentGap = persistence.recentGaps?.[0];
+  const dashboardGapDetail = dashboardMostRecentGap
+    ? `Most recent: ${formatInPlantTimezone(dashboardMostRecentGap.scheduledFor, persistence.timezone)} · ${dashboardMostRecentGap.saveStatus === 'absent' ? 'no record saved' : dashboardMostRecentGap.saveStatus}${dashboardMostRecentGap.missingReason ? ` · ${dashboardMostRecentGap.missingReason}` : ''}`
+    : '';
   const dashboardNextSaveAt = persistence.nextScheduledAt ? Date.parse(persistence.nextScheduledAt) : Number.NaN;
   const dashboardNextSaveCountdown = persistenceNextSaveLabel(persistence.savingActive, persistence.nextScheduledAt, now, persistence.intervalMinutes, formatCountdown);
   const dashboardSourceValue = hasValidSavedSnapshot ? 'Saved' : 'Unavailable';
@@ -4504,6 +4515,10 @@ function AppShell() {
                 <div className="scada-dashboard-system-primary"><span className="scada-dashboard-system-icon"><Check size={17} aria-hidden="true" /></span><div className="min-w-0"><strong>{dashboardSystemTitle}</strong><p title={dashboardSystemDetail}>{dashboardSystemDetail}</p></div></div>
                 <div className="scada-dashboard-system-metric" title={persistence.nextScheduledAt ? `${dashboardPersistenceResumeMessage ? `${dashboardPersistenceResumeMessage}. ` : ''}Next scheduled save: ${formatInPlantTimezone(persistence.nextScheduledAt, persistence.timezone)}.` : 'The next save window is not available.'}><span><RefreshCw size={15} aria-hidden="true" /></span><div><p>Next save in</p><strong>{dashboardNextSaveCountdown}</strong></div></div>
                 <div className="scada-dashboard-system-metric" title={persistence.savingActive ? `Historical snapshots save every ${persistence.intervalMinutes} minutes.` : dashboardPersistenceResumeMessage ?? 'Historical saving is paused.'}><span><Database size={15} aria-hidden="true" /></span><div><p>Persistence</p><strong>{persistence.savingActive ? `Auto every ${persistence.intervalMinutes} min` : 'Saving paused'}</strong></div></div>
+              </section>}
+              {mode === 'live' && (persistence.recentGapCount ?? 0) > 0 && <section role="status" aria-label="Scheduled telemetry save gaps" data-testid="snapshot-gap-banner" className="scada-dashboard-system-strip scada-dashboard-system-strip--attention mb-2 rounded-xl border">
+                <div className="scada-dashboard-system-primary"><span className="scada-dashboard-system-icon"><AlertTriangle size={17} aria-hidden="true" /></span><div className="min-w-0"><strong>{persistence.recentGapCount} scheduled save{persistence.recentGapCount === 1 ? '' : 's'} missing in the last {persistence.gapWindowHours ?? 24}h</strong><p title={dashboardGapDetail}>{dashboardGapDetail || 'No fabricated data was inserted for the missing windows.'}</p></div></div>
+                <div className="scada-dashboard-system-metric"><button type="button" onClick={() => navigateTo('raw-data')} className="text-xs font-semibold underline focus-ring">Review reports</button></div>
               </section>}
               <div data-testid="dashboard-kpis" className="scada-dashboard-kpis grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
               <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} footerIcon={Activity} tone="blue" subtext={mode === 'demo' ? 'Live plant output' : acPowerCard.value === 'Not reported' ? 'Output unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('power')} help={`Total AC Power. ${acPowerCard.details}`} />
