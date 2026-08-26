@@ -8,7 +8,7 @@ import { promotesOperationalTelemetry, rememberTelemetryDelivery, shouldReplaceT
 import { approvedDisplayTelemetryUnit, approvedDisplayTelemetryValue, isSourceReportedEvidence, sourceReportedTelemetryUnit, sourceReportedTelemetryValue, transportRawTelemetryValue } from './source-reported-evidence';
 import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, selectDashboardSavedEvidence, type PlantCalibrationProfile, type PlantCalibrationSource, type RawInverterSignal, type RawTelemetryMetric, type SavedKpiSnapshot, type ScadaAggregate, type TelemetryKpiRow, type VerifiedKpiCalculation, type VerifiedScadaKpis } from './telemetry-kpis';
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
-import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
+import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, assessValidatedSavedInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
 import { SavedParameterAnalytics, type SavedParameterRecord } from './components/saved-parameter-analytics';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
@@ -445,12 +445,13 @@ function sourceBackedInverterDevice(record: ValidatedInverterPowerRecord, site: 
       parameter: record.parameter,
       value: record.value,
       address: record.address,
-      provenance: record.provenance,
+      provenance: record.provenance === 'saved' ? 'retained' : record.provenance,
       sourceName: record.sourceName,
       observedAt: record.sourceTimestamp,
       unit: record.unit,
       semantic: record.semantic,
       scalingStatus: record.scalingStatus,
+      reportingState: record.provenance === 'saved' ? 'saved' : undefined,
     },
   };
 }
@@ -1477,7 +1478,7 @@ function electricalDisplayLabel(item: ElectricalEvidence) {
   return labels[item.kind] ?? electricalKindLabels[item.kind];
 }
 
-function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null, siteName }: { rows: ModbusRow[]; mode: 'demo' | 'live'; liveState: 'fresh' | 'stale' | 'unavailable'; savedSnapshot?: SavedKpiSnapshot | null; siteName: string }) {
+function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null, siteName, evidenceMode = 'auto' }: { rows: ModbusRow[]; mode: 'demo' | 'live'; liveState: 'fresh' | 'stale' | 'unavailable'; savedSnapshot?: SavedKpiSnapshot | null; siteName: string; evidenceMode?: 'auto' | 'saved-only' }) {
   const [draftRange, setDraftRange] = useState<ElectricalRange>(() => electricalPresetRange('live'));
   const [appliedRange, setAppliedRange] = useState<ElectricalRange>(() => electricalPresetRange('live'));
   const [historyRows, setHistoryRows] = useState<ModbusRow[]>([]);
@@ -1491,13 +1492,15 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
   // A saved snapshot is a fallback for when direct live telemetry is stale or
   // unavailable, never a permanent replacement for fresh live evidence -- this
   // must mirror the sitewide selectDashboardEvidenceSource policy.
-  const showingSavedRecord = mode === 'live' && !isHistorical && liveState !== 'fresh' && savedRows.length > 0;
+  const showingSavedRecord = evidenceMode === 'saved-only'
+    ? savedRows.length > 0
+    : mode === 'live' && !isHistorical && liveState !== 'fresh' && savedRows.length > 0;
   const savedAtLabel = savedSnapshot
     ? formatInPlantTimezone(savedSnapshot.capturedAt, savedSnapshot.timezone)
     : 'not available';
 
   useEffect(() => {
-    if (mode !== 'live') {
+    if (mode !== 'live' || evidenceMode === 'saved-only') {
       setHistoryRows([]);
       setHistoryState({ loading: false, error: '' });
       return;
@@ -1527,21 +1530,24 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
       controller.abort();
       if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
     };
-  }, [appliedRange.from, appliedRange.to, isHistorical, mode, reloadHistory, siteName]);
+  }, [appliedRange.from, appliedRange.to, evidenceMode, isHistorical, mode, reloadHistory, siteName]);
 
   // Direct live telemetry is the primary source whenever it is fresh. A saved
   // backend record only stands in when live telemetry is stale or unavailable,
   // and it must never silently keep overriding telemetry that has since become
-  // fresh again.
+  // fresh again. In 'saved-only' evidence mode (the Dashboard overview), only
+  // the current saved snapshot's own rows are ever shown -- no live or
+  // persisted-history rows are merged in, and time-range browsing is disabled.
   const sourceRows = useMemo(() => {
     if (mode !== 'live') return [];
+    if (evidenceMode === 'saved-only') return savedRows;
     const deduplicated = new Map<string, ModbusRow>();
     const currentRows = showingSavedRecord ? savedRows : rows;
     for (const row of isHistorical ? historyRows : [...historyRows, ...currentRows]) {
       deduplicated.set(electricalRowIdentity(row), row);
     }
     return [...deduplicated.values()];
-  }, [historyRows, isHistorical, mode, rows, savedRows, showingSavedRecord]);
+  }, [evidenceMode, historyRows, isHistorical, mode, rows, savedRows, showingSavedRecord]);
 
   // Raw evidence remains inspectable across replay/stale states. Only explicitly
   // validated, fresh telemetry is eligible for engineering cards and health metrics.
@@ -1654,6 +1660,13 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
         <CustomBadge tone={mode !== 'live' ? 'warning' : validated.length ? 'success' : discoveries.length ? 'warning' : 'neutral'}>{mode !== 'live' ? 'Demo mode — not operational' : validated.length ? `${validated.length} validated value${validated.length === 1 ? '' : 's'}` : discoveries.length ? `${discoveries.length} recent raw sample${discoveries.length === 1 ? '' : 's'}` : 'Awaiting source data'}</CustomBadge>
       </header>
 
+      {evidenceMode === 'saved-only' ? (
+        <div className="relative z-10 mb-3 rounded-lg border border-scada-border bg-scada-surface-raised p-2.5" data-testid="electrical-time-filter">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-scada-muted">Electrical analysis window</p>
+          <p className="mt-1 break-words text-xs font-medium text-scada-text" title={rangeLabel}>{rangeLabel}</p>
+          <p className="mt-1 text-[10px] text-scada-muted">Dashboard evidence always reflects the latest saved backend record; browse other time ranges from Live Data.</p>
+        </div>
+      ) : (
       <div className="relative z-10 mb-3 rounded-lg border border-scada-border bg-scada-surface-raised p-2.5" data-testid="electrical-time-filter">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-scada-muted">Electrical analysis window</p><p className="mt-1 break-words text-xs font-medium text-scada-text" title={rangeLabel}>{rangeLabel}</p></div>
@@ -1664,6 +1677,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
         {draftRange.preset !== 'live' && <div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-[10px] font-semibold uppercase tracking-wider text-scada-muted">Start<input type="datetime-local" value={draftRange.from} onChange={(event) => setDraftRange((range) => ({ ...range, from: event.target.value, preset: 'custom' }))} data-testid="input-electrical-start-time" className="mt-1 block w-full rounded-md border border-scada-border bg-scada-surface px-2.5 py-2 text-xs text-scada-text focus-ring" /></label><label className="text-[10px] font-semibold uppercase tracking-wider text-scada-muted">End<input type="datetime-local" value={draftRange.to} onChange={(event) => setDraftRange((range) => ({ ...range, to: event.target.value, preset: 'custom' }))} data-testid="input-electrical-end-time" className="mt-1 block w-full rounded-md border border-scada-border bg-scada-surface px-2.5 py-2 text-xs text-scada-text focus-ring" /></label></div>}
         <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" onClick={applyRange} data-testid="button-apply-electrical-range" className="rounded-md bg-blue-500 px-3 py-2 text-xs font-bold text-white hover:bg-blue-400 focus-ring">Apply</button><button type="button" onClick={() => { const range = electricalPresetRange('live'); setDraftRange(range); setAppliedRange(range); }} data-testid="button-reset-electrical-range" className="rounded-md px-3 py-2 text-xs font-semibold text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring">Reset</button><button type="button" onClick={() => setReloadHistory((key) => key + 1)} disabled={!isHistorical || historyState.loading} data-testid="button-refresh-electrical-history" className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold text-scada-muted hover:bg-scada-hover hover:text-scada-text disabled:cursor-not-allowed disabled:opacity-50 focus-ring"><RefreshCw size={13} className={historyState.loading ? 'animate-spin' : ''} />Refresh</button>{historyState.error && <span role="alert" data-testid="status-electrical-history-error" className="text-xs text-amber-300">{historyState.error}</span>}</div>
        </div>
+      )}
         {mode === 'live' && <div className="relative z-10 mb-3 rounded-lg border border-scada-border bg-scada-surface-raised p-2.5" data-testid="electrical-parameter-filters">
          <div className="flex flex-wrap items-center justify-between gap-3">
            <div><p className="text-[10px] font-bold uppercase tracking-wider text-scada-muted">Parameter filters</p><p className="mt-1 text-[11px] text-scada-muted">Search source-backed values without changing the selected time window.</p></div>
@@ -4491,6 +4505,211 @@ function AppShell() {
       observationLabel: showingSavedRecord ? 'Saved snapshot evidence' : rawInputRows.length > 1 ? 'Raw evidence timestamps' : 'Observed raw evidence',
     };
   }, [calculations.acPower, dashboardEvidenceRows, electricalLiveState, latestApprovedPlantPower, mode, now, onlinePowerReadings.length, rawFallbacks.acPower, savedKpiSnapshot, showingSavedRecord, totalAcPower, validatedInverterFleet]);
+
+  // -------------------------------------------------------------------
+  // Dashboard (Overview) saved-record pipeline.
+  //
+  // Every Overview section except Detailed Live Data and Environment must
+  // reflect only a successfully saved & validated backend record, never a
+  // live/raw substitute -- so operators always see the same evidence a
+  // saved snapshot produced, unaffected by live telemetry freshness. This
+  // is intentionally a *parallel* pipeline: the shared variables above
+  // (inverterDisplayDevices, calculations, validatedInverterFleet, etc.)
+  // stay untouched because MonitorWorkspace's other tabs (Inverters, Live
+  // Data, Energy, Alarms, Performance) still read them for live-preferred
+  // behavior. Demo mode has no backend saved records, so every overview*
+  // value below is a byte-for-byte passthrough of its existing counterpart
+  // when mode === 'demo'.
+  // -------------------------------------------------------------------
+  const overviewEvidenceRows = mode === 'demo' ? currentLiveRows : savedSnapshotRows;
+  const overviewHasSavedRecord = mode === 'demo' ? false : hasValidSavedSnapshot;
+  const overviewSavedLabel = mode === 'demo' ? undefined : (hasValidSavedSnapshot ? lastSavedLabel : undefined);
+  // Only used for live-mode KPI subtext; demo mode keeps its own hardcoded strings at the call sites.
+  const overviewKpiSourceLabel = overviewHasSavedRecord ? `Saved record · ${overviewSavedLabel}` : 'No saved backend record';
+
+  const overviewInverterInventorySignals = useMemo(
+    () => mode === 'demo' ? inverterInventorySignals : uniqueInverterInventorySignals([
+      ...rawInverterSignals(overviewEvidenceRows),
+      ...rawInverterIdentitySignals(overviewEvidenceRows),
+    ]),
+    [mode, inverterInventorySignals, overviewEvidenceRows],
+  );
+
+  const overviewInverterDisplayDevices = useMemo(() => {
+    if (mode === 'demo') return inverterDisplayDevices;
+    return overviewInverterInventorySignals.map((signal) => {
+      const sourceRow = overviewEvidenceRows
+        .filter((row) => {
+          const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'MQTT source');
+          const parameter = String(row.name ?? row.parameter ?? row.tag ?? '');
+          const address = String(row.full_addr ?? row.address ?? row.addr ?? '—');
+          const inverterId = String(row.inverter_id ?? row.inverterId ?? '').trim();
+          return sourceName === signal.sourceName
+            && parameter === signal.parameter
+            && address === signal.address
+            && (!signal.inverterId || inverterId === signal.inverterId);
+        })
+        .sort((left, right) => (telemetryEpoch(right) ?? 0) - (telemetryEpoch(left) ?? 0))[0];
+      const sourceName = signal.sourceName;
+      const sourceTime = sourceRow?.date_iso_8601 ?? sourceRow?.timestamp ?? sourceRow?.date ?? signal.observedAt;
+      const numericTime = typeof sourceTime === 'number' ? sourceTime : Number(sourceTime);
+      const parsedTime = Number.isFinite(numericTime)
+        ? new Date(numericTime < 1_000_000_000_000 ? numericTime * 1000 : numericTime).getTime()
+        : Date.parse(String(sourceTime ?? ''));
+      const observedAt = signal.observedAt ?? (sourceRow ? telemetryDateTime(sourceRow).full : 'Unavailable');
+      const sourceKey = inverterInventoryKey(signal);
+      const discoveryDeviceId = sourceRow ? discoveryDeviceIdFromSourceRecord(sourceRow, sourceName) : undefined;
+      return {
+        id: `source-${encodeURIComponent(sourceKey)}`,
+        energyInverterId: signal.inverterId ?? signal.parameter.toLowerCase(),
+        discoveryDeviceId: signal.inverterId ?? discoveryDeviceId,
+        name: signal.inverterId ?? signal.parameter.toUpperCase(),
+        site: persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site',
+        type: 'Power inverter',
+        status: 'stale' as DeviceStatus,
+        lastSeen: Number.isFinite(parsedTime) ? parsedTime : now,
+        telemetry: {
+          source_tag: {
+            parameter: signal.parameter,
+            value: signal.value,
+            address: signal.address,
+            source_name: sourceName,
+            observed_at: observedAt,
+            provenance: signal.provenance,
+          },
+          ...(sourceRow ? { raw_modbus_row: sourceRow } : {}),
+        },
+        sourceEvidence: {
+          ...signal,
+          sourceName,
+          observedAt,
+          reportingState: 'saved' as const,
+          semantic: signal.signalKind === 'identity' ? 'inverter-identity' : 'source-reading',
+        },
+      };
+    });
+  }, [inverterDisplayDevices, mode, now, overviewEvidenceRows, overviewInverterInventorySignals, persistence.inverterEnergySite, plantSiteName]);
+
+  const overviewAlarmFaultReports = useMemo(
+    () => mode === 'demo' ? alarmFaultReports : uniqueAlarmFaultReports(rowAlarmFaultReports(overviewEvidenceRows)),
+    [alarmFaultReports, mode, overviewEvidenceRows],
+  );
+  const overviewActiveAlarms = overviewAlarmFaultReports.length;
+
+  const overviewRawKpis = useMemo(() => mode === 'demo' ? rawKpis : ({
+    activePower: latestRawMetric(overviewEvidenceRows, ['actpow']),
+    dailyEnergy: latestRawMetric(overviewEvidenceRows, ['todayyield'])
+      ?? latestRawCounterMetric(overviewEvidenceRows, 'daily-counter', ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']),
+    totalEnergy: latestRawCounterMetric(overviewEvidenceRows, 'cumulative-counter', ['totalenergy', 'totalenergykwh', 'lifetimeenergy', 'lifetimeenergykwh']),
+    specificYield: latestRawMetric(overviewEvidenceRows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']),
+    alarms: latestRawMetric(overviewEvidenceRows, ['alarm', 'alarms', 'alarmcode', 'fault', 'faultcode']),
+    inverters: rawInverterSignals(overviewEvidenceRows),
+  }), [mode, overviewEvidenceRows, rawKpis]);
+  const overviewRawFallbacks = useMemo(() => mode === 'demo' ? rawFallbacks : rawKpiFallbacks(overviewEvidenceRows), [mode, overviewEvidenceRows, rawFallbacks]);
+
+  const overviewCalculations = useMemo<VerifiedScadaKpis>(
+    () => mode === 'demo' ? calculations : savedKpiCalculations,
+    [calculations, mode, savedKpiCalculations],
+  );
+
+  const overviewCalculationCard = (calculation: VerifiedKpiCalculation, rawFallback: RawKpiFallback) => {
+    if (calculation.quality === 'verified') {
+      return {
+        value: calculationValue(calculation),
+        unit: calculationUnit(calculation),
+        details: `${calculation.formula}. ${calculationContext(calculation)}`,
+      };
+    }
+    if (rawFallback.value === null) {
+      return {
+        value: 'Not reported',
+        unit: '',
+        details: overviewHasSavedRecord ? `${rawFallback.readiness} Last saved: ${overviewSavedLabel}.` : rawFallback.readiness,
+      };
+    }
+    const registerList = rawFallback.inputs.map((input) => `${input.parameter} (${input.address})`).join(' + ');
+    return {
+      value: rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+      unit: rawFallback.unit,
+      details: `${rawFallback.formula}. Source: ${registerList}${rawFallback.sourceUnit ? ` (${rawFallback.sourceUnit})` : ''}. ${rawFallback.inputs.some((input) => input.sourceReported) ? 'Source-reported; engineering scaling is not confirmed.' : 'Engineering scaling is not confirmed.'}${overviewHasSavedRecord ? ` Last saved: ${overviewSavedLabel}.` : ''}`,
+    };
+  };
+  const overviewAcPowerCard = mode === 'demo' ? acPowerCard : overviewCalculationCard(overviewCalculations.acPower, overviewRawFallbacks.acPower);
+  const overviewDailyEnergyCard = mode === 'demo' ? dailyEnergyCard : overviewCalculationCard(overviewCalculations.dailyEnergy, overviewRawFallbacks.dailyEnergy);
+  const overviewTotalEnergyCard = mode === 'demo' ? totalEnergyCard : overviewCalculationCard(overviewCalculations.totalEnergy, overviewRawFallbacks.totalEnergy);
+  const overviewSpecificYieldCard = mode === 'demo' ? specificYieldCard : overviewCalculationCard(overviewCalculations.specificYield, overviewRawFallbacks.specificYield);
+
+  const overviewDiscoveredInverterTotal = overviewInverterInventorySignals.length;
+  const overviewInverterCard = mode === 'demo' ? inverterCard : {
+    title: 'Inverter Inventory',
+    value: overviewDiscoveredInverterTotal ? overviewDiscoveredInverterTotal.toString() : '— / Total',
+    availability: overviewDiscoveredInverterTotal ? 'Saved' : '—',
+    statusCaption: 'Recorded total',
+    status: overviewDiscoveredInverterTotal
+      ? `Latest saved inventory · ${overviewSavedLabel ?? 'timestamp unavailable'}`
+      : 'Saved record has no mapped inverter source',
+    help: overviewDiscoveredInverterTotal
+      ? `Inverters Online. The latest saved record identifies ${overviewDiscoveredInverterTotal} inverter source record${overviewDiscoveredInverterTotal === 1 ? '' : 's'}, but cannot verify current online state. Saved: ${overviewSavedLabel ?? 'timestamp unavailable'}.`
+      : 'No approved inverter status mapping has reported a total yet.',
+    tone: overviewDiscoveredInverterTotal ? 'amber' : 'slate',
+  };
+  const overviewActiveAlarmCardCount = mode === 'demo' ? activeAlarmCardCount : (overviewRawKpis.alarms?.value === 0 ? 0 : overviewActiveAlarms);
+
+  const overviewValidatedInverterFleet = useMemo<ValidatedInverterFleet>(() => {
+    if (mode === 'demo' || !savedKpiSnapshot) return { records: [], excluded: [], totalKw: 0 };
+    const windowStart = Date.parse(savedKpiSnapshot.windowStartedAt ?? savedKpiSnapshot.capturedAt);
+    const windowEnd = Date.parse(savedKpiSnapshot.windowEndedAt ?? savedKpiSnapshot.capturedAt);
+    const asOf = Number.isFinite(windowEnd) ? windowEnd : Date.now();
+    const maximumAgeMs = Number.isFinite(windowStart) && Number.isFinite(windowEnd) && windowEnd > windowStart
+      ? (windowEnd - windowStart) + 5 * 60 * 1000
+      : 20 * 60 * 1000;
+    return assessValidatedSavedInverterFleet(savedSnapshotRows, { asOf, maximumAgeMs });
+  }, [mode, savedKpiSnapshot, savedSnapshotRows]);
+
+  const overviewFlowReading = useMemo(() => {
+    if (mode === 'demo') return dashboardFlowReading;
+    // observedAt must stay a raw parseable timestamp (DashboardPowerFlow calls
+    // `new Date(observedAt)` itself) -- never the pre-formatted savedLabel string.
+    const savedSnapshotTimestamp = savedKpiSnapshot?.capturedAt ?? savedKpiSnapshot?.scheduledFor;
+    const acPower = overviewCalculations.acPower;
+    if (acPower.quality === 'verified') {
+      return {
+        value: acPower.value,
+        unit: acPower.unit ?? '',
+        quality: 'reported' as const,
+        provenance: 'snapshot' as const,
+        status: 'stale' as const,
+        sourceLabel: `Last saved validated · ${acPower.profileVersion}`,
+        observedAt: savedSnapshotTimestamp,
+        observationLabel: 'Saved snapshot',
+        inverterCount: acPower.method === 'inverter-sum' ? acPower.inputs.length : undefined,
+      };
+    }
+    const rawFallback = overviewRawFallbacks.acPower;
+    if (rawFallback.value !== null) {
+      return {
+        value: null,
+        unit: '',
+        quality: 'unavailable' as const,
+        provenance: 'snapshot' as const,
+        status: 'stale' as const,
+        sourceLabel: 'Saved raw power evidence · approved engineering mapping required',
+        observedAt: savedSnapshotTimestamp,
+        observationLabel: 'Saved snapshot evidence',
+      };
+    }
+    return {
+      value: null,
+      unit: '',
+      quality: 'unavailable' as const,
+      provenance: overviewHasSavedRecord ? 'snapshot' as const : undefined,
+      status: 'offline' as const,
+      sourceLabel: overviewHasSavedRecord ? 'No approved active-power evidence in the saved record' : 'No saved backend record yet',
+      observedAt: savedSnapshotTimestamp,
+      observationLabel: 'Saved snapshot',
+    };
+  }, [dashboardFlowReading, mode, overviewCalculations.acPower, overviewHasSavedRecord, overviewRawFallbacks.acPower, savedKpiSnapshot]);
+
   const deviceCommunication = mode === 'demo'
     ? 'live'
     : communication?.deviceCommunication ?? (telemetryAge === null ? 'awaiting-first-data' : telemetryAge > DEVICE_STALE_MAX_AGE_MS ? 'interrupted' : telemetryAge > DEVICE_ONLINE_MAX_AGE_MS ? 'stale' : 'live');
@@ -4713,38 +4932,38 @@ function AppShell() {
                 <div className="scada-dashboard-system-metric"><button type="button" onClick={() => navigateTo('raw-data')} className="text-xs font-semibold underline focus-ring">Review reports</button></div>
               </section>}
               <div data-testid="dashboard-kpis" className="scada-dashboard-kpis grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
-              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : acPowerCard.value} unit={mode === 'demo' ? 'kW' : acPowerCard.unit} icon={Zap} footerIcon={Activity} tone="blue" subtext={mode === 'demo' ? 'Live plant output' : acPowerCard.value === 'Not reported' ? 'Output unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('power')} help={`Total AC Power. ${acPowerCard.details}`} />
-              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} footerIcon={Sun} tone="amber" subtext={mode === 'demo' ? 'Day total' : dailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${dailyEnergyCard.details}`} />
-              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} footerIcon={Database} tone="violet" subtext={mode === 'demo' ? 'Lifetime generation' : totalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Total Energy. ${totalEnergyCard.details}`} />
-              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} footerIcon={Activity} tone="green" subtext={mode === 'demo' ? 'Today' : specificYieldCard.value === 'Not reported' ? 'Performance unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('power')} help={`Specific Yield. ${specificYieldCard.details}`} />
-              <KpiCard title={inverterCard.title} value={inverterCard.value} icon={Check} footerIcon={Check} tone={inverterCard.tone} variant="inverter" availability={inverterCard.availability} statusCaption={inverterCard.statusCaption} subtext={inverterCard.status} onClick={() => navigateTo('inverters')} help={inverterCard.help} />
-              <KpiCard title="Active Alarms" value={activeAlarmCardCount.toString()} icon={AlertTriangle} footerIcon={activeAlarmCardCount ? AlertTriangle : Check} tone={activeAlarmCardCount ? 'red' : 'green'} variant="alarm" subtext={showingSavedRecord ? `Saved record · verify live` : activeAlarmCardCount ? 'Requires attention' : 'No active alarms'} onClick={() => navigateTo('alarms')} help={rawKpis.alarms ? `Active Alarms. Latest source alarm value: ${rawKpis.alarms.value}${rawKpis.alarms.sourceUnit ? ` ${rawKpis.alarms.sourceUnit}` : ''}.${showingSavedRecord ? ` Saved: ${lastSavedLabel}; current alarm state requires live telemetry.` : ''}` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
+              <KpiCard title="Total AC Power" value={mode === 'demo' ? totalAcPower?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : overviewAcPowerCard.value} unit={mode === 'demo' ? 'kW' : overviewAcPowerCard.unit} icon={Zap} footerIcon={Activity} tone="blue" subtext={mode === 'demo' ? 'Live plant output' : overviewAcPowerCard.value === 'Not reported' ? 'Output unavailable' : overviewKpiSourceLabel} onClick={() => navigateTo('power')} help={`Total AC Power. ${overviewAcPowerCard.details}`} />
+              <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : overviewDailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : overviewDailyEnergyCard.unit} icon={Sun} footerIcon={Sun} tone="amber" subtext={mode === 'demo' ? 'Day total' : overviewDailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : overviewKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${overviewDailyEnergyCard.details}`} />
+              <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : overviewTotalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : overviewTotalEnergyCard.unit} icon={Database} footerIcon={Database} tone="violet" subtext={mode === 'demo' ? 'Lifetime generation' : overviewTotalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : overviewKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Total Energy. ${overviewTotalEnergyCard.details}`} />
+              <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : overviewSpecificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : overviewSpecificYieldCard.unit} icon={Activity} footerIcon={Activity} tone="green" subtext={mode === 'demo' ? 'Today' : overviewSpecificYieldCard.value === 'Not reported' ? 'Performance unavailable' : overviewKpiSourceLabel} onClick={() => navigateTo('power')} help={`Specific Yield. ${overviewSpecificYieldCard.details}`} />
+              <KpiCard title={overviewInverterCard.title} value={overviewInverterCard.value} icon={Check} footerIcon={Check} tone={overviewInverterCard.tone} variant="inverter" availability={overviewInverterCard.availability} statusCaption={overviewInverterCard.statusCaption} subtext={overviewInverterCard.status} onClick={() => navigateTo('inverters')} help={overviewInverterCard.help} />
+              <KpiCard title="Active Alarms" value={overviewActiveAlarmCardCount.toString()} icon={AlertTriangle} footerIcon={overviewActiveAlarmCardCount ? AlertTriangle : Check} tone={overviewActiveAlarmCardCount ? 'red' : 'green'} variant="alarm" subtext={mode === 'demo' ? (overviewActiveAlarmCardCount ? 'Requires attention' : 'No active alarms') : (overviewHasSavedRecord ? 'Saved record · verify live' : 'No saved backend record yet')} onClick={() => navigateTo('alarms')} help={overviewRawKpis.alarms ? `Active Alarms. Latest source alarm value: ${overviewRawKpis.alarms.value}${overviewRawKpis.alarms.sourceUnit ? ` ${overviewRawKpis.alarms.sourceUnit}` : ''}.${mode !== 'demo' ? (overviewHasSavedRecord ? ` Saved: ${overviewSavedLabel}; current alarm state requires live telemetry.` : ' No saved backend record yet.') : ''}` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
             </div>
-            <DashboardPowerFlow {...dashboardFlowReading} mode={mode} monitoringStatus={deviceCommunication} />
+            <DashboardPowerFlow {...overviewFlowReading} mode={mode} monitoringStatus={deviceCommunication} />
           </section>
           
           <div id="electrical" data-section="electrical" className="min-w-0 scroll-mt-6">
-            <ElectricalParametersChart rows={currentLiveRows} mode={mode} liveState={electricalLiveState} savedSnapshot={dashboardSavedSnapshot} siteName={plantSiteName} />
+            <ElectricalParametersChart rows={mode === 'demo' ? currentLiveRows : []} mode={mode} liveState={mode === 'demo' ? electricalLiveState : 'unavailable'} savedSnapshot={dashboardSavedSnapshot} siteName={plantSiteName} evidenceMode={mode === 'demo' ? 'auto' : 'saved-only'} />
           </div>
 
               <div className="scada-dashboard-primary-grid grid grid-cols-1 gap-3">
             <div id="inverters" data-section="inverters" className="min-w-0 scroll-mt-6">
-              <InverterOverviewTable devices={inverterDisplayDevices} rows={dashboardEvidenceRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
+              <InverterOverviewTable devices={overviewInverterDisplayDevices} rows={overviewEvidenceRows} onOpenInverter={(device) => setSelectedInverterId(device.id)} onViewAll={() => navigateTo('inverters')} />
             </div>
             <div id="alarms" data-section="alarms" className="min-w-0 scroll-mt-6">
-              <SidePanels devices={operationalDevices} rows={currentLiveRows} liveState={electricalLiveState} savedRows={showingSavedRecord ? savedSnapshotRows : []} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} onOpenAlarms={() => navigateTo('alarms')} />
+              <SidePanels devices={mode === 'demo' ? operationalDevices : []} rows={mode === 'demo' ? currentLiveRows : []} liveState={mode === 'demo' ? electricalLiveState : 'unavailable'} savedRows={overviewEvidenceRows} savedLabel={overviewSavedLabel} onOpenAlarms={() => navigateTo('alarms')} />
             </div>
           </div>
           
           <div className="scada-dashboard-analysis-grid grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               <div id="energy" data-section="energy" className="min-w-0 scroll-mt-6">
-                <EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={rawFallbacks.dailyEnergy} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} liveState={electricalLiveState} streamSamples={energyStream} now={now} />
+                <EnergySummaryChart mode={mode} dailyEnergy={overviewCalculations.dailyEnergy} rawFallback={overviewRawFallbacks.dailyEnergy} savedLabel={overviewSavedLabel} liveState={mode === 'demo' ? electricalLiveState : 'unavailable'} streamSamples={mode === 'demo' ? energyStream : []} now={now} />
              </div>
                <div id="power" data-section="power" className="min-w-0 scroll-mt-6 md:col-span-1 xl:col-span-2 2xl:col-span-3">
-                <PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={rawFallbacks.acPower} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} />
+                <PowerTrendChart calculation={overviewCalculations.acPower} mode={mode} rawFallback={overviewRawFallbacks.acPower} savedLabel={overviewSavedLabel} />
              </div>
                <div className="min-w-0 md:col-span-2 xl:col-span-3 2xl:col-span-4">
-                  <PowerDistributionChart inverters={mode === 'demo' ? inverters : []} rawInverters={rawKpis.inverters} rawInverterIdentities={rawInverterIdentitySignals(dashboardEvidenceRows)} validatedFleet={validatedInverterFleet} mode={mode} savedLabel={showingSavedRecord ? lastSavedLabel : undefined} onOpenInverter={(record) => setSelectedInverterId(sourceBackedInverterDevice(record, persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site').id)} />
+                  <PowerDistributionChart inverters={mode === 'demo' ? inverters : []} rawInverters={overviewRawKpis.inverters} rawInverterIdentities={rawInverterIdentitySignals(overviewEvidenceRows)} validatedFleet={overviewValidatedInverterFleet} mode={mode} savedLabel={overviewSavedLabel} onOpenInverter={(record) => setSelectedInverterId(sourceBackedInverterDevice(record, persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site').id)} />
             </div>
           </div>
 

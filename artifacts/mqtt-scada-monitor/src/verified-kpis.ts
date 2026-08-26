@@ -32,7 +32,7 @@ export type ValidatedInverterPowerRecord = {
   sourceName: string;
   address: string;
   sourceTimestamp: string;
-  provenance: "live";
+  provenance: "live" | "saved";
 };
 
 export type InverterPowerExclusion = {
@@ -265,6 +265,78 @@ export function assessValidatedLiveInverterFleet(rows: TelemetryKpiRow[], option
       address: sourceAddress(row),
       sourceTimestamp: observedAt(row)!,
       provenance: "live" as const,
+    }))
+    .sort((left, right) => left.inverterName.localeCompare(right.inverterName));
+  return { records, excluded, totalKw: records.reduce((total, record) => total + record.value, 0) };
+}
+
+/**
+ * Assess per-inverter active-power contribution from a saved backend
+ * snapshot's own rows (e.g. a completed 15-minute dashboard record). This
+ * mirrors assessValidatedLiveInverterFleet's identity, scaling, semantic, and
+ * unit gates, but never gates on `provenance === "live"` -- a successfully
+ * saved record is itself the accepted evidence, not a live-freshness
+ * substitute. Timestamps are checked against the snapshot's own capture
+ * window rather than "now", since saved evidence is expected to be minutes
+ * old by the time an operator views it.
+ */
+export function assessValidatedSavedInverterFleet(rows: TelemetryKpiRow[], options: { asOf: number; maximumAgeMs: number }): ValidatedInverterFleet {
+  const latest = new Map<string, { row: TelemetryKpiRow; value: number; inverterId: string }>();
+  const excluded: InverterPowerExclusion[] = [];
+  for (const row of rows) {
+    if (!isInverterPowerCandidate(row)) continue;
+    const parameter = String(row.name ?? "register");
+    const inverterId = explicitInverterId(row);
+    const evidence = {
+      parameter,
+      inverterId,
+      sourceName: sourceName(row),
+      address: sourceAddress(row),
+    };
+    if (!inverterId) {
+      excluded.push({ ...evidence, reason: "Stable inverter identity is not declared by the source." });
+      continue;
+    }
+    if (!validated(row)) {
+      excluded.push({ ...evidence, reason: "Scaling validation is not approved." });
+      continue;
+    }
+    if (!declaredActivePowerSemantic(row)) {
+      excluded.push({ ...evidence, reason: "Approved active-power semantic is missing." });
+      continue;
+    }
+    const value = convertedValue(row, "kW");
+    if (value === null) {
+      excluded.push({ ...evidence, reason: "Approved engineering power unit is missing or incompatible." });
+      continue;
+    }
+    const observed = observedMs(row);
+    if (!observed) {
+      excluded.push({ ...evidence, reason: "Source timestamp is unavailable." });
+      continue;
+    }
+    if (observed < options.asOf - options.maximumAgeMs || observed > options.asOf + options.maximumAgeMs) {
+      excluded.push({ ...evidence, reason: "Source reading falls outside this saved snapshot's collection window." });
+      continue;
+    }
+    const current = latest.get(inverterId);
+    if (!current || observed >= observedMs(current.row)) latest.set(inverterId, { row, value, inverterId });
+  }
+
+  const records = [...latest.values()]
+    .map(({ row, value, inverterId }) => ({
+      inverterId,
+      inverterName: inverterDisplayName(row, inverterId),
+      parameter: String(row.name ?? "register"),
+      value,
+      rawValue: String(row.raw_data ?? row.rawValue ?? row.raw_value ?? row.data ?? ""),
+      unit: "kW" as const,
+      semantic: "active-power" as const,
+      scalingStatus: "validated" as const,
+      sourceName: sourceName(row),
+      address: sourceAddress(row),
+      sourceTimestamp: observedAt(row)!,
+      provenance: "saved" as const,
     }))
     .sort((left, right) => left.inverterName.localeCompare(right.inverterName));
   return { records, excluded, totalKw: records.reduce((total, record) => total + record.value, 0) };
