@@ -17,14 +17,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { AlertTriangle, CheckCircle2, ChevronRight, ShieldAlert } from "lucide-react"
+import { AlertTriangle, CheckCircle2, ChevronRight, Radio, ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
+
+// Above this many reconnect+resubscribe cycles in the window, the broker
+// connection itself is flagged as the likely root cause of any gaps, not
+// just an incidental detail buried in individual gap reasons.
+const RECONNECT_HEALTH_WARNING_THRESHOLD = 5
 
 function saveStatusBadge(status: string) {
   if (status === "absent") return <Badge variant="destructive">Absent</Badge>
   if (status === "missing") return <Badge variant="destructive">Missing</Badge>
   if (status === "incomplete") return <Badge variant="secondary">Incomplete</Badge>
   return <Badge variant="secondary">{status}</Badge>
+}
+
+function reconnectBadge(reconnectCount: number) {
+  const flagged = reconnectCount >= RECONNECT_HEALTH_WARNING_THRESHOLD
+  return (
+    <Badge variant={flagged ? "destructive" : "secondary"} className={cn("gap-1", !flagged && "opacity-60")}>
+      <Radio className="h-3 w-3" />
+      {reconnectCount} reconnect{reconnectCount === 1 ? "" : "s"}
+    </Badge>
+  )
 }
 
 function GapDetailDialog({ site, onClose }: { site: PlatformTelemetrySnapshotGapSummary | null; onClose: () => void }) {
@@ -49,6 +64,15 @@ function GapDetailDialog({ site, onClose }: { site: PlatformTelemetrySnapshotGap
               : "Scheduled 15-minute save windows that were not recorded as a complete save."}
           </DialogDescription>
         </DialogHeader>
+        {detail && detail.reconnectCount >= RECONNECT_HEALTH_WARNING_THRESHOLD ? (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              The MQTT broker reconnected {detail.reconnectCount} times in this range. An unstable broker connection
+              is the likely root cause of the gaps below, not an unexplained outage.
+            </span>
+          </div>
+        ) : null}
         {isLoading ? (
           <p className="text-sm text-muted-foreground py-6 text-center">Loading gap detail...</p>
         ) : error ? (
@@ -92,6 +116,7 @@ export default function SaveGaps() {
   const { data, isLoading, error } = useListPlatformTelemetrySnapshotGapSummaries()
 
   const sitesWithGaps = data?.sites.filter((site) => site.gapCount > 0).length ?? 0
+  const maxReconnectCount = data?.sites.reduce((max, site) => Math.max(max, site.reconnectCount), 0) ?? 0
 
   return (
     <div className="space-y-6">
@@ -115,6 +140,15 @@ export default function SaveGaps() {
                 : `All ${data?.sites.length ?? 0} active site${data?.sites.length === 1 ? "" : "s"} saved every scheduled window.`}
           </CardDescription>
         </CardHeader>
+        {maxReconnectCount >= RECONNECT_HEALTH_WARNING_THRESHOLD ? (
+          <div className="mx-6 mb-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <Radio className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              The MQTT broker reconnected {maxReconnectCount} times in the last {data?.windowHours ?? 24}h. Frequent
+              reconnects are a broker connection health problem and the likely root cause of scheduled-save gaps below.
+            </span>
+          </div>
+        ) : null}
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -123,25 +157,26 @@ export default function SaveGaps() {
                 <TableHead>Organization</TableHead>
                 <TableHead>Expected Windows</TableHead>
                 <TableHead>Gaps</TableHead>
+                <TableHead>Broker Health</TableHead>
                 <TableHead className="text-right">Detail</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center">
+                  <TableCell colSpan={6} className="h-24 text-center">
                     Loading save-gap summary...
                   </TableCell>
                 </TableRow>
               ) : error ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-destructive">
+                  <TableCell colSpan={6} className="h-24 text-center text-destructive">
                     Unable to load save-gap summary.
                   </TableCell>
                 </TableRow>
               ) : !data?.sites.length ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground flex flex-col items-center justify-center">
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground flex flex-col items-center justify-center">
                     <CheckCircle2 className="h-8 w-8 mb-2 opacity-20" />
                     No active managed sites yet
                   </TableCell>
@@ -174,6 +209,7 @@ export default function SaveGaps() {
                         </Badge>
                       )}
                     </TableCell>
+                    <TableCell>{reconnectBadge(site.reconnectCount)}</TableCell>
                     <TableCell className="text-right">
                       <ChevronRight className="h-4 w-4 inline-block text-muted-foreground" />
                     </TableCell>

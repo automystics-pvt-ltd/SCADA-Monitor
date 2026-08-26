@@ -13,4 +13,9 @@ export interface PlatformTelemetrySnapshotGapSummary {
   gapCount: number;
   /** @minimum 0 */
   expectedWindows: number;
+  /**
+     * Completed MQTT broker reconnect+resubscribe cycles observed in the window, the usual root cause behind scheduled-save gaps.
+     * @minimum 0
+     */
+  reconnectCount: number;
 }

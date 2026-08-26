@@ -819,7 +819,8 @@ components:
         organizationName: { type: string }
         gapCount: { type: number, minimum: 0, multipleOf: 1 }
         expectedWindows: { type: number, minimum: 0, multipleOf: 1 }
-      required: [siteName, organizationName, gapCount, expectedWindows]
+        reconnectCount: { type: number, minimum: 0, multipleOf: 1, description: "Completed MQTT broker reconnect+resubscribe cycles observed in the window, the usual root cause behind scheduled-save gaps." }
+      required: [siteName, organizationName, gapCount, expectedWindows, reconnectCount]
     PlatformTelemetrySnapshotGapSummaryList:
       type: object
       properties:
@@ -848,11 +849,12 @@ components:
           required: [from, to]
         expectedWindows: { type: number, minimum: 0, multipleOf: 1 }
         gapCount: { type: number, minimum: 0, multipleOf: 1 }
+        reconnectCount: { type: number, minimum: 0, multipleOf: 1, description: "Completed MQTT broker reconnect+resubscribe cycles observed in this range." }
         gaps:
           type: array
           items: { $ref: "#/components/schemas/PlatformTelemetrySnapshotGapEntry" }
         checkedAt: { type: string, format: date-time }
-      required: [siteName, range, expectedWindows, gapCount, gaps, checkedAt]
+      required: [siteName, range, expectedWindows, gapCount, reconnectCount, gaps, checkedAt]
     PlatformTelemetryTestInput:
       type: object
       properties:

@@ -1630,6 +1630,116 @@ export function pageSavedParameterHistory(
   };
 }
 
+type CommEventRow = {
+  eventType: string;
+  receivedAt: Date;
+  startedAt: Date | null;
+  endedAt: Date | null;
+};
+
+async function communicationHistoryUpTo(topic: string, to: Date, eventTypes: readonly string[]): Promise<CommEventRow[]> {
+  return db
+    .select({
+      eventType: mqttCommunicationEventsTable.eventType,
+      receivedAt: mqttCommunicationEventsTable.receivedAt,
+      startedAt: mqttCommunicationEventsTable.startedAt,
+      endedAt: mqttCommunicationEventsTable.endedAt,
+    })
+    .from(mqttCommunicationEventsTable)
+    .where(and(
+      eq(mqttCommunicationEventsTable.topic, topic),
+      inArray(mqttCommunicationEventsTable.eventType, [...eventTypes]),
+      lte(mqttCommunicationEventsTable.receivedAt, to),
+    ))
+    .orderBy(asc(mqttCommunicationEventsTable.receivedAt));
+}
+
+type OutageInterval = { start: Date; end: Date };
+
+/**
+ * `communication-interruption` only marks the moment an outage began (no
+ * `endedAt` -- it may still be ongoing); the matching `communication-recovery`
+ * row carries both bounds and shares the exact same `startedAt` value, so
+ * pairing on `startedAt` reconstructs the true outage interval. An
+ * interruption with no matching recovery in this history is still open, so
+ * its effective end is `now`, not its own (irrelevant) `receivedAt` -- this
+ * intentionally has no lower bound so an outage that began before the
+ * queried range is never dropped.
+ */
+function buildOutageIntervals(rows: CommEventRow[], now: Date): OutageInterval[] {
+  const recoveredStarts = new Set<number>();
+  const intervals: OutageInterval[] = [];
+  for (const row of rows) {
+    if (row.eventType === "communication-recovery" && row.startedAt && row.endedAt) {
+      intervals.push({ start: row.startedAt, end: row.endedAt });
+      recoveredStarts.add(row.startedAt.getTime());
+    }
+  }
+  for (const row of rows) {
+    if (row.eventType === "communication-interruption" && row.startedAt && !recoveredStarts.has(row.startedAt.getTime())) {
+      intervals.push({ start: row.startedAt, end: now });
+    }
+  }
+  return intervals;
+}
+
+/**
+ * A `broker-connected` (and the `subscription-confirmed` that follows it) is
+ * only a genuine *reconnect* when a `broker-closed`/`broker-reconnecting`
+ * transport drop was observed since the previous connect. Without this, the
+ * very first connect after every process start would be misreported as a
+ * reconnect -- both as a misleading gap reason and as an inflated health
+ * count on an otherwise healthy first connection.
+ */
+function genuineReconnectTimestamps(rows: CommEventRow[]): { connects: Date[]; subscribes: Date[] } {
+  const connects: Date[] = [];
+  const subscribes: Date[] = [];
+  let disconnectedSinceLastConnect = false;
+  let lastConnectWasGenuine = false;
+  for (const row of rows) {
+    if (row.eventType === "broker-closed" || row.eventType === "broker-reconnecting") {
+      disconnectedSinceLastConnect = true;
+    } else if (row.eventType === "broker-connected") {
+      lastConnectWasGenuine = disconnectedSinceLastConnect;
+      if (lastConnectWasGenuine) connects.push(row.receivedAt);
+      disconnectedSinceLastConnect = false;
+    } else if (row.eventType === "subscription-confirmed" && lastConnectWasGenuine) {
+      subscribes.push(row.receivedAt);
+    }
+  }
+  return { connects, subscribes };
+}
+
+type ReconnectAnalysis = { outages: OutageInterval[]; genuineReconnects: Date[]; genuineResubscribes: Date[] };
+
+async function reconnectAnalysisForTopic(topic: string, to: Date, now: Date): Promise<ReconnectAnalysis> {
+  const [outageRows, transitionRows] = await Promise.all([
+    communicationHistoryUpTo(topic, to, ["communication-interruption", "communication-recovery"]),
+    communicationHistoryUpTo(topic, to, ["broker-connected", "broker-closed", "broker-reconnecting", "subscription-confirmed"]),
+  ]);
+  const { connects, subscribes } = genuineReconnectTimestamps(transitionRows);
+  return { outages: buildOutageIntervals(outageRows, now), genuineReconnects: connects, genuineResubscribes: subscribes };
+}
+
+/**
+ * Explains a scheduled window using recorded broker evidence, preferring the
+ * heartbeat-level interruption (the root cause) over the transport-level
+ * reconnect/resubscribe that follows it.
+ */
+function reconnectReasonForWindow(analysis: ReconnectAnalysis, windowStartedAt: Date, windowEndedAt: Date): string | undefined {
+  const inWindow = (at: Date) => at >= windowStartedAt && at <= windowEndedAt;
+  if (analysis.outages.some((outage) => outage.start <= windowEndedAt && outage.end >= windowStartedAt)) {
+    return "Broker communication was interrupted during this window -- this is the likely cause of the missing scheduled save, not an unexplained outage.";
+  }
+  if (analysis.genuineReconnects.some(inWindow)) {
+    return "The MQTT broker reconnected during this window -- this is the likely cause of the missing scheduled save, not an unexplained outage.";
+  }
+  if (analysis.genuineResubscribes.some(inWindow)) {
+    return "The MQTT topic subscription was re-established during this window after a reconnect -- this is the likely cause of the missing scheduled save, not an unexplained outage.";
+  }
+  return undefined;
+}
+
 async function earliestRecordedSnapshotWindow(topic: string) {
   const [row] = await db
     .select({ windowEndedAt: mqttSnapshotsTable.windowEndedAt })
@@ -1674,6 +1784,7 @@ export async function snapshotGapsInRange(now: Date, from: Date, to: Date, topic
       missingReason: typeof data.missingReason === "string" ? data.missingReason : undefined,
     });
   }
+  const reconnectAnalysis = await reconnectAnalysisForTopic(topic, rangeEnd, now);
 
   const gaps: SnapshotGapEntry[] = [];
   let expectedWindows = 0;
@@ -1684,14 +1795,22 @@ export async function snapshotGapsInRange(now: Date, from: Date, to: Date, topic
       if (boundary < from || boundary > rangeEnd) continue;
       expectedWindows += 1;
       const existing = byWindow.get(boundary.getTime());
-      if (!existing) {
-        gaps.push({
-          scheduledFor: boundary.toISOString(),
-          saveStatus: "absent",
-          missingReason: "No scheduled snapshot was recorded for this window.",
-        });
-      } else if (existing.saveStatus !== "saved") {
-        gaps.push({ scheduledFor: boundary.toISOString(), saveStatus: existing.saveStatus, missingReason: existing.missingReason });
+      if (!existing || existing.saveStatus !== "saved") {
+        const windowStartedAt = new Date(boundary.getTime() - PERSISTENCE_INTERVAL_MINUTES * 60_000);
+        const reconnectReason = reconnectReasonForWindow(reconnectAnalysis, windowStartedAt, boundary);
+        if (!existing) {
+          gaps.push({
+            scheduledFor: boundary.toISOString(),
+            saveStatus: "absent",
+            missingReason: reconnectReason ?? "No scheduled snapshot was recorded for this window.",
+          });
+        } else {
+          gaps.push({
+            scheduledFor: boundary.toISOString(),
+            saveStatus: existing.saveStatus,
+            missingReason: reconnectReason ?? existing.missingReason,
+          });
+        }
       }
     }
     if (dateKey(dayLocal) === lastDayKey) break;
@@ -1709,6 +1828,22 @@ export async function snapshotGapsInRange(now: Date, from: Date, to: Date, topic
  */
 export async function snapshotGapsForActiveTopic(now: Date, from: Date, to: Date) {
   return snapshotGapsInRange(now, from, to, subscriptionTopic);
+}
+
+/**
+ * Counts genuine reconnect cycles (a `broker-connected` preceded by an
+ * observed transport drop) for the active topic within a range -- the
+ * initial startup connect is deliberately excluded so a healthy first
+ * connection never reports as "1 reconnect". Reconnect frequency is the
+ * root cause behind most scheduled-save gaps on an unstable broker
+ * connection, so admins need this as a standalone site-health signal, not
+ * just an implicit side effect buried inside individual gap reasons.
+ */
+export async function reconnectCycleCountForActiveTopic(from: Date, to: Date) {
+  const now = new Date();
+  const rangeEnd = to < now ? to : now;
+  const { genuineReconnects } = await reconnectAnalysisForTopic(subscriptionTopic, rangeEnd, now);
+  return genuineReconnects.filter((at) => at >= from && at <= rangeEnd).length;
 }
 
 /**

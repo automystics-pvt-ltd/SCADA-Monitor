@@ -15,6 +15,11 @@ export interface PlatformTelemetrySnapshotGapDetail {
   expectedWindows: number;
   /** @minimum 0 */
   gapCount: number;
+  /**
+     * Completed MQTT broker reconnect+resubscribe cycles observed in this range.
+     * @minimum 0
+     */
+  reconnectCount: number;
   gaps: PlatformTelemetrySnapshotGapEntry[];
   checkedAt: Date;
 }

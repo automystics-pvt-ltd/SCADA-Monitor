@@ -78,6 +78,7 @@ import {
   invalidateTelemetryMappingCache,
   listLiveTelemetryDevices,
   listLatestDeviceParameters,
+  reconnectCycleCountForActiveTopic,
   runLiveTelemetryTest,
   snapshotGapsForActiveTopic,
   type MqttRuntimeConfiguration,
@@ -823,6 +824,10 @@ router.get("/platform-admin/telemetry/snapshot-gaps", async (_req, res): Promise
   const { gapCount, expectedWindows } = activeSites.length
     ? await snapshotGapsForActiveTopic(now, from, now)
     : { gapCount: 0, expectedWindows: 0 };
+  // Reconnect frequency is the root cause behind most gaps on an unstable
+  // broker connection, so it is surfaced here as its own site-health count
+  // rather than only appearing implicitly inside individual gap reasons.
+  const reconnectCount = activeSites.length ? await reconnectCycleCountForActiveTopic(from, now) : 0;
   res.set("Cache-Control", "no-store").json(ListPlatformTelemetrySnapshotGapSummariesResponse.parse({
     windowHours: GAP_SUMMARY_WINDOW_HOURS,
     checkedAt: now,
@@ -831,6 +836,7 @@ router.get("/platform-admin/telemetry/snapshot-gaps", async (_req, res): Promise
       organizationName: site.organizationName,
       gapCount,
       expectedWindows,
+      reconnectCount,
     })),
   }));
 });
@@ -857,11 +863,13 @@ router.get("/platform-admin/telemetry/snapshot-gaps/detail", async (req: Request
     return;
   }
   const { gaps, gapCount, expectedWindows } = await snapshotGapsForActiveTopic(now, from, to);
+  const reconnectCount = await reconnectCycleCountForActiveTopic(from, to);
   res.set("Cache-Control", "no-store").json(GetPlatformTelemetrySnapshotGapDetailResponse.parse({
     siteName: site.siteName,
     range: { from, to },
     expectedWindows,
     gapCount,
+    reconnectCount,
     gaps: gaps.map((gap) => ({ ...gap, missingReason: gap.missingReason ?? null })),
     checkedAt: now,
   }));

@@ -495,6 +495,9 @@ export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemGapCountM
 export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMin = 0;
 export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMultipleOf = 1;
 
+export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemReconnectCountMin = 0;
+export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemReconnectCountMultipleOf = 1;
+
 
 
 export const ListPlatformTelemetrySnapshotGapSummariesResponse = zod.object({
@@ -504,7 +507,8 @@ export const ListPlatformTelemetrySnapshotGapSummariesResponse = zod.object({
   "siteName": zod.string(),
   "organizationName": zod.string(),
   "gapCount": zod.number().min(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemGapCountMin).multipleOf(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemGapCountMultipleOf),
-  "expectedWindows": zod.number().min(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMin).multipleOf(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMultipleOf)
+  "expectedWindows": zod.number().min(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMin).multipleOf(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMultipleOf),
+  "reconnectCount": zod.number().min(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemReconnectCountMin).multipleOf(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemReconnectCountMultipleOf).describe('Completed MQTT broker reconnect+resubscribe cycles observed in the window, the usual root cause behind scheduled-save gaps.')
 }))
 })
 
@@ -529,6 +533,9 @@ export const getPlatformTelemetrySnapshotGapDetailResponseExpectedWindowsMultipl
 export const getPlatformTelemetrySnapshotGapDetailResponseGapCountMin = 0;
 export const getPlatformTelemetrySnapshotGapDetailResponseGapCountMultipleOf = 1;
 
+export const getPlatformTelemetrySnapshotGapDetailResponseReconnectCountMin = 0;
+export const getPlatformTelemetrySnapshotGapDetailResponseReconnectCountMultipleOf = 1;
+
 
 
 export const GetPlatformTelemetrySnapshotGapDetailResponse = zod.object({
@@ -539,6 +546,7 @@ export const GetPlatformTelemetrySnapshotGapDetailResponse = zod.object({
 }),
   "expectedWindows": zod.number().min(getPlatformTelemetrySnapshotGapDetailResponseExpectedWindowsMin).multipleOf(getPlatformTelemetrySnapshotGapDetailResponseExpectedWindowsMultipleOf),
   "gapCount": zod.number().min(getPlatformTelemetrySnapshotGapDetailResponseGapCountMin).multipleOf(getPlatformTelemetrySnapshotGapDetailResponseGapCountMultipleOf),
+  "reconnectCount": zod.number().min(getPlatformTelemetrySnapshotGapDetailResponseReconnectCountMin).multipleOf(getPlatformTelemetrySnapshotGapDetailResponseReconnectCountMultipleOf).describe('Completed MQTT broker reconnect+resubscribe cycles observed in this range.'),
   "gaps": zod.array(zod.object({
   "scheduledFor": zod.coerce.date(),
   "saveStatus": zod.enum(['absent', 'missing', 'incomplete']),

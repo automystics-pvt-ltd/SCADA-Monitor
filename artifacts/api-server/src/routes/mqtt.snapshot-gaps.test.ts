@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test, { after } from "node:test";
 import { eq } from "drizzle-orm";
-import { db, mqttSnapshotsTable } from "@workspace/db";
+import { db, mqttCommunicationEventsTable, mqttSnapshotsTable } from "@workspace/db";
 import {
   dailyWindowBoundaries,
   persistenceSchedule,
@@ -113,4 +113,93 @@ test("snapshotGapsInRange never reports a window that has not been reached yet",
   assert.equal(expectedWindows, 2);
   assert.equal(gaps.length, 1, "the saved window at index 0 must be excluded, leaving only the still-gapped window at index 1");
   assert.equal(gaps[0]!.scheduledFor, missingWindowEnd.toISOString());
+});
+
+const RECONNECTED_REASON = "The MQTT broker reconnected during this window -- this is the likely cause of the missing scheduled save, not an unexplained outage.";
+const INTERRUPTED_REASON = "Broker communication was interrupted during this window -- this is the likely cause of the missing scheduled save, not an unexplained outage.";
+const GENERIC_ABSENT_REASON = "No scheduled snapshot was recorded for this window.";
+
+const commEventTopics: string[] = [];
+after(async () => {
+  for (const commTopic of commEventTopics) {
+    await db.delete(mqttCommunicationEventsTable).where(eq(mqttCommunicationEventsTable.topic, commTopic));
+  }
+});
+
+test("snapshotGapsInRange attributes gaps to a communication interruption that began before the queried range and never recovered", async () => {
+  const openOutageTopic = `gap-reconnect-open-outage-${fixtureId}`;
+  commEventTopics.push(openOutageTopic);
+  // The outage started a full hour before the range we are about to query,
+  // and has no matching communication-recovery row -- it is still ongoing.
+  const outageStartedAt = new Date(dayRangeFrom.getTime() - 60 * 60_000);
+  await db.insert(mqttCommunicationEventsTable).values({
+    topic: openOutageTopic,
+    eventType: "communication-interruption",
+    receivedAt: outageStartedAt,
+    startedAt: outageStartedAt,
+  });
+
+  const { gaps } = await snapshotGapsInRange(afterDayClose, dayRangeFrom, dayRangeTo, openOutageTopic);
+
+  const early = gaps.find((gap) => gap.scheduledFor === missingWindowEnd.toISOString());
+  const later = gaps.find((gap) => gap.scheduledFor === absentWindowEnd.toISOString());
+  assert.ok(early && later, "both an early and a later window must be reported as gaps for an untouched topic");
+  assert.equal(early!.missingReason, INTERRUPTED_REASON, "a window overlapping the still-open outage must cite the interruption, not the generic message");
+  assert.equal(later!.missingReason, INTERRUPTED_REASON, "an outage with no recorded recovery must still be treated as ongoing through every later window");
+});
+
+test("snapshotGapsInRange attributes a completed multi-window outage to every window it spans, and none outside it", async () => {
+  const multiWindowTopic = `gap-reconnect-multiwindow-${fixtureId}`;
+  commEventTopics.push(multiWindowTopic);
+  // Outage spans windows at index 5 through 7 (three consecutive 15-minute
+  // windows): starts just after window 5 opens, recovers just before window 7 closes.
+  const spanStart = new Date(dayBoundaries[5]!.getTime() - 15 * 60_000 + 60_000);
+  const spanEnd = new Date(dayBoundaries[7]!.getTime() - 60_000);
+  await db.insert(mqttCommunicationEventsTable).values([
+    {
+      topic: multiWindowTopic,
+      eventType: "communication-interruption",
+      receivedAt: spanStart,
+      startedAt: spanStart,
+    },
+    {
+      topic: multiWindowTopic,
+      eventType: "communication-recovery",
+      receivedAt: spanEnd,
+      startedAt: spanStart,
+      endedAt: spanEnd,
+      durationMs: spanEnd.getTime() - spanStart.getTime(),
+    },
+  ]);
+
+  const { gaps } = await snapshotGapsInRange(afterDayClose, dayRangeFrom, dayRangeTo, multiWindowTopic);
+  const reasonFor = (index: number) => gaps.find((gap) => gap.scheduledFor === dayBoundaries[index]!.toISOString())?.missingReason;
+
+  assert.equal(reasonFor(4), GENERIC_ABSENT_REASON, "the window before the outage began must not be attributed to it");
+  assert.equal(reasonFor(5), INTERRUPTED_REASON);
+  assert.equal(reasonFor(6), INTERRUPTED_REASON, "a window fully inside the outage, not just the one it started or ended in, must be attributed to it");
+  assert.equal(reasonFor(7), INTERRUPTED_REASON);
+  assert.equal(reasonFor(8), GENERIC_ABSENT_REASON, "the window after the outage recovered must not be attributed to it");
+});
+
+test("snapshotGapsInRange does not mistake the initial broker connect for a reconnect, but does attribute a genuine post-drop reconnect", async () => {
+  const reconnectVsStartupTopic = `gap-reconnect-vs-startup-${fixtureId}`;
+  commEventTopics.push(reconnectVsStartupTopic);
+  // Window 10: only ever a single broker-connected with no preceding drop --
+  // this is what a fresh process start looks like and must read as generic.
+  const initialConnectAt = new Date(dayBoundaries[10]!.getTime() - 5 * 60_000);
+  // Window 15: a real drop (broker-closed) followed by a reconnect.
+  const dropAt = new Date(dayBoundaries[15]!.getTime() - 10 * 60_000);
+  const reconnectAt = new Date(dayBoundaries[15]!.getTime() - 5 * 60_000);
+  await db.insert(mqttCommunicationEventsTable).values([
+    { topic: reconnectVsStartupTopic, eventType: "broker-connected", receivedAt: initialConnectAt },
+    { topic: reconnectVsStartupTopic, eventType: "broker-closed", receivedAt: dropAt },
+    { topic: reconnectVsStartupTopic, eventType: "broker-connected", receivedAt: reconnectAt },
+  ]);
+
+  const { gaps } = await snapshotGapsInRange(afterDayClose, dayRangeFrom, dayRangeTo, reconnectVsStartupTopic);
+  const reasonFor = (index: number) => gaps.find((gap) => gap.scheduledFor === dayBoundaries[index]!.toISOString())?.missingReason;
+
+  assert.equal(reasonFor(10), GENERIC_ABSENT_REASON, "the very first connect after a process start must never be reported as a reconnect");
+  assert.equal(reasonFor(15), RECONNECTED_REASON, "a broker-connected preceded by an observed drop is a genuine reconnect and must be surfaced");
 });
