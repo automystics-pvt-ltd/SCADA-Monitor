@@ -3189,7 +3189,7 @@ function energyHistoryRange(period: EnergyHistoryPeriod, anchor: { year: number;
 function isElectricalParameter(parameter: Record<string, unknown>) {
   const name = typeof parameter.name === "string" ? parameter.name.toLowerCase() : "";
   const normalizedName = name.replace(/[^a-z0-9]/g, "");
-  return /(voltage|current|amper|activepower|actpow|realpower|powerfactor|frequency|hz|pf)/.test(normalizedName);
+  return /(voltage|current|amper|activepower|actpow|realpower|powerfactor|frequency|frq|hz|pf)/.test(normalizedName);
 }
 
 router.get("/mqtt/electrical-history", async (req, res) => {

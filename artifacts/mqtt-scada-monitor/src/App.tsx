@@ -1394,7 +1394,7 @@ function electricalKind(row: ModbusRow): ElectricalKind | null {
   const name = String(row.name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!name) return null;
   if (name.includes('powerfactor') || name === 'pf') return 'powerFactor';
-  if (name.includes('frequency') || name === 'hz') return 'frequency';
+  if (name.includes('frequency') || name === 'hz' || name === 'frq') return 'frequency';
   if (name.includes('activepower') || name.includes('realpower') || name === 'kw' || name.includes('kwoutput') || name === 'actpow' || name.includes('activekw')) return 'activePower';
   if (name.includes('current')) {
     if (name.includes('phasea') || name.includes('linea') || name.startsWith('a') || name.includes('ia')) return 'ia';
