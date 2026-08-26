@@ -47,17 +47,38 @@ test("Dashboard overview sources KPIs and the electrical chart from the saved ba
   await expect(page.getByRole("heading", { name: "Plant operations at a glance" })).toBeVisible();
 
   // KPI cards must credit the saved backend record as their source, not a
-  // live substitute. The QA fixture site has no approved plant calibration
-  // profile or recognized inverter-identity mapping, so the
-  // engineering-scaled AC Power/Energy/Yield/Inverter cards stay withheld
-  // in both live and saved-only modes (see Task #101) and are not useful
-  // regression signals here -- but the Active Alarms card's subtext derives
-  // directly from `overviewHasSavedRecord`, independent of calibration, so
-  // it does regress if the Overview is ever wired back to a live-preferring
-  // variable.
+  // live substitute. The QA fixture site provisions a recognized per-inverter
+  // active-power tag (`inv<N>ActivePower` + `inverter_id`), a dedicated
+  // inverter-identity signal, and an approved plant calibration profile (see
+  // lib/db/src/fixtures/scada-qa-operator.ts), so the engineering-scaled AC
+  // Power / Energy / Yield / Inverter Inventory cards render real
+  // "Saved record" values here instead of staying withheld (closing the gap
+  // this test used to note under Task #101/#102).
   const kpis = page.getByTestId("dashboard-kpis");
   await expect(kpis).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("kpi-active-alarms")).toContainText("Saved record");
+
+  // AC Power, Today's Energy, Total Energy, and Specific Yield: verified via
+  // the fixture's approved calibration profile, sourced from the fixture's
+  // plant-level meter registers (activePowerFixture/dailyEnergyFixture/
+  // totalEnergyFixture at 512.4 kW / 812.5 kWh / 284,213.7 kWh).
+  await expect(page.getByTestId("kpi-total-ac-power")).toContainText("512.4");
+  await expect(page.getByTestId("kpi-total-ac-power")).toContainText("kW");
+  await expect(page.getByTestId("kpi-total-ac-power")).toContainText("Saved record");
+  await expect(page.getByTestId("kpi-today-s-energy")).toContainText("812.5");
+  await expect(page.getByTestId("kpi-today-s-energy")).toContainText("kWh");
+  await expect(page.getByTestId("kpi-today-s-energy")).toContainText("Saved record");
+  await expect(page.getByTestId("kpi-total-energy")).toContainText(/284,?213\.7/);
+  await expect(page.getByTestId("kpi-total-energy")).toContainText("Saved record");
+  // 812.5 kWh daily energy ÷ 168.5 kWp approved installed DC capacity.
+  await expect(page.getByTestId("kpi-specific-yield")).toContainText("4.82");
+  await expect(page.getByTestId("kpi-specific-yield")).toContainText("Saved record");
+
+  // Inverter Inventory: the fixture provisions 5 distinct inverter_id-scoped
+  // signals (inv1..inv5), deduplicated by identity, not double-counted
+  // against their paired inverter-identity rows.
+  await expect(page.getByTestId("kpi-inverter-inventory")).toContainText("5");
+  await expect(page.getByTestId("kpi-inverter-inventory")).toContainText("Saved");
 
   // The independent plant-status strip must corroborate the same saved
   // source, and the saved-data panel must be present near the KPI cards.

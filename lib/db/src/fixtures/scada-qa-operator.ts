@@ -70,6 +70,8 @@ function fixtureParameter(options: {
   destination?: string;
   deviceId?: string;
   deviceName?: string;
+  inverterId?: string;
+  measurementType?: string;
   validated: boolean;
   unit?: string;
 }, observedAt: string) {
@@ -83,10 +85,21 @@ function fixtureParameter(options: {
     address: options.address,
     full_addr: options.address,
     value: options.value,
+    // The Dashboard Overview's KPI/inverter pipeline (asRawMetric/numericValue
+    // in telemetry-kpis.ts, numeric() in verified-kpis.ts) reads the raw
+    // transport `data` field, never the SavedParameterAnalytics-only `value`
+    // field above -- both must carry the same reading.
+    data: options.value,
+    // A real, parseable observed timestamp is required: verified-kpis.ts's
+    // profileSourcesForRole treats a falsy (zero) observedMs as "no reading"
+    // and silently skips the row, even when a calibration profile matches it.
+    date_iso_8601: observedAt,
     ...(options.deviceId ? { deviceId: options.deviceId, device_id: options.deviceId } : {}),
     ...(options.deviceName ? { deviceName: options.deviceName, device_name: options.deviceName } : {}),
+    ...(options.inverterId ? { inverterId: options.inverterId, inverter_id: options.inverterId } : {}),
+    ...(options.measurementType ? { measurementType: options.measurementType, measurement_type: options.measurementType } : {}),
     ...(options.destination ? { admin_mapping_destination: options.destination, adminMappingDestination: options.destination } : {}),
-    ...(options.unit ? { source_unit: options.unit, sourceUnit: options.unit } : {}),
+    ...(options.unit ? { source_unit: options.unit, sourceUnit: options.unit, unit: options.unit } : {}),
     ...(options.validated ? { scaling_validated: true } : {}),
     observedAt,
     provenance: "saved-snapshot",
@@ -108,14 +121,36 @@ export function buildScadaQaFixtureParameters(observedAt: string) {
     { name: "specificYieldFixture", address: "900004", value: 4.82, destination: "specific-yield", unit: "kWh/kWp" },
   ].map((entry) => fixtureParameter({ ...entry, validated: true }, observedAt));
 
+  // Named and tagged to match telemetry-kpis.ts's isInverterSourceSignal
+  // convention exactly (`inv<N>ActivePower`, no extra suffix) plus an
+  // explicit inverter_id, so these register as recognized per-inverter
+  // active-power signals -- not just untagged raw evidence -- and feed both
+  // the Inverter Inventory KPI card and the plant calibration profile below.
   const device = [1, 2, 3, 4, 5].map((index) => fixtureParameter({
-    name: `inv${index}ActivePowerFixture`,
+    name: `inv${index}ActivePower`,
     address: `90010${index}`,
     value: 95 + index * 3.4,
     deviceId: `inv${index}`,
     deviceName: `Inverter ${index}`,
+    inverterId: `inv${index}`,
+    measurementType: "active-power",
     unit: "kW",
     validated: true,
+  }, observedAt));
+
+  // A dedicated inverter-identity signal (measurement_type: "inverter-identity")
+  // per telemetry-kpis.ts's rawInverterIdentitySignals, intentionally separate
+  // from the active-power tags above -- identity signals must never be summed
+  // into plant power, only used to confirm a physical inverter is reporting.
+  const identity = [1, 2, 3, 4, 5].map((index) => fixtureParameter({
+    name: `inv${index}IdentityFixture`,
+    address: `90012${index}`,
+    value: index,
+    deviceId: `inv${index}`,
+    deviceName: `Inverter ${index}`,
+    inverterId: `inv${index}`,
+    measurementType: "inverter-identity",
+    validated: false,
   }, observedAt));
 
   const summary = [
@@ -139,7 +174,33 @@ export function buildScadaQaFixtureParameters(observedAt: string) {
     { name: "communicationStatusFixture", address: "900041", value: 1 },
   ].map((entry) => fixtureParameter({ ...entry, validated: false }, observedAt));
 
-  return [...kpi, ...device, ...summary, ...raw];
+  return [...kpi, ...device, ...identity, ...summary, ...raw];
+}
+
+/**
+ * A synthetic approved plant calibration profile for the fixture site,
+ * matching the shape `calculateVerifiedScadaKpis`'s calibration-profile
+ * pipeline (verified-kpis.ts) and the API server's stricter
+ * `publicCalibrationProfileFromSnapshot` both require. Its sources match the
+ * plant-level KPI fixture parameters above by source name, register name,
+ * and address, so the saved snapshot's AC Power / Today's Energy / Total
+ * Energy / Specific Yield KPI cards render fully "verified" values instead
+ * of withheld raw evidence.
+ */
+export function buildScadaQaFixtureCalibrationProfile(observedAt: string) {
+  return {
+    siteName: SCADA_QA_FIXTURE_SITE_NAME,
+    version: "qa-fixture-v1",
+    status: "approved" as const,
+    installedDcCapacityKwp: 168.5,
+    sources: [
+      { role: "acPower", sourceName: "qa-fixture-gateway", parameter: "activePowerFixture", address: "900001", unit: "kW", multiplier: 1, counterRole: "instantaneous-power", scalingConfirmed: true },
+      { role: "dailyEnergy", sourceName: "qa-fixture-gateway", parameter: "dailyEnergyFixture", address: "900002", unit: "kWh", multiplier: 1, counterRole: "daily-counter", scalingConfirmed: true },
+      { role: "totalEnergy", sourceName: "qa-fixture-gateway", parameter: "totalEnergyFixture", address: "900003", unit: "kWh", multiplier: 1, counterRole: "cumulative-counter", scalingConfirmed: true },
+    ],
+    approvedBy: "qa-fixture-provisioning",
+    approvedAt: observedAt,
+  };
 }
 
 async function removeStaleAccess(userId: string) {
@@ -245,6 +306,7 @@ export async function provisionScadaQaOperatorFixture(password: string): Promise
   const windowStartedAt = new Date(windowEndedAt.getTime() - 15 * 60_000);
   const observedAt = new Date(windowEndedAt.getTime() - 60_000).toISOString();
   const parameters = buildScadaQaFixtureParameters(observedAt);
+  const calibrationProfile = buildScadaQaFixtureCalibrationProfile(observedAt);
   const topic = await resolveEffectiveMqttTopic();
   await db.insert(mqttSnapshotsTable).values({
     topic,
@@ -262,6 +324,7 @@ export async function provisionScadaQaOperatorFixture(password: string): Promise
       messages: [{ payload: JSON.stringify({ site_name: SCADA_QA_FIXTURE_SITE_NAME, fixtureMarker: SCADA_QA_FIXTURE_MARKER }) }],
       latestParameters: parameters,
       latestDiscoveredParameters: parameters,
+      calibrationProfile,
     },
   });
 

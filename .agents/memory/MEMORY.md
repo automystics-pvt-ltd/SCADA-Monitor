@@ -39,6 +39,6 @@
 - [node --test workspace TS imports](node-test-workspace-ts-imports.md) — Bare `node --test` can't resolve extensionless cross-package TS imports; use `tsx --test` for packages that import other workspace TS packages.
 - [Overview saved-only vs shared live pipeline](overview-live-pipeline-parallel.md) — Give a single Dashboard consumer parallel derived state instead of editing shared variables; never pass a pretty label into a prop that re-parses it as a date.
 - [Extracting shared live/saved shaping logic](shared-shaping-extraction.md) — Pull only true behavior-preserving duplication into pure helpers; keep JSON-value types centralized so cross-module row types stay assignable.
-- [SCADA fixture vs Dashboard KPI field mismatch](scada-fixture-kpi-field-mismatch.md) — QA fixture's `value` field doesn't feed the Dashboard's numeric KPI/inverter pipeline; pick calibration-independent assertions instead.
+- [SCADA fixture vs Dashboard KPI field mismatch](scada-fixture-kpi-field-mismatch.md) — exact `data`/timestamp/identity/calibration-profile fields a fixture row needs to drive real numeric KPI/inverter cards.
 - [E2E live telemetry injection](e2e-live-telemetry-injection.md) — Patch the browser's EventSource to inject a distinctive synthetic live message; proves saved-only guards are real without touching the broker.
 - [Saved fallback label parity](saved-fallback-label-parity.md) — Saved-record fallback labels must distinguish unmapped raw evidence from no evidence at all, not describe both the same way.

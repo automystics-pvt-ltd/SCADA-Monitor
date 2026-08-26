@@ -18,15 +18,20 @@ async function assertAnalyticsSections(page: Page) {
   await expect(page.getByTestId("section-device").locator("[data-testid^='device-card-']")).toHaveCount(5);
 
   // Raw evidence & status: unvalidated fixture parameters (no admin-mapped
-  // KPI/device destination), distinct from the full detail table below.
+  // KPI/device destination), distinct from the full detail table below. This
+  // includes the 12 original unvalidated phase/string/alarm/comms registers
+  // plus the 5 dedicated inv1..inv5 inverter-identity signals (also
+  // unvalidated -- they declare a physical inverter, not a scaled
+  // engineering value, so they correctly land here rather than in "device").
   const rawSection = page.getByTestId("section-raw");
   await expect(rawSection).toBeVisible();
-  await expect(rawSection.locator("[data-testid^='raw-card-']")).toHaveCount(12);
+  await expect(rawSection.locator("[data-testid^='raw-card-']")).toHaveCount(17);
   await expect(rawSection).toContainText("phaseAVoltageFixture");
   await expect(rawSection).toContainText("233.1");
+  await expect(rawSection).toContainText("inv1IdentityFixture");
 
   await expect(page.getByTestId("section-detail-table")).toBeVisible();
-  await expect(page.getByTestId("section-detail-table")).toContainText("24 records");
+  await expect(page.getByTestId("section-detail-table")).toContainText("29 records");
 
   await expect(page.getByTestId("pagination-next")).toBeVisible();
   await expect(page.getByTestId("pagination-prev")).toBeDisabled();
