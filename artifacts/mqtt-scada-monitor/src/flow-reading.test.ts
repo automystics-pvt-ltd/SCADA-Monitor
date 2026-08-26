@@ -68,7 +68,7 @@ test('unverified saved reading with unmapped raw evidence reports stale status a
   });
   assert.equal(reading.status, 'stale');
   assert.equal(reading.provenance, 'snapshot');
-  assert.equal(reading.sourceLabel, 'Saved raw power evidence · approved engineering mapping required');
+  assert.equal(reading.sourceLabel, 'Engineering mapping not yet approved · raw power evidence saved');
   assert.equal(reading.observedAt, '2026-08-26T04:45:00.000Z');
 });
 

@@ -71,7 +71,7 @@ export function buildUnverifiedSavedAcPowerFlowReading(context: UnverifiedSavedF
       quality: 'unavailable',
       provenance: 'snapshot',
       status: 'stale',
-      sourceLabel: 'Saved raw power evidence · approved engineering mapping required',
+      sourceLabel: 'Engineering mapping not yet approved · raw power evidence saved',
       observedAt: savedSnapshotTime,
       observationLabel: 'Saved snapshot evidence',
     };
