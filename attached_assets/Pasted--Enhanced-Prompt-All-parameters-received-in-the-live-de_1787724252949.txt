@@ -1,0 +1,51 @@
+### Enhanced Prompt
+
+All parameters received in the **live device telemetry JSON** must be properly captured, validated, normalized, and saved in the backend according to the existing **15-minute saving schedule (6:00 AM–6:00 PM)**.
+
+The Dashboard should display **only successfully saved and validated backend records** for the saved-data KPI/analytics sections—not temporary, fabricated, or unreliable values.
+
+For every parameter:
+
+* Preserve the **original customer value exactly as received** where applicable.
+* Derive a **clear, professional customer-facing parameter name** instead of exposing technical/internal names.
+* Display the **Actual Value** with the correct engineering unit.
+* Preserve the original parameter/source information for traceability.
+* Store the device/inverter, timestamp, source, data quality, and validation status.
+* Do not silently change, estimate, or fabricate values.
+* Do not discard parameters simply because they are not currently mapped to a predefined KPI.
+
+### Dashboard Presentation
+
+Automatically analyze the saved parameters and present them through the most appropriate visualization:
+
+**KPI Cards → Important single-value parameters**
+**Line Charts → Time-series parameters**
+**Bar Charts → Device/inverter comparisons**
+**Radial/Progress Indicators → Suitable percentage/status parameters**
+**Tables → Detailed parameters and technical information**
+
+Use **actual saved backend records** as the source for these Dashboard analytics.
+
+Each visualization should clearly communicate:
+
+**Parameter Name → Actual Value → Unit → Device/Inverter → Saved Timestamp → Data Status**
+
+For example:
+
+> **Phase CA Voltage**
+> **Actual Value: 775.6 V**
+> Inverter: INV-01
+> Saved: 06:15 AM
+> Status: Valid
+
+### Dynamic Parameter Handling
+
+The system should be **dynamic and scalable**. If a new parameter starts arriving in the live JSON, the system should automatically recognize, store, classify, and make it available for Dashboard/analytics visualization without requiring manual mapping for every new parameter.
+
+Maintain a clear separation between:
+
+**Original Customer Value → Validated/Normalized Value → Customer-Friendly Display Name → Dashboard Visualization**
+
+The customer-facing Dashboard should remain **clean, understandable, and professional**, while advanced users should still be able to access the original parameter/source details when required.
+
+**Critical requirement:** The Dashboard must never present a value as genuine unless it exists in the backend as a **successfully saved and validated SCADA record**. Live telemetry and saved historical data must remain clearly distinguishable.
