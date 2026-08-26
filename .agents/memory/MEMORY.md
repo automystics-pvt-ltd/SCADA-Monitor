@@ -38,3 +38,4 @@
 - [API server stale build after code edits](api-server-stale-build.md) — api-server's dev workflow builds once at startup; restart it before trusting live verification of backend edits.
 - [node --test workspace TS imports](node-test-workspace-ts-imports.md) — Bare `node --test` can't resolve extensionless cross-package TS imports; use `tsx --test` for packages that import other workspace TS packages.
 - [Overview saved-only vs shared live pipeline](overview-live-pipeline-parallel.md) — Give a single Dashboard consumer parallel derived state instead of editing shared variables; never pass a pretty label into a prop that re-parses it as a date.
+- [Extracting shared live/saved shaping logic](shared-shaping-extraction.md) — Pull only true behavior-preserving duplication into pure helpers; keep JSON-value types centralized so cross-module row types stay assignable.

@@ -14,11 +14,16 @@ import { SavedParameterAnalytics, type SavedParameterRecord } from './components
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import { dashboardAccessState } from './scada-access';
 import { selectDashboardEvidenceSource } from './dashboard-evidence-selection';
-import { discoveryDeviceIdFromSourceRecord } from './device-discovery-identity';
 import { createTelemetryMappingStore, mappedTelemetryDestination, mappedTelemetryDisplayLabel, type ScadaTelemetryMapping } from './telemetry-mappings';
-import { inverterInventoryKey, uniqueInverterInventorySignals } from './inverter-inventory';
+import { uniqueInverterInventorySignals } from './inverter-inventory';
 import { clearConfirmedSnapshotCache, readConfirmedSnapshotCache, writeConfirmedSnapshotCache } from './confirmed-snapshot-cache';
 import { persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-persistence';
+import type { JsonValue } from './json-value';
+import { formatInPlantTimezone } from './plant-timezone';
+import { telemetryDateTime, telemetryEpoch } from './telemetry-time';
+import { buildCalculationCard, type KpiCardContext, type RawKpiFallback } from './kpi-card-formatting';
+import { buildInverterSourceDevice } from './inverter-source-devices';
+import { buildVerifiedAcPowerFlowReading } from './flow-reading';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
   Code2, Copy, Database, Gauge, History, Layers3, LayoutDashboard,
@@ -32,7 +37,6 @@ const DEFAULT_BROKER_TOPIC = 'trn246/modbus';
 
 const ChartPlaceholder = ({ children }: { children?: ReactNode }) => <>{children}</>;
 type DeviceStatus = 'online' | 'stale' | 'offline';
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type Device = {
   id: string;
   name: string;
@@ -489,24 +493,6 @@ function formatValue(value: JsonValue) {
   return String(value);
 }
 
-function formatInPlantTimezone(value: string | undefined, timezone: string | undefined) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  try {
-    return new Intl.DateTimeFormat('en-GB', {
-      timeZone: timezone || 'UTC',
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).format(date);
-  } catch {
-    return date.toISOString();
-  }
-}
-
 function formatCurrentTimeInTimezone(now: number, timezone: string | null | undefined) {
   if (!timezone) return 'Location data unavailable';
   try {
@@ -592,19 +578,6 @@ function telemetryCategory(row: ModbusRow) {
 function telemetryUnit(row: ModbusRow) {
   const sourceUnit = approvedDisplayTelemetryUnit(row) ?? sourceReportedTelemetryUnit(row) ?? row.reported_unit ?? row.reportedUnit ?? row.customer_unit ?? row.customerUnit ?? row.source_unit ?? row.sourceUnit ?? row.engineering_unit ?? row.engineeringUnit ?? row.unit ?? row.units;
   return typeof sourceUnit === 'string' && sourceUnit.trim() ? sourceUnit.trim() : 'Raw / not declared';
-}
-
-function telemetryDateTime(row: ModbusRow) {
-  const source = row.date_iso_8601 ?? row.timestamp ?? row.date;
-  if (source === undefined || source === null || source === '') return { date: '—', time: '—', full: 'Timestamp unavailable' };
-  const numeric = typeof source === 'number' ? source : Number(source);
-  const parsed = Number.isFinite(numeric) ? new Date(numeric < 1_000_000_000_000 ? numeric * 1000 : numeric) : new Date(String(source));
-  if (Number.isNaN(parsed.getTime())) return { date: String(source), time: '—', full: String(source) };
-  return {
-    date: parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' }),
-    time: parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
-    full: parsed.toLocaleString(),
-  };
 }
 
 type AlarmFaultReport = {
@@ -1037,16 +1010,6 @@ function PublicAuthShell({ theme, onToggleTheme, loading, onSignedIn }: {
   );
 }
 
-type RawKpiFallback = {
-  value: number | null;
-  unit: string;
-  formula: string;
-  method: string;
-  inputs: RawTelemetryMetric[];
-  readiness: string;
-  sourceUnit?: string;
-};
-
 function rawMetricFallback(metric: RawTelemetryMetric | null, formula: string, readiness: string): RawKpiFallback {
   return {
     value: metric?.value ?? null,
@@ -1375,14 +1338,6 @@ function electricalPresetRange(preset: ElectricalRangePreset): ElectricalRange {
   if (preset === '24h') start.setHours(now.getHours() - 24);
   if (preset === '7d') start.setDate(now.getDate() - 7);
   return { preset, from: localDateTimeInput(start), to: localDateTimeInput(now) };
-}
-
-function telemetryEpoch(row: ModbusRow) {
-  const source = row.date_iso_8601 ?? row.timestamp ?? row.date;
-  if (source === undefined || source === null || source === '') return null;
-  const numeric = typeof source === 'number' ? source : Number(source);
-  const parsed = Number.isFinite(numeric) ? new Date(numeric < 1_000_000_000_000 ? numeric * 1000 : numeric) : new Date(String(source));
-  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
 }
 
 function electricalRowIdentity(row: ModbusRow) {
@@ -4169,63 +4124,16 @@ function AppShell() {
     [dashboardEvidenceRows],
   );
   const sourceTagInverters = useMemo(() => {
-    return inverterInventorySignals.map((signal) => {
-      const sourceRow = dashboardEvidenceRows
-        .filter((row) => {
-          const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'MQTT source');
-          const parameter = String(row.name ?? row.parameter ?? row.tag ?? '');
-          const address = String(row.full_addr ?? row.address ?? row.addr ?? '—');
-          const inverterId = String(row.inverter_id ?? row.inverterId ?? '').trim();
-          return sourceName === signal.sourceName
-            && parameter === signal.parameter
-            && address === signal.address
-            && (!signal.inverterId || inverterId === signal.inverterId);
-        })
-        .sort((left, right) => (telemetryEpoch(right) ?? 0) - (telemetryEpoch(left) ?? 0))[0];
-      const sourceName = signal.sourceName;
-      const sourceTime = sourceRow?.date_iso_8601 ?? sourceRow?.timestamp ?? sourceRow?.date ?? signal.observedAt;
-      const numericTime = typeof sourceTime === 'number' ? sourceTime : Number(sourceTime);
-      const parsedTime = Number.isFinite(numericTime)
-        ? new Date(numericTime < 1_000_000_000_000 ? numericTime * 1000 : numericTime).getTime()
-        : Date.parse(String(sourceTime ?? ''));
-      const observedAt = signal.observedAt ?? (sourceRow ? telemetryDateTime(sourceRow).full : 'Unavailable');
-      const rawAge = Number.isFinite(parsedTime) ? now - parsedTime : Number.POSITIVE_INFINITY;
-      const reportingState = showingSavedRecord
-        ? 'saved' as const
-        : mode === 'live' && signal.provenance === 'live' && rawAge >= 0 && rawAge <= DEVICE_ONLINE_MAX_AGE_MS
-          ? 'live' as const
-          : 'stale' as const;
-      const sourceKey = inverterInventoryKey(signal);
-      const discoveryDeviceId = sourceRow ? discoveryDeviceIdFromSourceRecord(sourceRow, sourceName) : undefined;
-      return {
-        id: `source-${encodeURIComponent(sourceKey)}`,
-        energyInverterId: signal.inverterId ?? signal.parameter.toLowerCase(),
-        discoveryDeviceId: signal.inverterId ?? discoveryDeviceId,
-        name: signal.inverterId ?? signal.parameter.toUpperCase(),
-        site: persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site',
-        type: 'Power inverter',
-        status: (reportingState === 'live' ? 'online' : 'stale') as DeviceStatus,
-        lastSeen: Number.isFinite(parsedTime) ? parsedTime : now,
-        telemetry: {
-          source_tag: {
-            parameter: signal.parameter,
-            value: signal.value,
-            address: signal.address,
-            source_name: sourceName,
-            observed_at: observedAt,
-            provenance: signal.provenance,
-          },
-          ...(sourceRow ? { raw_modbus_row: sourceRow } : {}),
-        },
-        sourceEvidence: {
-          ...signal,
-          sourceName,
-          observedAt,
-          reportingState,
-          semantic: signal.signalKind === 'identity' ? 'inverter-identity' : 'source-reading',
-        },
-      };
-    });
+    const site = persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site';
+    return inverterInventorySignals.map((signal) => buildInverterSourceDevice(signal, dashboardEvidenceRows, {
+      site,
+      now,
+      reportingState: ({ signal: inventorySignal, rawAgeMs }) => showingSavedRecord
+        ? 'saved'
+        : mode === 'live' && inventorySignal.provenance === 'live' && rawAgeMs >= 0 && rawAgeMs <= DEVICE_ONLINE_MAX_AGE_MS
+          ? 'live'
+          : 'stale',
+    }));
   }, [dashboardEvidenceRows, inverterInventorySignals, mode, now, persistence.inverterEnergySite, plantSiteName, showingSavedRecord]);
   const inverterDisplayDevices = useMemo(() => {
     const sourceIdentity = (device: Device) => {
@@ -4291,36 +4199,8 @@ function AppShell() {
       specificYield: select('specificYield'),
     };
   }, [hasValidSavedSnapshot, liveKpiCalculations, savedKpiCalculations, showingSavedRecord]);
-  const calculationValue = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.value!.toLocaleString(undefined, { maximumFractionDigits: 3 }) : '—';
-  const calculationUnit = (calculation: VerifiedKpiCalculation) => calculation.quality === 'verified' ? calculation.unit ?? '' : '';
-  const calculationContext = (calculation: VerifiedKpiCalculation) => {
-    if (calculation.quality !== 'verified') return calculation.readiness;
-    const outliers = calculation.excluded.length ? ` · ${calculation.excluded.length} outlier${calculation.excluded.length === 1 ? '' : 's'} excluded` : '';
-    const saved = calculation.snapshotWindow ? ` · saved ${formatInPlantTimezone(calculation.snapshotWindow.capturedAt, persistence.timezone)}` : '';
-    return `${calculation.method.replaceAll('-', ' ')} · ${calculation.inputs.length} approved source input${calculation.inputs.length === 1 ? '' : 's'} · ${calculation.profileVersion}${outliers}${saved}`;
-  };
-  const calculationCard = (calculation: VerifiedKpiCalculation, rawFallback: RawKpiFallback) => {
-    if (calculation.quality === 'verified') {
-      return {
-        value: calculationValue(calculation),
-        unit: calculationUnit(calculation),
-        details: `${calculation.formula}. ${calculationContext(calculation)}`,
-      };
-    }
-    if (rawFallback.value === null) {
-      return {
-        value: 'Not reported',
-        unit: '',
-        details: showingSavedRecord ? `${rawFallback.readiness} Last saved: ${lastSavedLabel}.` : rawFallback.readiness,
-      };
-    }
-    const registerList = rawFallback.inputs.map((input) => `${input.parameter} (${input.address})`).join(' + ');
-    return {
-      value: rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 }),
-      unit: rawFallback.unit,
-        details: `${rawFallback.formula}. Source: ${registerList}${rawFallback.sourceUnit ? ` (${rawFallback.sourceUnit})` : ''}. ${rawFallback.inputs.some((input) => input.sourceReported) ? 'Source-reported; engineering scaling is not confirmed.' : 'Engineering scaling is not confirmed.'}${showingSavedRecord ? ` Last saved: ${lastSavedLabel}.` : ''}`,
-    };
-  };
+  const kpiCardContext: KpiCardContext = { timezone: persistence.timezone, hasSavedRecord: showingSavedRecord, savedLabel: lastSavedLabel };
+  const calculationCard = (calculation: VerifiedKpiCalculation, rawFallback: RawKpiFallback) => buildCalculationCard(calculation, rawFallback, kpiCardContext);
   const acPowerCard = calculationCard(calculations.acPower, rawFallbacks.acPower);
   const dailyEnergyCard = calculationCard(calculations.dailyEnergy, rawFallbacks.dailyEnergy);
   const totalEnergyCard = calculationCard(calculations.totalEnergy, rawFallbacks.totalEnergy);
@@ -4443,17 +4323,7 @@ function AppShell() {
       const calculationObservation = observationRange(
         calculations.acPower.inputs.map((input) => input.observedAt ? { date_iso_8601: input.observedAt } : undefined),
       );
-      return {
-        value: calculations.acPower.value,
-        unit: calculations.acPower.unit ?? '',
-        quality: calculations.acPower.value === null ? 'unavailable' as const : 'reported' as const,
-        provenance: live ? 'live' as const : saved ? 'snapshot' as const : calculations.acPower.provenance === 'replay' ? 'replay' as const : undefined,
-        status: live ? 'online' as const : 'stale' as const,
-        sourceLabel: `${live ? 'Validated live' : saved ? 'Last saved validated' : 'Validated historical'} · ${calculations.acPower.profileVersion}`,
-        observedAt: saved ? savedSnapshotTime : calculationObservation ?? calculations.acPower.calculatedAt,
-        observationLabel: saved ? 'Saved snapshot' : calculations.acPower.inputs.length > 1 ? 'Contributing timestamps' : 'Observed',
-        inverterCount: calculations.acPower.method === 'inverter-sum' ? calculations.acPower.inputs.length : undefined,
-      };
+      return buildVerifiedAcPowerFlowReading(calculations.acPower, { live, saved, savedSnapshotTime, observedAt: calculationObservation });
     }
     if (latestApprovedPlantPower) {
       const { row, value } = latestApprovedPlantPower;
@@ -4537,57 +4407,12 @@ function AppShell() {
 
   const overviewInverterDisplayDevices = useMemo(() => {
     if (mode === 'demo') return inverterDisplayDevices;
-    return overviewInverterInventorySignals.map((signal) => {
-      const sourceRow = overviewEvidenceRows
-        .filter((row) => {
-          const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'MQTT source');
-          const parameter = String(row.name ?? row.parameter ?? row.tag ?? '');
-          const address = String(row.full_addr ?? row.address ?? row.addr ?? '—');
-          const inverterId = String(row.inverter_id ?? row.inverterId ?? '').trim();
-          return sourceName === signal.sourceName
-            && parameter === signal.parameter
-            && address === signal.address
-            && (!signal.inverterId || inverterId === signal.inverterId);
-        })
-        .sort((left, right) => (telemetryEpoch(right) ?? 0) - (telemetryEpoch(left) ?? 0))[0];
-      const sourceName = signal.sourceName;
-      const sourceTime = sourceRow?.date_iso_8601 ?? sourceRow?.timestamp ?? sourceRow?.date ?? signal.observedAt;
-      const numericTime = typeof sourceTime === 'number' ? sourceTime : Number(sourceTime);
-      const parsedTime = Number.isFinite(numericTime)
-        ? new Date(numericTime < 1_000_000_000_000 ? numericTime * 1000 : numericTime).getTime()
-        : Date.parse(String(sourceTime ?? ''));
-      const observedAt = signal.observedAt ?? (sourceRow ? telemetryDateTime(sourceRow).full : 'Unavailable');
-      const sourceKey = inverterInventoryKey(signal);
-      const discoveryDeviceId = sourceRow ? discoveryDeviceIdFromSourceRecord(sourceRow, sourceName) : undefined;
-      return {
-        id: `source-${encodeURIComponent(sourceKey)}`,
-        energyInverterId: signal.inverterId ?? signal.parameter.toLowerCase(),
-        discoveryDeviceId: signal.inverterId ?? discoveryDeviceId,
-        name: signal.inverterId ?? signal.parameter.toUpperCase(),
-        site: persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site',
-        type: 'Power inverter',
-        status: 'stale' as DeviceStatus,
-        lastSeen: Number.isFinite(parsedTime) ? parsedTime : now,
-        telemetry: {
-          source_tag: {
-            parameter: signal.parameter,
-            value: signal.value,
-            address: signal.address,
-            source_name: sourceName,
-            observed_at: observedAt,
-            provenance: signal.provenance,
-          },
-          ...(sourceRow ? { raw_modbus_row: sourceRow } : {}),
-        },
-        sourceEvidence: {
-          ...signal,
-          sourceName,
-          observedAt,
-          reportingState: 'saved' as const,
-          semantic: signal.signalKind === 'identity' ? 'inverter-identity' : 'source-reading',
-        },
-      };
-    });
+    const site = persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site';
+    return overviewInverterInventorySignals.map((signal) => buildInverterSourceDevice(signal, overviewEvidenceRows, {
+      site,
+      now,
+      reportingState: () => 'saved',
+    }));
   }, [inverterDisplayDevices, mode, now, overviewEvidenceRows, overviewInverterInventorySignals, persistence.inverterEnergySite, plantSiteName]);
 
   const overviewAlarmFaultReports = useMemo(
@@ -4612,28 +4437,8 @@ function AppShell() {
     [calculations, mode, savedKpiCalculations],
   );
 
-  const overviewCalculationCard = (calculation: VerifiedKpiCalculation, rawFallback: RawKpiFallback) => {
-    if (calculation.quality === 'verified') {
-      return {
-        value: calculationValue(calculation),
-        unit: calculationUnit(calculation),
-        details: `${calculation.formula}. ${calculationContext(calculation)}`,
-      };
-    }
-    if (rawFallback.value === null) {
-      return {
-        value: 'Not reported',
-        unit: '',
-        details: overviewHasSavedRecord ? `${rawFallback.readiness} Last saved: ${overviewSavedLabel}.` : rawFallback.readiness,
-      };
-    }
-    const registerList = rawFallback.inputs.map((input) => `${input.parameter} (${input.address})`).join(' + ');
-    return {
-      value: rawFallback.value.toLocaleString(undefined, { maximumFractionDigits: 4 }),
-      unit: rawFallback.unit,
-      details: `${rawFallback.formula}. Source: ${registerList}${rawFallback.sourceUnit ? ` (${rawFallback.sourceUnit})` : ''}. ${rawFallback.inputs.some((input) => input.sourceReported) ? 'Source-reported; engineering scaling is not confirmed.' : 'Engineering scaling is not confirmed.'}${overviewHasSavedRecord ? ` Last saved: ${overviewSavedLabel}.` : ''}`,
-    };
-  };
+  const overviewKpiCardContext: KpiCardContext = { timezone: persistence.timezone, hasSavedRecord: overviewHasSavedRecord, savedLabel: overviewSavedLabel };
+  const overviewCalculationCard = (calculation: VerifiedKpiCalculation, rawFallback: RawKpiFallback) => buildCalculationCard(calculation, rawFallback, overviewKpiCardContext);
   const overviewAcPowerCard = mode === 'demo' ? acPowerCard : overviewCalculationCard(overviewCalculations.acPower, overviewRawFallbacks.acPower);
   const overviewDailyEnergyCard = mode === 'demo' ? dailyEnergyCard : overviewCalculationCard(overviewCalculations.dailyEnergy, overviewRawFallbacks.dailyEnergy);
   const overviewTotalEnergyCard = mode === 'demo' ? totalEnergyCard : overviewCalculationCard(overviewCalculations.totalEnergy, overviewRawFallbacks.totalEnergy);
@@ -4673,17 +4478,7 @@ function AppShell() {
     const savedSnapshotTimestamp = savedKpiSnapshot?.capturedAt ?? savedKpiSnapshot?.scheduledFor;
     const acPower = overviewCalculations.acPower;
     if (acPower.quality === 'verified') {
-      return {
-        value: acPower.value,
-        unit: acPower.unit ?? '',
-        quality: 'reported' as const,
-        provenance: 'snapshot' as const,
-        status: 'stale' as const,
-        sourceLabel: `Last saved validated · ${acPower.profileVersion}`,
-        observedAt: savedSnapshotTimestamp,
-        observationLabel: 'Saved snapshot',
-        inverterCount: acPower.method === 'inverter-sum' ? acPower.inputs.length : undefined,
-      };
+      return buildVerifiedAcPowerFlowReading(acPower, { live: false, saved: true, savedSnapshotTime: savedSnapshotTimestamp });
     }
     const rawFallback = overviewRawFallbacks.acPower;
     if (rawFallback.value !== null) {
