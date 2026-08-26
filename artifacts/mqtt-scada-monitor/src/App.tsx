@@ -14,6 +14,7 @@ import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultG
 import { dashboardAccessState } from './scada-access';
 import { discoveryDeviceIdFromSourceRecord } from './device-discovery-identity';
 import { createTelemetryMappingStore, mappedTelemetryDestination, mappedTelemetryDisplayLabel, type ScadaTelemetryMapping } from './telemetry-mappings';
+import { inverterInventoryKey, uniqueInverterInventorySignals } from './inverter-inventory';
 import { clearConfirmedSnapshotCache, readConfirmedSnapshotCache, writeConfirmedSnapshotCache } from './confirmed-snapshot-cache';
 import { persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-persistence';
 import {
@@ -1658,7 +1659,11 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
     : inverter.sourceEvidence
     ? `${inverter.sourceEvidence.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${inverter.sourceEvidence.scalingStatus === 'validated' ? inverter.sourceEvidence.unit ?? 'kW' : 'raw'}`
     : metricValue(inverter, [['power', 'active_kw'], ['power', 'activePower']], 'kW');
-  const powerLabel = (inverter: Device) => inverter.sourceEvidence?.signalKind === 'identity' ? 'Source identity reading' : 'Active power';
+  const powerLabel = (inverter: Device) => inverter.sourceEvidence?.signalKind === 'identity'
+    ? 'Source identity reading'
+    : inverter.sourceEvidence?.scalingStatus === 'validated'
+      ? 'Active power'
+      : 'Source reading';
   const dailyEnergyValue = (inverter: Device) => metricValue(inverter, [['energy', 'daily_mwh']], 'MWh');
   const deviceFaults = (inverter: Device) => collectAlarmFaultEvidence(inverter.telemetry).faults;
   const deviceAlarms = (inverter: Device) => collectAlarmFaultEvidence(inverter.telemetry).alarms;
@@ -1744,7 +1749,7 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
       
       <div className="scada-inverter-fleet-footer mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-[10px]">
          <span className="uppercase tracking-[0.14em] font-semibold">Fleet summary</span>
-          <span className="font-bold">{inverters.length ? validatedCount ? `${validatedCount} validated live record${validatedCount === 1 ? '' : 's'}` : inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source tag${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}{savedCount > 0 && <span className="ml-2 font-normal">· {savedCount} saved</span>}</span>
+         <span className="font-bold">{inverters.length ? validatedCount ? `${validatedCount} validated live record${validatedCount === 1 ? '' : 's'}` : inverters.some((inverter) => inverter.sourceEvidence) ? `${inverters.length} source-backed asset${inverters.length === 1 ? '' : 's'} · mapping required` : `${inverters.filter((inverter) => inverter.status === 'online').length} mapped reporting · device telemetry` : hasUnmappedPowerEvidence ? 'Unmapped source evidence' : 'Data unavailable'}{savedCount > 0 && <span className="ml-2 font-normal">· {savedCount} saved</span>}</span>
       </div>
     </div>
   );
@@ -2116,13 +2121,13 @@ function PowerDistributionChart({ inverters, rawInverters = [], rawInverterIdent
   })) : [];
   const rawDistributionData = distributionData.length || mode === 'demo'
     ? []
-    : rawInverters
+    : uniqueInverterInventorySignals(rawInverters)
       .filter((metric) => Number.isFinite(metric.value) && metric.value > 0)
       .map((metric) => ({ ...metric, value: metric.value }))
       .sort((left, right) => right.value - left.value);
   const identityEvidenceData = distributionData.length || rawDistributionData.length || mode === 'demo'
     ? []
-    : rawInverterIdentities.map((metric) => ({ ...metric, value: metric.value }))
+    : uniqueInverterInventorySignals(rawInverterIdentities).map((metric) => ({ ...metric, value: metric.value }))
       .sort((left, right) => (left.inverterId ?? left.parameter).localeCompare(right.inverterId ?? right.parameter));
   const rawTotalPower = rawDistributionData.reduce((sum, metric) => sum + metric.value, 0);
   return (
@@ -3826,34 +3831,50 @@ function AppShell() {
     () => validatedInverterFleet.records.map((record) => sourceBackedInverterDevice(record, persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site')),
     [persistence.inverterEnergySite, plantSiteName, validatedInverterFleet.records],
   );
+  const inverterInventorySignals = useMemo(
+    () => uniqueInverterInventorySignals([
+      ...rawInverterSignals(dashboardEvidenceRows),
+      ...rawInverterIdentitySignals(dashboardEvidenceRows),
+    ]),
+    [dashboardEvidenceRows],
+  );
   const sourceTagInverters = useMemo(() => {
-    const latestBySource = new Map<string, Device>();
-    for (const row of dashboardEvidenceRows) {
-       const signal = rawInverterSignals([row])[0] ?? rawInverterIdentitySignals([row])[0];
-      if (!signal) continue;
-      const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'MQTT source');
-      const sourceTime = row.date_iso_8601 ?? row.timestamp ?? row.date;
+    return inverterInventorySignals.map((signal) => {
+      const sourceRow = dashboardEvidenceRows
+        .filter((row) => {
+          const sourceName = String(row.server_name ?? row.server ?? row.source ?? 'MQTT source');
+          const parameter = String(row.name ?? row.parameter ?? row.tag ?? '');
+          const address = String(row.full_addr ?? row.address ?? row.addr ?? '—');
+          const inverterId = String(row.inverter_id ?? row.inverterId ?? '').trim();
+          return sourceName === signal.sourceName
+            && parameter === signal.parameter
+            && address === signal.address
+            && (!signal.inverterId || inverterId === signal.inverterId);
+        })
+        .sort((left, right) => (telemetryEpoch(right) ?? 0) - (telemetryEpoch(left) ?? 0))[0];
+      const sourceName = signal.sourceName;
+      const sourceTime = sourceRow?.date_iso_8601 ?? sourceRow?.timestamp ?? sourceRow?.date ?? signal.observedAt;
       const numericTime = typeof sourceTime === 'number' ? sourceTime : Number(sourceTime);
       const parsedTime = Number.isFinite(numericTime)
         ? new Date(numericTime < 1_000_000_000_000 ? numericTime * 1000 : numericTime).getTime()
         : Date.parse(String(sourceTime ?? ''));
-      const observedAt = telemetryDateTime(row).full;
+      const observedAt = signal.observedAt ?? (sourceRow ? telemetryDateTime(sourceRow).full : 'Unavailable');
       const rawAge = Number.isFinite(parsedTime) ? now - parsedTime : Number.POSITIVE_INFINITY;
       const reportingState = showingSavedRecord
         ? 'saved' as const
         : mode === 'live' && signal.provenance === 'live' && rawAge >= 0 && rawAge <= DEVICE_ONLINE_MAX_AGE_MS
           ? 'live' as const
           : 'stale' as const;
-      const sourceKey = `${sourceName}|${signal.address.toLowerCase()}|${signal.inverterId ?? signal.parameter.toLowerCase()}`;
-      const discoveryDeviceId = discoveryDeviceIdFromSourceRecord(row, sourceName);
-      const candidate: Device = {
+      const sourceKey = inverterInventoryKey(signal);
+      const discoveryDeviceId = sourceRow ? discoveryDeviceIdFromSourceRecord(sourceRow, sourceName) : undefined;
+      return {
         id: `source-${encodeURIComponent(sourceKey)}`,
         energyInverterId: signal.inverterId ?? signal.parameter.toLowerCase(),
         discoveryDeviceId: signal.inverterId ?? discoveryDeviceId,
         name: signal.inverterId ?? signal.parameter.toUpperCase(),
         site: persistence.inverterEnergySite ?? plantSiteName ?? 'Discovered site',
         type: 'Power inverter',
-        status: reportingState === 'live' ? 'online' : 'stale',
+        status: (reportingState === 'live' ? 'online' : 'stale') as DeviceStatus,
         lastSeen: Number.isFinite(parsedTime) ? parsedTime : now,
         telemetry: {
           source_tag: {
@@ -3864,15 +3885,18 @@ function AppShell() {
             observed_at: observedAt,
             provenance: signal.provenance,
           },
-          raw_modbus_row: row,
+          ...(sourceRow ? { raw_modbus_row: sourceRow } : {}),
         },
-          sourceEvidence: { ...signal, sourceName, observedAt, reportingState },
+        sourceEvidence: {
+          ...signal,
+          sourceName,
+          observedAt,
+          reportingState,
+          semantic: signal.signalKind === 'identity' ? 'inverter-identity' : 'source-reading',
+        },
       };
-      const current = latestBySource.get(sourceKey);
-      if (!current || candidate.lastSeen >= current.lastSeen) latestBySource.set(sourceKey, candidate);
-    }
-    return [...latestBySource.values()];
-  }, [dashboardEvidenceRows, mode, now, persistence.inverterEnergySite, plantSiteName, showingSavedRecord]);
+    });
+  }, [dashboardEvidenceRows, inverterInventorySignals, mode, now, persistence.inverterEnergySite, plantSiteName, showingSavedRecord]);
   const inverterDisplayDevices = useMemo(() => {
     const sourceIdentity = (device: Device) => {
       const evidence = device.sourceEvidence;
@@ -3971,7 +3995,7 @@ function AppShell() {
   const dailyEnergyCard = calculationCard(calculations.dailyEnergy, rawFallbacks.dailyEnergy);
   const totalEnergyCard = calculationCard(calculations.totalEnergy, rawFallbacks.totalEnergy);
   const specificYieldCard = calculationCard(calculations.specificYield, rawFallbacks.specificYield);
-  const discoveredInverterTotal = rawKpis.inverters.length;
+  const discoveredInverterTotal = inverterInventorySignals.length;
   const onlineInverterCount = electricalLiveState === 'fresh' ? validatedInverterFleet.records.length : 0;
   const inverterCardValue = showingSavedRecord
     ? discoveredInverterTotal ? `— / ${discoveredInverterTotal}` : '— / Total'
