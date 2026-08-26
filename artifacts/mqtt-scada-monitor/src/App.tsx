@@ -1039,6 +1039,7 @@ function KpiCard({
   tone = 'blue',
   variant = 'metric',
   availability,
+  statusCaption,
   onClick,
   help,
 }: any) {
@@ -1070,7 +1071,7 @@ function KpiCard({
               <span className="scada-kpi-value">{value}</span>
               {unit && <span className="scada-kpi-unit">{unit}</span>}
             </div>
-            <p className="scada-kpi-status-caption">Online / Total</p>
+            <p className="scada-kpi-status-caption">{statusCaption ?? 'Online / Total'}</p>
           </div>
         </div>
       ) : (
@@ -3982,6 +3983,7 @@ function AppShell() {
   const activeAlarmCardCount = mode === 'demo' ? activeAlarms : displayedActiveAlarmCount;
   const inverterCard = mode === 'demo'
     ? {
+      title: 'Inverters Online',
       value: totalInverters ? `${onlineInverters} / ${totalInverters}` : '0 / Total',
       availability: totalInverters ? `${Math.round((onlineInverters / totalInverters) * 100)}%` : '—',
       status: totalInverters ? 'Demo fleet status' : 'Demo fleet total unavailable',
@@ -3991,10 +3993,12 @@ function AppShell() {
       tone: onlineInverters ? 'green' : totalInverters ? 'amber' : 'slate',
     }
     : {
-      value: inverterCardValue,
-      availability: inverterAvailability,
+      title: showingSavedRecord ? 'Inverter Inventory' : 'Inverters Online',
+      value: showingSavedRecord && discoveredInverterTotal ? discoveredInverterTotal.toString() : inverterCardValue,
+      availability: showingSavedRecord && discoveredInverterTotal ? 'Saved' : inverterAvailability,
+      statusCaption: showingSavedRecord ? 'Recorded total' : 'Online / Total',
       status: showingSavedRecord
-        ? discoveredInverterTotal ? `Saved inventory · ${lastSavedLabel}` : 'Saved record has no mapped inverter source'
+        ? discoveredInverterTotal ? `Latest saved inventory · ${lastSavedLabel}` : 'Saved record has no mapped inverter source'
         : discoveredInverterTotal ? 'Source-backed inverter status' : 'Awaiting inverter mapping',
       help: discoveredInverterTotal
         ? showingSavedRecord
@@ -4370,7 +4374,7 @@ function AppShell() {
               <KpiCard title="Today's Energy" value={mode === 'demo' ? '14.13' : dailyEnergyCard.value} unit={mode === 'demo' ? 'MWh' : dailyEnergyCard.unit} icon={Sun} footerIcon={Sun} tone="amber" subtext={mode === 'demo' ? 'Day total' : dailyEnergyCard.value === 'Not reported' ? 'Energy unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Today’s Energy. ${dailyEnergyCard.details}`} />
               <KpiCard title="Total Energy" value={mode === 'demo' ? '31,457.28' : totalEnergyCard.value} unit={mode === 'demo' ? 'kWh' : totalEnergyCard.unit} icon={Database} footerIcon={Database} tone="violet" subtext={mode === 'demo' ? 'Lifetime generation' : totalEnergyCard.value === 'Not reported' ? 'Lifetime data unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('energy')} help={`Total Energy. ${totalEnergyCard.details}`} />
               <KpiCard title="Specific Yield" value={mode === 'demo' ? '4.62' : specificYieldCard.value} unit={mode === 'demo' ? 'kWh/kWp' : specificYieldCard.unit} icon={Activity} footerIcon={Activity} tone="green" subtext={mode === 'demo' ? 'Today' : specificYieldCard.value === 'Not reported' ? 'Performance unavailable' : dashboardKpiSourceLabel} onClick={() => navigateTo('power')} help={`Specific Yield. ${specificYieldCard.details}`} />
-              <KpiCard title="Inverters Online" value={inverterCard.value} icon={Check} footerIcon={Check} tone={inverterCard.tone} variant="inverter" availability={inverterCard.availability} subtext={inverterCard.status} onClick={() => navigateTo('inverters')} help={inverterCard.help} />
+              <KpiCard title={inverterCard.title} value={inverterCard.value} icon={Check} footerIcon={Check} tone={inverterCard.tone} variant="inverter" availability={inverterCard.availability} statusCaption={inverterCard.statusCaption} subtext={inverterCard.status} onClick={() => navigateTo('inverters')} help={inverterCard.help} />
               <KpiCard title="Active Alarms" value={activeAlarmCardCount.toString()} icon={AlertTriangle} footerIcon={activeAlarmCardCount ? AlertTriangle : Check} tone={activeAlarmCardCount ? 'red' : 'green'} variant="alarm" subtext={showingSavedRecord ? `Saved record · verify live` : activeAlarmCardCount ? 'Requires attention' : 'No active alarms'} onClick={() => navigateTo('alarms')} help={rawKpis.alarms ? `Active Alarms. Latest source alarm value: ${rawKpis.alarms.value}${rawKpis.alarms.sourceUnit ? ` ${rawKpis.alarms.sourceUnit}` : ''}.${showingSavedRecord ? ` Saved: ${lastSavedLabel}; current alarm state requires live telemetry.` : ''}` : 'Active Alarms. No alarm or fault evidence is currently reported.'} />
             </div>
             <DashboardPowerFlow {...dashboardFlowReading} mode={mode} monitoringStatus={deviceCommunication} />
