@@ -21,7 +21,7 @@ import { clearConfirmedSnapshotCache, readConfirmedSnapshotCache, writeConfirmed
 import { persistenceNextSaveLabel, persistenceResumeMessage } from './dashboard-persistence';
 import {
   Activity, AlertCircle, AlertTriangle, Check, ChevronRight, CloudRain, CloudSun,
-  Code2, Copy, Database, Gauge, Layers3, LayoutDashboard,
+  Code2, Copy, Database, Gauge, History, Layers3, LayoutDashboard,
   Download, Droplets, Grid2X2, LayoutGrid, LocateFixed, LogOut, MapPin, Menu, PlugZap, Radio, RefreshCw, Search, Settings2,
   Thermometer, Wind, Wifi, WifiOff, X, Zap, Sun, Moon, Bell, FileText, PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
@@ -751,6 +751,7 @@ function Sidebar({ onSettings, mobileOpen, onClose, activeSection, onNavigate, c
           <nav className="space-y-1.5">
             <NavItem icon={Zap} label="Inverters" active={activeSection === 'inverters'} hasArrow onClick={() => navigate('inverters')} collapsed={collapsed} />
             <NavItem icon={Activity} label="Live Data" active={activeSection === 'live-data'} onClick={() => navigate('live-data')} collapsed={collapsed} />
+            <NavItem icon={History} label="Saved Data" active={activeSection === 'saved-data'} onClick={() => navigate('saved-data')} collapsed={collapsed} />
             <NavItem icon={Gauge} label="Energy Analytics" active={activeSection === 'energy'} onClick={() => navigate('energy')} collapsed={collapsed} />
             <NavItem icon={CloudSun} label="Environment" active={activeSection === 'environment'} onClick={() => navigate('environment')} collapsed={collapsed} />
             <NavItem icon={AlertTriangle} label="Alarms & Events" active={activeSection === 'alarms'} onClick={() => navigate('alarms')} collapsed={collapsed} />
@@ -2063,6 +2064,7 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
   if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} />{usingSavedSnapshot && <p role="status" className="mb-4 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-200">Saved backend alarm evidence · {workspaceSavedLabel}. Current alarm state requires direct live telemetry.</p>}<InverterFaultBoard devices={devices} rows={evidenceRows} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => isMappedAlarmOrFault(row) || /alarm|fault|error|warning/i.test(telemetrySourceParameter(row)))} persistence={persistence} lastReceivedAt={lastLiveDataTimestamp} /></div></div>;
   if (section === 'raw-data') return <Suspense fallback={<div role="status" className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-scada-border bg-scada-surface text-sm text-scada-muted">Loading Report Center…</div>}><ReportCenter siteName={siteName} sites={sites} devices={devices} parameters={Array.from(new Set([...rows, ...savedSnapshotRows].map((row) => String(row.name ?? row.parameter ?? '').trim()).filter(Boolean))).sort()} /></Suspense>;
+  if (section === 'saved-data') return <Suspense fallback={<div role="status" className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-scada-border bg-scada-surface text-sm text-scada-muted">Loading Saved Data explorer…</div>}><SavedDataExplorer siteName={siteName} sites={sites} devices={devices} parameters={Array.from(new Set([...rows, ...savedSnapshotRows].map((row) => String(row.name ?? row.parameter ?? '').trim()).filter(Boolean))).sort()} onBack={onBack} /></Suspense>;
   return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-3 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} siteName={siteName} /></div><div className="mt-5"><SavedParameterAnalytics records={savedParameterHistory.records} isLoading={savedParameterHistoryLoadState === 'loading'} error={savedParameterHistoryError ? new Error(savedParameterHistoryError) : null} selectedTimestamp={savedSnapshot?.capturedAt} totalRecords={savedParameterHistory.total} serverPage={savedParameterHistory.page} serverPageSize={savedParameterHistory.pageSize} onServerPageChange={onSavedParameterHistoryPageChange} /></div></div>;
 }
 
@@ -2582,7 +2584,7 @@ function InverterFaultBoard({ devices, rows = [], onOpenInverter }: { devices: D
   </section>;
 }
 
-function SavedBackendDataPanel({ snapshot, persistence }: { snapshot: SavedKpiSnapshot | null; persistence: PersistenceStatus }) {
+function SavedBackendDataPanel({ snapshot, persistence, onOpenSavedDataExplorer }: { snapshot: SavedKpiSnapshot | null; persistence: PersistenceStatus; onOpenSavedDataExplorer: () => void }) {
   const rows = useMemo(() => (snapshot?.parameters ?? []) as ModbusRow[], [snapshot]);
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All categories');
@@ -2667,6 +2669,7 @@ function SavedBackendDataPanel({ snapshot, persistence }: { snapshot: SavedKpiSn
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-300" title="This record refreshes automatically when a new saved backend record arrives."><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 pulse-soft" />Auto-refresh</span>
           <span data-testid="saved-data-record-timestamp" className="rounded border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-200">Saved · {savedAt}</span>
+          <button type="button" onClick={onOpenSavedDataExplorer} data-testid="button-saved-data-view-all" className="inline-flex items-center gap-1.5 rounded-lg border border-scada-border bg-scada-surface px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-scada-text hover:bg-scada-hover focus-ring">View all · Detail view</button>
         </div>
       </div>
       {snapshot ? (
@@ -3334,6 +3337,7 @@ function BrokerPanel({ open, onClose, connected, onConnect, onDisconnect, onSign
 
 const InverterDetailPanel = lazy(() => import('@/components/inverter-detail-panel'));
 const ReportCenter = lazy(() => import('@/components/report-center'));
+const SavedDataExplorer = lazy(() => import('@/components/saved-data-explorer'));
 
 function ScadaCredentialLogin({ onSignedIn }: { onSignedIn: () => void }) {
   const [username, setUsername] = useState('');
@@ -4729,7 +4733,7 @@ function AppShell() {
            <EnvironmentDetails siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} onRefresh={refreshWeather} onSiteChange={changeActiveSite} />
 
           <DetailedLiveDataTable rows={currentLiveRows} persistence={persistence} lastReceivedAt={lastLiveDataTimestamp} />
-          <SavedBackendDataPanel snapshot={dashboardSavedSnapshot} persistence={persistence} />
+          <SavedBackendDataPanel snapshot={dashboardSavedSnapshot} persistence={persistence} onOpenSavedDataExplorer={() => navigateTo('saved-data')} />
 
           <CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={handleCopy} />
           

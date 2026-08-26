@@ -36,6 +36,7 @@ import {
   stableReportRecordId,
   type ReportFilterSet,
   type ReportProvenance,
+  type ScadaReportCategory,
   type ScadaReportRecord,
   type ScadaReportType,
 } from "../lib/scada-reporting";
@@ -3511,6 +3512,12 @@ function reportProvenance(value: string): value is ReportProvenance {
   return value === "live" || value === "latest-saved" || value === "historical-saved";
 }
 
+const REPORT_CATEGORIES: ScadaReportCategory[] = ["operations", "electrical", "energy", "inverter", "environmental", "alarms", "communication"];
+
+function isReportCategory(value: string): value is ScadaReportCategory {
+  return (REPORT_CATEGORIES as string[]).includes(value);
+}
+
 function sourceText(parameter: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = parameter[key];
@@ -3656,12 +3663,14 @@ router.get("/mqtt/reports", async (req, res): Promise<void> => {
     res.status(403).json({ message: "Your assigned site access does not include this report scope." });
     return;
   }
+  const requestedCategory = reportList(req.query.category).filter(isReportCategory);
   const filters: ReportFilterSet = {
     devices: reportList(req.query.devices),
     parameters: reportList(req.query.parameters),
     provenance: reportList(req.query.provenance).filter(reportProvenance),
     quality: req.query.quality === "validated" || req.query.quality === "source-reported" ? req.query.quality : "all",
     status: req.query.status === "active" || req.query.status === "warning" || req.query.status === "normal" ? req.query.status : "all",
+    ...(requestedCategory.length ? { category: requestedCategory } : {}),
   };
   const reportType = requestedType as ScadaReportType;
   if (!filters.provenance.length && (reportType === "live" || reportType === "live-data")) filters.provenance = ["live"];

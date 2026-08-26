@@ -11,6 +11,8 @@ export type ReportRequestFilters = {
   customTo: string;
   customFromTime?: string;
   customToTime?: string;
+  /** Optional explicit category restriction; existing callers that omit this are unaffected. */
+  category?: string[];
 };
 
 export type ReportQueryOptions = {
@@ -61,6 +63,7 @@ export function buildReportQuery(filters: ReportRequestFilters, now?: Date, opti
   if (filters.devices.length) query.set('devices', filters.devices.join(','));
   if (filters.parameters.length) query.set('parameters', filters.parameters.join(','));
   if (filters.provenance.length) query.set('provenance', filters.provenance.join(','));
+  if (filters.category?.length) query.set('category', filters.category.join(','));
   if (options.page !== undefined) query.set('page', String(Math.max(1, Math.floor(options.page))));
   if (options.pageSize !== undefined) query.set('pageSize', String(Math.max(1, Math.floor(options.pageSize))));
   if (options.complete) query.set('complete', 'true');

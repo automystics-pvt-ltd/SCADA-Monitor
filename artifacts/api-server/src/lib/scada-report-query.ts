@@ -350,6 +350,7 @@ function cte(args: QueryArgs) {
         and ${listCondition(sql`parameter`, args.filters.parameters)}
         and ${args.filters.provenance.length ? listCondition(sql`provenance`, args.filters.provenance) : sql`true`}
         and ${args.filters.status === "all" ? sql`true` : sql`status = ${args.filters.status}`}
+        and ${args.filters.category?.length ? listCondition(sql`category`, args.filters.category) : sql`true`}
         and ${reportTypeCondition(args.reportType)}
     ),
     filtered_records as (

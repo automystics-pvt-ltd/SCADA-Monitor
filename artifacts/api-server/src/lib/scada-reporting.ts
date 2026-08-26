@@ -45,6 +45,8 @@ export type ReportFilterSet = {
   provenance: ReportProvenance[];
   quality: "all" | "validated" | "source-reported";
   status: "all" | "active" | "warning" | "normal";
+  /** Optional explicit category restriction, additive to reportType's own category mapping. */
+  category?: ScadaReportCategory[];
 };
 
 export type ScadaReportRecord = {
@@ -233,6 +235,7 @@ export function stableReportRecordId(parts: {
 
 export function keepReportRecord(record: ScadaReportRecord, type: ScadaReportType, filters: ReportFilterSet) {
   if (!reportTypeIncludesCategory(type, record.category) || !reportTypeMatchesRecord(type, record)) return false;
+  if (filters.category?.length && !filters.category.includes(record.category)) return false;
   if (filters.provenance.length && !filters.provenance.includes(record.provenance)) return false;
   if (filters.quality !== "all" && record.quality !== filters.quality) return false;
   if (filters.devices.length) {
