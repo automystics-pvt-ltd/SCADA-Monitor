@@ -252,6 +252,44 @@ paths:
                 $ref: "#/components/schemas/PlatformTelemetryMapping"
         "404":
           description: Mapping not found
+  /platform-admin/telemetry/snapshot-gaps:
+    get:
+      operationId: listPlatformTelemetrySnapshotGapSummaries
+      tags: [platform-admin]
+      summary: List recent scheduled-save gap counts across all active managed sites
+      responses:
+        "200":
+          description: Recent snapshot-gap summary per active managed site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTelemetrySnapshotGapSummaryList"
+  /platform-admin/telemetry/snapshot-gaps/detail:
+    get:
+      operationId: getPlatformTelemetrySnapshotGapDetail
+      tags: [platform-admin]
+      summary: Get scheduled-save gap detail for a single active managed site
+      parameters:
+        - $ref: "#/components/parameters/PlatformTelemetrySiteName"
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Scheduled-save gap detail for the selected site and range
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformTelemetrySnapshotGapDetail"
+        "400":
+          description: Invalid site or gap-check range
+        "404":
+          description: Managed site not found
   /platform-admin/telemetry-tests:
     post:
       operationId: createPlatformTelemetryTest
@@ -774,6 +812,47 @@ components:
           type: array
           items: { $ref: "#/components/schemas/PlatformTelemetryParameter" }
       required: [siteName, deviceId, parameters]
+    PlatformTelemetrySnapshotGapSummary:
+      type: object
+      properties:
+        siteName: { type: string }
+        organizationName: { type: string }
+        gapCount: { type: number, minimum: 0, multipleOf: 1 }
+        expectedWindows: { type: number, minimum: 0, multipleOf: 1 }
+      required: [siteName, organizationName, gapCount, expectedWindows]
+    PlatformTelemetrySnapshotGapSummaryList:
+      type: object
+      properties:
+        windowHours: { type: number, minimum: 1, multipleOf: 1 }
+        checkedAt: { type: string, format: date-time }
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformTelemetrySnapshotGapSummary" }
+      required: [windowHours, checkedAt, sites]
+    PlatformTelemetrySnapshotGapEntry:
+      type: object
+      properties:
+        scheduledFor: { type: string, format: date-time }
+        saveStatus: { type: string, enum: [absent, missing, incomplete] }
+        missingReason: { type: [string, "null"] }
+      required: [scheduledFor, saveStatus, missingReason]
+    PlatformTelemetrySnapshotGapDetail:
+      type: object
+      properties:
+        siteName: { type: string }
+        range:
+          type: object
+          properties:
+            from: { type: string, format: date-time }
+            to: { type: string, format: date-time }
+          required: [from, to]
+        expectedWindows: { type: number, minimum: 0, multipleOf: 1 }
+        gapCount: { type: number, minimum: 0, multipleOf: 1 }
+        gaps:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformTelemetrySnapshotGapEntry" }
+        checkedAt: { type: string, format: date-time }
+      required: [siteName, range, expectedWindows, gapCount, gaps, checkedAt]
     PlatformTelemetryTestInput:
       type: object
       properties:

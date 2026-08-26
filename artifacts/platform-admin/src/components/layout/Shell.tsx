@@ -17,6 +17,7 @@ import {
   Server,
   Sun,
   ShieldAlert,
+  TriangleAlert,
   User,
 } from "lucide-react"
 import {
@@ -32,6 +33,7 @@ const navigation = [
   { name: "User Access", href: "/access", icon: Key },
   { name: "Platform Health", href: "/platform", icon: Server },
   { name: "Telemetry", href: "/telemetry", icon: Radio },
+  { name: "Save Gaps", href: "/save-gaps", icon: TriangleAlert },
   { name: "Database", href: "/database", icon: Database },
   { name: "Audit Log", href: "/audit", icon: ShieldAlert },
 ]

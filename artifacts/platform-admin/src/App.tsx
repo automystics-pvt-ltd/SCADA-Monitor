@@ -21,6 +21,7 @@ import Platform from "@/pages/Platform"
 import Audit from "@/pages/Audit"
 import Database from "@/pages/Database"
 import Telemetry from "@/pages/Telemetry"
+import SaveGaps from "@/pages/SaveGaps"
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,7 @@ function Router() {
           <Route path="/access" component={Access} />
           <Route path="/platform" component={Platform} />
           <Route path="/telemetry" component={Telemetry} />
+          <Route path="/save-gaps" component={SaveGaps} />
           <Route path="/database" component={Database} />
           <Route path="/audit" component={Audit} />
           <Route component={NotFound} />

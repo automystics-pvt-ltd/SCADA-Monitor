@@ -393,7 +393,7 @@ let recentSnapshotGaps: SnapshotGapEntry[] = [];
 let recentSnapshotGapCount = 0;
 let lastGapSummaryComputedAt = 0;
 const GAP_BACKFILL_LOOKBACK_DAYS = 14;
-const GAP_SUMMARY_WINDOW_HOURS = 24;
+export const GAP_SUMMARY_WINDOW_HOURS = 24;
 const GAP_SUMMARY_REFRESH_MS = 5 * 60_000;
 let scheduleRun: Promise<void> | undefined;
 const snapshotOfflineQueue = new SnapshotOfflineQueue<SnapshotOfflinePayload>(
@@ -1700,6 +1700,16 @@ export async function snapshotGapsInRange(now: Date, from: Date, to: Date, topic
   }
   gaps.sort((left, right) => left.scheduledFor.localeCompare(right.scheduledFor));
   return { gaps, gapCount: gaps.length, expectedWindows };
+}
+
+/**
+ * Thin wrapper so other routers (e.g. platform-admin's cross-site gap
+ * summary) can reuse the exact gap computation the SCADA
+ * `/mqtt/snapshot-gaps` endpoint relies on, without exporting the mutable
+ * `subscriptionTopic` module binding directly.
+ */
+export async function snapshotGapsForActiveTopic(now: Date, from: Date, to: Date) {
+  return snapshotGapsInRange(now, from, to, subscriptionTopic);
 }
 
 /**

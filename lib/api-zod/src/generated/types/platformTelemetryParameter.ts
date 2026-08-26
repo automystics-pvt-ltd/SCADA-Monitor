@@ -8,6 +8,7 @@
 import type { PlatformTelemetryMapping } from './platformTelemetryMapping';
 import type { PlatformTelemetryParameterDataQuality } from './platformTelemetryParameterDataQuality';
 import type { PlatformTelemetryParameterFreshness } from './platformTelemetryParameterFreshness';
+import type { PlatformTelemetryParameterMappingLifecycleStatus } from './platformTelemetryParameterMappingLifecycleStatus';
 import type { PlatformTelemetryParameterMappingValidationStatus } from './platformTelemetryParameterMappingValidationStatus';
 import type { PlatformTelemetryParameterProvenance } from './platformTelemetryParameterProvenance';
 import type { PlatformTelemetryParameterScalingStatus } from './platformTelemetryParameterScalingStatus';
@@ -51,6 +52,13 @@ export interface PlatformTelemetryParameter {
   scalingStatus: PlatformTelemetryParameterScalingStatus;
   /** @nullable */
   mappingValidationStatus: PlatformTelemetryParameterMappingValidationStatus;
+  /** @minimum 0 */
+  observationCount: number;
+  mappingLifecycleStatus: PlatformTelemetryParameterMappingLifecycleStatus;
+  /** @nullable */
+  firstSeenAt: Date | null;
+  /** @nullable */
+  lastSeenAt: Date | null;
   freshness: PlatformTelemetryParameterFreshness;
   mapping: PlatformTelemetryMapping | null;
 }

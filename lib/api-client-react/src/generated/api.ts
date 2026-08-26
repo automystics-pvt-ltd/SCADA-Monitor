@@ -21,6 +21,7 @@ import type {
 
 import type {
   DownloadPlatformDatabaseBackup200,
+  GetPlatformTelemetrySnapshotGapDetailParams,
   HealthStatus,
   ListPlatformTelemetryMappingsParams,
   ListPlatformTelemetryParametersParams,
@@ -51,6 +52,8 @@ import type {
   PlatformTelemetryMappingIdentity,
   PlatformTelemetryMappingInput,
   PlatformTelemetryParameterList,
+  PlatformTelemetrySnapshotGapDetail,
+  PlatformTelemetrySnapshotGapSummaryList,
   PlatformTelemetryTest,
   PlatformTelemetryTestInput,
   PlatformUser,
@@ -1142,6 +1145,167 @@ export const useClearPlatformTelemetryMapping = <TError = ErrorType<void>,
       > => {
       return useMutation(getClearPlatformTelemetryMappingMutationOptions(options));
     }
+
+export const getListPlatformTelemetrySnapshotGapSummariesUrl = () => {
+
+
+
+
+  return `/api/platform-admin/telemetry/snapshot-gaps`
+}
+
+/**
+ * @summary List recent scheduled-save gap counts across all active managed sites
+ */
+export const listPlatformTelemetrySnapshotGapSummaries = async ( options?: Parameters<typeof customFetch>[1]): Promise<PlatformTelemetrySnapshotGapSummaryList> => {
+
+  return customFetch<PlatformTelemetrySnapshotGapSummaryList>(getListPlatformTelemetrySnapshotGapSummariesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPlatformTelemetrySnapshotGapSummariesQueryKey = () => {
+    return [
+    `/api/platform-admin/telemetry/snapshot-gaps`
+    ] as const;
+    }
+
+
+export const getListPlatformTelemetrySnapshotGapSummariesQueryOptions = <TData = Awaited<ReturnType<typeof listPlatformTelemetrySnapshotGapSummaries>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetrySnapshotGapSummaries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPlatformTelemetrySnapshotGapSummariesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlatformTelemetrySnapshotGapSummaries>>> = ({ signal }) => listPlatformTelemetrySnapshotGapSummaries({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetrySnapshotGapSummaries>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPlatformTelemetrySnapshotGapSummariesQueryResult = NonNullable<Awaited<ReturnType<typeof listPlatformTelemetrySnapshotGapSummaries>>>
+export type ListPlatformTelemetrySnapshotGapSummariesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List recent scheduled-save gap counts across all active managed sites
+ */
+
+export function useListPlatformTelemetrySnapshotGapSummaries<TData = Awaited<ReturnType<typeof listPlatformTelemetrySnapshotGapSummaries>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPlatformTelemetrySnapshotGapSummaries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPlatformTelemetrySnapshotGapSummariesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPlatformTelemetrySnapshotGapDetailUrl = (params: GetPlatformTelemetrySnapshotGapDetailParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/platform-admin/telemetry/snapshot-gaps/detail?${stringifiedParams}` : `/api/platform-admin/telemetry/snapshot-gaps/detail`
+}
+
+/**
+ * @summary Get scheduled-save gap detail for a single active managed site
+ */
+export const getPlatformTelemetrySnapshotGapDetail = async (params: GetPlatformTelemetrySnapshotGapDetailParams, options?: Parameters<typeof customFetch>[1]): Promise<PlatformTelemetrySnapshotGapDetail> => {
+
+  return customFetch<PlatformTelemetrySnapshotGapDetail>(getGetPlatformTelemetrySnapshotGapDetailUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPlatformTelemetrySnapshotGapDetailQueryKey = (params?: GetPlatformTelemetrySnapshotGapDetailParams,) => {
+    return [
+    `/api/platform-admin/telemetry/snapshot-gaps/detail`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetPlatformTelemetrySnapshotGapDetailQueryOptions = <TData = Awaited<ReturnType<typeof getPlatformTelemetrySnapshotGapDetail>>, TError = ErrorType<void>>(params: GetPlatformTelemetrySnapshotGapDetailParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlatformTelemetrySnapshotGapDetail>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPlatformTelemetrySnapshotGapDetailQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlatformTelemetrySnapshotGapDetail>>> = ({ signal }) => getPlatformTelemetrySnapshotGapDetail(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlatformTelemetrySnapshotGapDetail>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPlatformTelemetrySnapshotGapDetailQueryResult = NonNullable<Awaited<ReturnType<typeof getPlatformTelemetrySnapshotGapDetail>>>
+export type GetPlatformTelemetrySnapshotGapDetailQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get scheduled-save gap detail for a single active managed site
+ */
+
+export function useGetPlatformTelemetrySnapshotGapDetail<TData = Awaited<ReturnType<typeof getPlatformTelemetrySnapshotGapDetail>>, TError = ErrorType<void>>(
+ params: GetPlatformTelemetrySnapshotGapDetailParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlatformTelemetrySnapshotGapDetail>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPlatformTelemetrySnapshotGapDetailQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getCreatePlatformTelemetryTestUrl = () => {
 

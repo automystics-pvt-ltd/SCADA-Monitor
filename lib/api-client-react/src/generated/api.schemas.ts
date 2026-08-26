@@ -357,6 +357,14 @@ export const PlatformTelemetryParameterMappingValidationStatus = {
   'non-finite': 'non-finite',
 } as const;
 
+export type PlatformTelemetryParameterMappingLifecycleStatus = typeof PlatformTelemetryParameterMappingLifecycleStatus[keyof typeof PlatformTelemetryParameterMappingLifecycleStatus];
+
+
+export const PlatformTelemetryParameterMappingLifecycleStatus = {
+  unmapped: 'unmapped',
+  mapped: 'mapped',
+} as const;
+
 export type PlatformTelemetryParameterFreshness = typeof PlatformTelemetryParameterFreshness[keyof typeof PlatformTelemetryParameterFreshness];
 
 
@@ -367,14 +375,6 @@ export const PlatformTelemetryParameterFreshness = {
   retained: 'retained',
   recovered: 'recovered',
   replay: 'replay',
-} as const;
-
-export type PlatformTelemetryParameterMappingLifecycleStatus = typeof PlatformTelemetryParameterMappingLifecycleStatus[keyof typeof PlatformTelemetryParameterMappingLifecycleStatus];
-
-
-export const PlatformTelemetryParameterMappingLifecycleStatus = {
-  unmapped: 'unmapped',
-  mapped: 'mapped',
 } as const;
 
 export interface PlatformTelemetryParameter {
@@ -416,6 +416,7 @@ export interface PlatformTelemetryParameter {
   scalingStatus: PlatformTelemetryParameterScalingStatus;
   /** @nullable */
   mappingValidationStatus: PlatformTelemetryParameterMappingValidationStatus;
+  /** @minimum 0 */
   observationCount: number;
   mappingLifecycleStatus: PlatformTelemetryParameterMappingLifecycleStatus;
   /** @nullable */
@@ -431,6 +432,54 @@ export interface PlatformTelemetryParameterList {
   /** @nullable */
   deviceId: string | null;
   parameters: PlatformTelemetryParameter[];
+}
+
+export interface PlatformTelemetrySnapshotGapSummary {
+  siteName: string;
+  organizationName: string;
+  /** @minimum 0 */
+  gapCount: number;
+  /** @minimum 0 */
+  expectedWindows: number;
+}
+
+export interface PlatformTelemetrySnapshotGapSummaryList {
+  /** @minimum 1 */
+  windowHours: number;
+  checkedAt: string;
+  sites: PlatformTelemetrySnapshotGapSummary[];
+}
+
+export type PlatformTelemetrySnapshotGapEntrySaveStatus = typeof PlatformTelemetrySnapshotGapEntrySaveStatus[keyof typeof PlatformTelemetrySnapshotGapEntrySaveStatus];
+
+
+export const PlatformTelemetrySnapshotGapEntrySaveStatus = {
+  absent: 'absent',
+  missing: 'missing',
+  incomplete: 'incomplete',
+} as const;
+
+export interface PlatformTelemetrySnapshotGapEntry {
+  scheduledFor: string;
+  saveStatus: PlatformTelemetrySnapshotGapEntrySaveStatus;
+  /** @nullable */
+  missingReason: string | null;
+}
+
+export type PlatformTelemetrySnapshotGapDetailRange = {
+  from: string;
+  to: string;
+};
+
+export interface PlatformTelemetrySnapshotGapDetail {
+  siteName: string;
+  range: PlatformTelemetrySnapshotGapDetailRange;
+  /** @minimum 0 */
+  expectedWindows: number;
+  /** @minimum 0 */
+  gapCount: number;
+  gaps: PlatformTelemetrySnapshotGapEntry[];
+  checkedAt: string;
 }
 
 export interface PlatformTelemetryTestInput {
@@ -819,6 +868,16 @@ siteName: PlatformTelemetrySiteNameParameter;
  * @maxLength 160
  */
 deviceId?: PlatformTelemetryDeviceIdOptionalParameter;
+};
+
+export type GetPlatformTelemetrySnapshotGapDetailParams = {
+/**
+ * @minLength 2
+ * @maxLength 160
+ */
+siteName: PlatformTelemetrySiteNameParameter;
+from?: string;
+to?: string;
 };
 
 export type DownloadPlatformDatabaseBackup200 = { [key: string]: unknown };

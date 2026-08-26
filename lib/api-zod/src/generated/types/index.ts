@@ -7,6 +7,7 @@
  */
 
 export * from './downloadPlatformDatabaseBackup200';
+export * from './getPlatformTelemetrySnapshotGapDetailParams';
 export * from './healthStatus';
 export * from './listPlatformTelemetryMappingsParams';
 export * from './listPlatformTelemetryParametersParams';
@@ -62,10 +63,17 @@ export * from './platformTelemetryParameter';
 export * from './platformTelemetryParameterDataQuality';
 export * from './platformTelemetryParameterFreshness';
 export * from './platformTelemetryParameterList';
+export * from './platformTelemetryParameterMappingLifecycleStatus';
 export * from './platformTelemetryParameterMappingValidationStatus';
 export * from './platformTelemetryParameterProvenance';
 export * from './platformTelemetryParameterScalingStatus';
 export * from './platformTelemetrySiteNameParameter';
+export * from './platformTelemetrySnapshotGapDetail';
+export * from './platformTelemetrySnapshotGapDetailRange';
+export * from './platformTelemetrySnapshotGapEntry';
+export * from './platformTelemetrySnapshotGapEntrySaveStatus';
+export * from './platformTelemetrySnapshotGapSummary';
+export * from './platformTelemetrySnapshotGapSummaryList';
 export * from './platformTelemetryTest';
 export * from './platformTelemetryTestEvidence';
 export * from './platformTelemetryTestInput';

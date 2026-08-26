@@ -17,6 +17,7 @@ import {
   GetPlatformAdminAuthUserResponse,
   GetPlatformAdminOverviewResponse,
   GetPlatformMqttConfigResponse,
+  GetPlatformTelemetrySnapshotGapDetailResponse,
   GrantPlatformSiteAccessBody,
   GrantPlatformSiteAccessResponse,
   ListPlatformDatabaseTablesResponse,
@@ -28,6 +29,7 @@ import {
   ListPlatformTelemetryParametersQueryParams,
   ListPlatformTelemetryMappingsQueryParams,
   ListPlatformTelemetryParametersResponse,
+  ListPlatformTelemetrySnapshotGapSummariesResponse,
   ListPlatformUsersResponse,
   RunPlatformDatabaseQueryBody,
   RunPlatformDatabaseQueryResponse,
@@ -71,11 +73,13 @@ import {
   applyMqttConfiguration,
   broadcastSiteActivation,
   broadcastTelemetryMappingChange,
+  GAP_SUMMARY_WINDOW_HOURS,
   getMqttRuntimeStatus,
   invalidateTelemetryMappingCache,
   listLiveTelemetryDevices,
   listLatestDeviceParameters,
   runLiveTelemetryTest,
+  snapshotGapsForActiveTopic,
   type MqttRuntimeConfiguration,
 } from "./mqtt";
 import {
@@ -802,6 +806,65 @@ router.post("/platform-admin/telemetry/mappings/clear", async (req: Request, res
   invalidateTelemetryMappingCache();
   broadcastTelemetryMappingChange(mapping.siteName, mapping.updatedAt.toISOString());
   res.json(ClearPlatformTelemetryMappingResponse.parse(telemetryMappingResponse(mapping)));
+});
+
+router.get("/platform-admin/telemetry/snapshot-gaps", async (_req, res): Promise<void> => {
+  const now = new Date();
+  const activeSites = await db
+    .select({ siteName: platformSitesTable.siteName, organizationName: platformOrganizationsTable.name })
+    .from(platformSitesTable)
+    .innerJoin(platformOrganizationsTable, eq(platformSitesTable.organizationId, platformOrganizationsTable.id))
+    .where(and(eq(platformSitesTable.status, "active"), eq(platformSitesTable.activationStatus, "active")))
+    .orderBy(asc(platformSitesTable.siteName));
+  // Every active site currently shares the single configured MQTT feed, so
+  // one gap computation applies to all of them -- this avoids a redundant
+  // database scan per site while still reporting per-site rows for the UI.
+  const from = new Date(now.getTime() - GAP_SUMMARY_WINDOW_HOURS * 60 * 60_000);
+  const { gapCount, expectedWindows } = activeSites.length
+    ? await snapshotGapsForActiveTopic(now, from, now)
+    : { gapCount: 0, expectedWindows: 0 };
+  res.set("Cache-Control", "no-store").json(ListPlatformTelemetrySnapshotGapSummariesResponse.parse({
+    windowHours: GAP_SUMMARY_WINDOW_HOURS,
+    checkedAt: now,
+    sites: activeSites.map((site) => ({
+      siteName: site.siteName,
+      organizationName: site.organizationName,
+      gapCount,
+      expectedWindows,
+    })),
+  }));
+});
+
+router.get("/platform-admin/telemetry/snapshot-gaps/detail", async (req: Request, res): Promise<void> => {
+  const siteName = typeof req.query.siteName === "string" ? req.query.siteName.trim() : "";
+  if (!siteName || siteName.length < 2 || siteName.length > 160) {
+    res.status(400).json({ error: "Choose an active managed site." });
+    return;
+  }
+  const site = await activeManagedSite(siteName);
+  if (!site || site.activationStatus !== "active") {
+    res.status(404).json({ error: "Choose an active managed site." });
+    return;
+  }
+  const now = new Date();
+  const defaultFrom = new Date(now.getTime() - GAP_SUMMARY_WINDOW_HOURS * 60 * 60_000);
+  const requestedFrom = typeof req.query.from === "string" ? new Date(req.query.from) : defaultFrom;
+  const requestedTo = typeof req.query.to === "string" ? new Date(req.query.to) : now;
+  const from = Number.isFinite(requestedFrom.getTime()) ? requestedFrom : defaultFrom;
+  const to = Number.isFinite(requestedTo.getTime()) ? requestedTo : now;
+  if (from > to || to.getTime() - from.getTime() > 31 * 24 * 60 * 60_000) {
+    res.status(400).json({ error: "Use a valid gap-check range up to 31 days." });
+    return;
+  }
+  const { gaps, gapCount, expectedWindows } = await snapshotGapsForActiveTopic(now, from, to);
+  res.set("Cache-Control", "no-store").json(GetPlatformTelemetrySnapshotGapDetailResponse.parse({
+    siteName: site.siteName,
+    range: { from, to },
+    expectedWindows,
+    gapCount,
+    gaps: gaps.map((gap) => ({ ...gap, missingReason: gap.missingReason ?? null })),
+    checkedAt: now,
+  }));
 });
 
 router.patch("/platform-admin/sites", async (req: Request, res): Promise<void> => {

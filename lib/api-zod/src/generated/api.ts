@@ -244,6 +244,9 @@ export const ListPlatformTelemetryParametersQueryParams = zod.object({
   "deviceId": zod.coerce.string().min(1).max(listPlatformTelemetryParametersQueryDeviceIdMax).optional()
 })
 
+export const listPlatformTelemetryParametersResponseParametersItemObservationCountMin = 0;
+export const listPlatformTelemetryParametersResponseParametersItemObservationCountMultipleOf = 1;
+
 export const listPlatformTelemetryParametersResponseParametersItemMappingOneVersionMultipleOf = 1;
 
 
@@ -279,7 +282,7 @@ export const ListPlatformTelemetryParametersResponse = zod.object({
   "dataQuality": zod.enum(['validated', 'raw', 'source-reported']),
   "scalingStatus": zod.enum(['validated', 'raw']),
   "mappingValidationStatus": zod.union([zod.literal('valid'),zod.literal('not-numeric'),zod.literal('non-finite'),zod.literal(null)]).nullable(),
-  "observationCount": zod.number().int().min(0),
+  "observationCount": zod.number().min(listPlatformTelemetryParametersResponseParametersItemObservationCountMin).multipleOf(listPlatformTelemetryParametersResponseParametersItemObservationCountMultipleOf),
   "mappingLifecycleStatus": zod.enum(['unmapped', 'mapped']),
   "firstSeenAt": zod.coerce.date().nullable(),
   "lastSeenAt": zod.coerce.date().nullable(),
@@ -478,6 +481,70 @@ export const ClearPlatformTelemetryMappingResponse = zod.object({
   "status": zod.enum(['active', 'cleared']),
   "version": zod.number().multipleOf(clearPlatformTelemetryMappingResponseVersionMultipleOf),
   "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List recent scheduled-save gap counts across all active managed sites
+ */
+export const listPlatformTelemetrySnapshotGapSummariesResponseWindowHoursMultipleOf = 1;
+
+export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemGapCountMin = 0;
+export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemGapCountMultipleOf = 1;
+
+export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMin = 0;
+export const listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMultipleOf = 1;
+
+
+
+export const ListPlatformTelemetrySnapshotGapSummariesResponse = zod.object({
+  "windowHours": zod.number().min(1).multipleOf(listPlatformTelemetrySnapshotGapSummariesResponseWindowHoursMultipleOf),
+  "checkedAt": zod.coerce.date(),
+  "sites": zod.array(zod.object({
+  "siteName": zod.string(),
+  "organizationName": zod.string(),
+  "gapCount": zod.number().min(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemGapCountMin).multipleOf(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemGapCountMultipleOf),
+  "expectedWindows": zod.number().min(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMin).multipleOf(listPlatformTelemetrySnapshotGapSummariesResponseSitesItemExpectedWindowsMultipleOf)
+}))
+})
+
+
+/**
+ * @summary Get scheduled-save gap detail for a single active managed site
+ */
+export const getPlatformTelemetrySnapshotGapDetailQuerySiteNameMin = 2;
+export const getPlatformTelemetrySnapshotGapDetailQuerySiteNameMax = 160;
+
+
+
+export const GetPlatformTelemetrySnapshotGapDetailQueryParams = zod.object({
+  "siteName": zod.coerce.string().min(getPlatformTelemetrySnapshotGapDetailQuerySiteNameMin).max(getPlatformTelemetrySnapshotGapDetailQuerySiteNameMax),
+  "from": zod.date().optional(),
+  "to": zod.date().optional()
+})
+
+export const getPlatformTelemetrySnapshotGapDetailResponseExpectedWindowsMin = 0;
+export const getPlatformTelemetrySnapshotGapDetailResponseExpectedWindowsMultipleOf = 1;
+
+export const getPlatformTelemetrySnapshotGapDetailResponseGapCountMin = 0;
+export const getPlatformTelemetrySnapshotGapDetailResponseGapCountMultipleOf = 1;
+
+
+
+export const GetPlatformTelemetrySnapshotGapDetailResponse = zod.object({
+  "siteName": zod.string(),
+  "range": zod.object({
+  "from": zod.coerce.date(),
+  "to": zod.coerce.date()
+}),
+  "expectedWindows": zod.number().min(getPlatformTelemetrySnapshotGapDetailResponseExpectedWindowsMin).multipleOf(getPlatformTelemetrySnapshotGapDetailResponseExpectedWindowsMultipleOf),
+  "gapCount": zod.number().min(getPlatformTelemetrySnapshotGapDetailResponseGapCountMin).multipleOf(getPlatformTelemetrySnapshotGapDetailResponseGapCountMultipleOf),
+  "gaps": zod.array(zod.object({
+  "scheduledFor": zod.coerce.date(),
+  "saveStatus": zod.enum(['absent', 'missing', 'incomplete']),
+  "missingReason": zod.string().nullable()
+})),
+  "checkedAt": zod.coerce.date()
 })
 
 
