@@ -33,3 +33,4 @@
 - [Post-merge pnpm catalogs](post-merge-pnpm-catalog.md) — Workspace catalog changes require non-frozen lockfile reconciliation during post-merge setup.
 - [Canonical telemetry source identity](canonical-telemetry-source-identity.md) — Raw and discovered register representations must share one site-qualified identity or saved snapshots silently duplicate.
 - [Sort value fallback chain](sort-value-fallback-chain.md) — A column's sort comparator must reuse the same multi-source fallback chain as its displayed value, or rows silently fail to reorder.
+- [SCADA QA fixture design](scada-qa-fixture-design.md) — Durable test-operator fixtures need least-privilege scope, no committed secrets, and real (not future-dated) saved-evidence timestamps.

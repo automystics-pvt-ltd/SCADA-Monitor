@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./fixtures/scada-qa-operator": "./src/fixtures/scada-qa-operator.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
