@@ -57,6 +57,7 @@ export * from './platformTelemetryDeviceIdOptionalParameter';
 export * from './platformTelemetryMapping';
 export * from './platformTelemetryMappingIdentity';
 export * from './platformTelemetryMappingInput';
+export * from './platformTelemetryMappingPrecedent';
 export * from './platformTelemetryMappingScalingStatus';
 export * from './platformTelemetryMappingStatus';
 export * from './platformTelemetryParameter';

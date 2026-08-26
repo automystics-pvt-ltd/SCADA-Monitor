@@ -521,12 +521,15 @@ router.get("/platform-admin/telemetry/parameters", async (req: Request, res): Pr
     res.status(404).json({ error: "Choose an active managed site." });
     return;
   }
-  const [parameters, mappings] = await Promise.all([
+  const [parameters, mappings, allActiveMappings] = await Promise.all([
     listLatestDeviceParameters(site.siteName, query.data.deviceId),
     db.select().from(platformTelemetryMappingsTable).where(and(
       eq(platformTelemetryMappingsTable.siteName, site.siteName),
       eq(platformTelemetryMappingsTable.status, "active"),
     )),
+    db.select().from(platformTelemetryMappingsTable).where(
+      eq(platformTelemetryMappingsTable.status, "active"),
+    ),
   ]);
   const workspaceRows = mappingWorkspaceRows(
     parameters,
@@ -535,6 +538,24 @@ router.get("/platform-admin/telemetry/parameters", async (req: Request, res): Pr
   const data = ListPlatformTelemetryParametersResponse.parse({
     siteName: site.siteName,
     deviceId: query.data.deviceId ?? null,
+    // Platform-wide precedent for client-side auto-suggestion only; it never
+    // activates a mapping on its own and carries no per-site scoping.
+    precedentMappings: allActiveMappings.map((mapping) => ({
+      siteName: mapping.siteName,
+      deviceId: mapping.deviceId,
+      sourceName: mapping.sourceName,
+      normalizedName: mapping.normalizedName,
+      address: mapping.address === "—" ? null : mapping.address,
+      destination: mapping.destination,
+      displayLabel: mapping.displayLabel,
+      category: mapping.category,
+      inverterIdentity: mapping.inverterIdentity,
+      sourceUnit: mapping.sourceUnit,
+      displayUnit: mapping.displayUnit,
+      scalingMultiplier: mapping.scalingMultiplier,
+      scalingOffset: mapping.scalingOffset,
+      updatedAt: mapping.updatedAt,
+    })),
     parameters: workspaceRows.map(({ parameter, mapping }) => {
       return {
         observationId: parameter.observationId,

@@ -308,7 +308,23 @@ export const ListPlatformTelemetryParametersResponse = zod.object({
   "version": zod.number().multipleOf(listPlatformTelemetryParametersResponseParametersItemMappingOneVersionMultipleOf),
   "updatedAt": zod.coerce.date()
 }),zod.null()])
-}))
+})),
+  "precedentMappings": zod.array(zod.object({
+  "siteName": zod.string(),
+  "deviceId": zod.string(),
+  "sourceName": zod.string(),
+  "normalizedName": zod.string(),
+  "address": zod.string().nullable(),
+  "destination": zod.enum(['inverter-identity', 'active-power', 'daily-energy', 'total-energy', 'specific-yield', 'voltage', 'current', 'frequency', 'environmental', 'alarm', 'fault', 'communication', 'data-quality', 'discovered-other']),
+  "displayLabel": zod.string(),
+  "category": zod.string(),
+  "inverterIdentity": zod.string().nullable(),
+  "sourceUnit": zod.string().nullable(),
+  "displayUnit": zod.string().nullable(),
+  "scalingMultiplier": zod.number(),
+  "scalingOffset": zod.number(),
+  "updatedAt": zod.coerce.date()
+}).describe('A minimal projection of another active mapping (any site or device) offered as auto-suggestion precedent. It never activates anything by itself.')).describe('Every other active mapping platform-wide, for client-side auto-suggestion precedent matching on unmapped parameters. Not scoped to this site.')
 })
 
 

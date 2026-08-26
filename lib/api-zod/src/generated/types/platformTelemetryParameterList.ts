@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PlatformTelemetryMappingPrecedent } from './platformTelemetryMappingPrecedent';
 import type { PlatformTelemetryParameter } from './platformTelemetryParameter';
 
 export interface PlatformTelemetryParameterList {
@@ -12,4 +13,6 @@ export interface PlatformTelemetryParameterList {
   /** @nullable */
   deviceId: string | null;
   parameters: PlatformTelemetryParameter[];
+  /** Every other active mapping platform-wide, for client-side auto-suggestion precedent matching on unmapped parameters. Not scoped to this site. */
+  precedentMappings: PlatformTelemetryMappingPrecedent[];
 }

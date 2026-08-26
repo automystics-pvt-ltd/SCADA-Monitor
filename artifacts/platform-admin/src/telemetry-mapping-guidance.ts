@@ -30,6 +30,35 @@ export function isUnitlessTelemetryDestination(destination: PlatformTelemetryDes
   return unitlessDestinations.has(destination);
 }
 
+/**
+ * Name-only fallback for a parameter with no active-mapping precedent
+ * anywhere on the platform. Deliberately narrow: it only returns a
+ * destination when the normalized name contains an unambiguous keyword, and
+ * it never guesses `inverter-identity` — that destination requires a source
+ * tag that explicitly identifies one physical inverter, which no name
+ * pattern can safely confirm. Anything it does not recognize returns `null`
+ * so the caller keeps today's `discovered-other` default.
+ */
+export function heuristicTelemetryDestination(normalizedName: string): { destination: PlatformTelemetryDestination; label: string } | null {
+  const name = normalizedName.toLowerCase();
+  const hasEnergyToken = /energ|kwh|mwh|(^|[^a-z])wh([^a-z]|$)/.test(name);
+  if (/alarm/.test(name)) return { destination: "alarm", label: "Alarm status" };
+  if (/fault|trip/.test(name)) return { destination: "fault", label: "Fault code" };
+  if (/comm|heartbeat|online|offline|linkstatus|networkstatus|mqttstatus/.test(name)) return { destination: "communication", label: "Communication status" };
+  if (/yield/.test(name)) return { destination: "specific-yield", label: "Specific yield" };
+  if (/daily|today/.test(name) && hasEnergyToken) return { destination: "daily-energy", label: "Daily energy" };
+  if (/total|cumulative|lifetime/.test(name) && hasEnergyToken) return { destination: "total-energy", label: "Total energy" };
+  if (/freq|frq/.test(name)) return { destination: "frequency", label: "Frequency" };
+  if (/volt/.test(name)) return { destination: "voltage", label: "Voltage" };
+  if (/curr|amps?\b/.test(name)) return { destination: "current", label: "Current" };
+  if (/temp|thermal/.test(name)) return { destination: "environmental", label: "Temperature" };
+  // Broadest, least specific pattern last: many electrical readings (phase
+  // power, meter power, power factor shoehorned by admin convention) use
+  // "power"/"pow" somewhere in the name with no more specific token above.
+  if (/pow/.test(name)) return { destination: "active-power", label: "Power" };
+  return null;
+}
+
 export function telemetryMappingGuidance(
   destination: PlatformTelemetryDestination,
   parameterName: string,

@@ -803,6 +803,25 @@ components:
         freshness: { type: string, enum: [live, stale, saved, retained, recovered, replay] }
         mapping: { anyOf: [{ $ref: "#/components/schemas/PlatformTelemetryMapping" }, { type: "null" }] }
       required: [observationId, signalKey, siteName, deviceId, deviceName, topic, originalName, normalizedName, displayLabel, category, evidenceAvailable, rawValue, reportedValue, reportedNumericValue, displayValue, displayNumericValue, displayUnit, sourceUnit, address, sourceName, sourceIdentity, observedAt, receivedAt, provenance, dataQuality, scalingStatus, mappingValidationStatus, observationCount, mappingLifecycleStatus, firstSeenAt, lastSeenAt, freshness, mapping]
+    PlatformTelemetryMappingPrecedent:
+      type: object
+      description: A minimal projection of another active mapping (any site or device) offered as auto-suggestion precedent. It never activates anything by itself.
+      properties:
+        siteName: { type: string }
+        deviceId: { type: string }
+        sourceName: { type: string }
+        normalizedName: { type: string }
+        address: { type: [string, "null"] }
+        destination: { $ref: "#/components/schemas/PlatformTelemetryDestination" }
+        displayLabel: { type: string }
+        category: { type: string }
+        inverterIdentity: { type: [string, "null"] }
+        sourceUnit: { type: [string, "null"] }
+        displayUnit: { type: [string, "null"] }
+        scalingMultiplier: { type: number }
+        scalingOffset: { type: number }
+        updatedAt: { type: string, format: date-time }
+      required: [siteName, deviceId, sourceName, normalizedName, address, destination, displayLabel, category, inverterIdentity, sourceUnit, displayUnit, scalingMultiplier, scalingOffset, updatedAt]
     PlatformTelemetryParameterList:
       type: object
       properties:
@@ -811,7 +830,11 @@ components:
         parameters:
           type: array
           items: { $ref: "#/components/schemas/PlatformTelemetryParameter" }
-      required: [siteName, deviceId, parameters]
+        precedentMappings:
+          type: array
+          description: Every other active mapping platform-wide, for client-side auto-suggestion precedent matching on unmapped parameters. Not scoped to this site.
+          items: { $ref: "#/components/schemas/PlatformTelemetryMappingPrecedent" }
+      required: [siteName, deviceId, parameters, precedentMappings]
     PlatformTelemetrySnapshotGapSummary:
       type: object
       properties:

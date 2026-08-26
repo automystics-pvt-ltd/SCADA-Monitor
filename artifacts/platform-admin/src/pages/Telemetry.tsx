@@ -28,31 +28,51 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { useToast } from "@/hooks/use-toast"
-import { Activity, Radio, ShieldCheck, ShieldAlert, AlertTriangle, TerminalSquare, Search, RefreshCw, CheckCircle2, ChevronRight, Play, GitMerge, Save, Trash2 } from "lucide-react"
+import { Activity, Radio, ShieldCheck, ShieldAlert, AlertTriangle, TerminalSquare, Search, RefreshCw, CheckCircle2, ChevronRight, Play, GitMerge, Save, Trash2, Sparkles } from "lucide-react"
 import { inverterIdentityForMapping, requiresInverterIdentity } from "@/telemetry-mapping-form"
 import { telemetryMappingGuidance } from "@/telemetry-mapping-guidance"
+import { suggestTelemetryMapping, type TelemetryMappingSuggestion } from "@/telemetry-mapping-suggestions"
+import type { PlatformTelemetryMappingPrecedent } from "@workspace/api-client-react"
 
 function ParameterMappingRow({ 
   parameter, 
+  precedentMappings,
   onSave,
   onClear
 }: { 
   parameter: PlatformTelemetryParameter,
+  precedentMappings: PlatformTelemetryMappingPrecedent[],
   onSave: (input: PlatformTelemetryMappingInput) => Promise<void>,
   onClear: (identity: PlatformTelemetryMappingIdentity) => Promise<void>
 }) {
   const m = parameter.mapping;
   const unitSuggestionId = `telemetry-unit-${useId().replace(/:/g, "")}`;
-  
-  const [destination, setDestination] = useState<PlatformTelemetryDestination>(
-    m?.destination || PlatformTelemetryDestination['discovered-other']
-  );
-  const [displayLabel, setDisplayLabel] = useState(m?.displayLabel || parameter.displayLabel || '');
-  const [category, setCategory] = useState(m?.category || parameter.category || '');
-  const [inverterIdentity, setInverterIdentity] = useState(m?.inverterIdentity || 'inv1');
-  const [displayUnit, setDisplayUnit] = useState(m?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '');
-  const [scalingMultiplier, setScalingMultiplier] = useState(m?.scalingMultiplier ?? 1);
-  const [scalingOffset, setScalingOffset] = useState(m?.scalingOffset ?? 0);
+
+  // Suggestions are advisory pre-fill only: they exist purely to seed the
+  // form state below for an unmapped row and are never written anywhere
+  // until the administrator presses Save.
+  const suggestion: TelemetryMappingSuggestion | null = useMemo(() => (
+    m ? null : suggestTelemetryMapping({
+      siteName: parameter.siteName,
+      deviceId: parameter.deviceId,
+      normalizedName: parameter.normalizedName,
+      address: parameter.address,
+      sourceName: parameter.sourceName,
+      sourceUnit: parameter.sourceUnit,
+      originalName: parameter.originalName,
+    }, precedentMappings)
+  ), [m, parameter.siteName, parameter.deviceId, parameter.normalizedName, parameter.address, parameter.sourceName, parameter.sourceUnit, parameter.originalName, precedentMappings]);
+
+  const initialDestination = m?.destination || suggestion?.destination || PlatformTelemetryDestination['discovered-other'];
+  const initialInverterIdentity = m?.inverterIdentity || suggestion?.inverterIdentity || (requiresInverterIdentity(initialDestination) ? '' : 'inv1');
+
+  const [destination, setDestination] = useState<PlatformTelemetryDestination>(initialDestination);
+  const [displayLabel, setDisplayLabel] = useState(m?.displayLabel || suggestion?.displayLabel || parameter.displayLabel || '');
+  const [category, setCategory] = useState(m?.category || suggestion?.category || parameter.category || '');
+  const [inverterIdentity, setInverterIdentity] = useState(initialInverterIdentity);
+  const [displayUnit, setDisplayUnit] = useState(m?.displayUnit || suggestion?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '');
+  const [scalingMultiplier, setScalingMultiplier] = useState(m?.scalingMultiplier ?? suggestion?.scalingMultiplier ?? 1);
+  const [scalingOffset, setScalingOffset] = useState(m?.scalingOffset ?? suggestion?.scalingOffset ?? 0);
   
   const [lastSyncedUpdatedAt, setLastSyncedUpdatedAt] = useState(m?.updatedAt);
   const [isSaving, setIsSaving] = useState(false);
@@ -61,18 +81,20 @@ function ParameterMappingRow({
   useEffect(() => {
     if (parameter.mapping?.updatedAt !== lastSyncedUpdatedAt) {
       const nm = parameter.mapping;
-      setDestination(nm?.destination || PlatformTelemetryDestination['discovered-other']);
-      setDisplayLabel(nm?.displayLabel || parameter.displayLabel || '');
-      setCategory(nm?.category || parameter.category || '');
-      setInverterIdentity(nm?.inverterIdentity || 'inv1');
-      setDisplayUnit(nm?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '');
-      setScalingMultiplier(nm?.scalingMultiplier ?? 1);
-      setScalingOffset(nm?.scalingOffset ?? 0);
+      const nextDestination = nm?.destination || suggestion?.destination || PlatformTelemetryDestination['discovered-other'];
+      setDestination(nextDestination);
+      setDisplayLabel(nm?.displayLabel || suggestion?.displayLabel || parameter.displayLabel || '');
+      setCategory(nm?.category || suggestion?.category || parameter.category || '');
+      setInverterIdentity(nm?.inverterIdentity || suggestion?.inverterIdentity || (requiresInverterIdentity(nextDestination) ? '' : 'inv1'));
+      setDisplayUnit(nm?.displayUnit || suggestion?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '');
+      setScalingMultiplier(nm?.scalingMultiplier ?? suggestion?.scalingMultiplier ?? 1);
+      setScalingOffset(nm?.scalingOffset ?? suggestion?.scalingOffset ?? 0);
       setLastSyncedUpdatedAt(nm?.updatedAt);
     }
-  }, [parameter.mapping, parameter.displayLabel, parameter.category, parameter.displayUnit, parameter.sourceUnit, lastSyncedUpdatedAt]);
+  }, [parameter.mapping, parameter.displayLabel, parameter.category, parameter.displayUnit, parameter.sourceUnit, lastSyncedUpdatedAt, suggestion]);
 
   const needsInverterIdentity = requiresInverterIdentity(destination);
+  const needsInverterChoice = needsInverterIdentity && !inverterIdentity;
   const guidance = telemetryMappingGuidance(destination, parameter.normalizedName || parameter.displayLabel, parameter.sourceUnit);
   const needsConfirmedUnit = !guidance.unitless && !displayUnit.trim() && !parameter.sourceUnit;
   const applyGuidance = () => {
@@ -81,13 +103,13 @@ function ParameterMappingRow({
     if (parameter.sourceUnit) setDisplayUnit(parameter.sourceUnit);
   };
   const isDirty = 
-    destination !== (m?.destination || PlatformTelemetryDestination['discovered-other']) ||
-    displayLabel !== (m?.displayLabel || parameter.displayLabel || '') ||
-    category !== (m?.category || parameter.category || '') ||
-    displayUnit !== (m?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '') ||
-    scalingMultiplier !== (m?.scalingMultiplier ?? 1) ||
-    scalingOffset !== (m?.scalingOffset ?? 0) ||
-    (needsInverterIdentity && inverterIdentity !== (m?.inverterIdentity || 'inv1'));
+    destination !== (m?.destination || suggestion?.destination || PlatformTelemetryDestination['discovered-other']) ||
+    displayLabel !== (m?.displayLabel || suggestion?.displayLabel || parameter.displayLabel || '') ||
+    category !== (m?.category || suggestion?.category || parameter.category || '') ||
+    displayUnit !== (m?.displayUnit || suggestion?.displayUnit || parameter.displayUnit || parameter.sourceUnit || '') ||
+    scalingMultiplier !== (m?.scalingMultiplier ?? suggestion?.scalingMultiplier ?? 1) ||
+    scalingOffset !== (m?.scalingOffset ?? suggestion?.scalingOffset ?? 0) ||
+    (needsInverterIdentity && inverterIdentity !== (m?.inverterIdentity || suggestion?.inverterIdentity || ''));
     
   const handleSave = async () => {
     setIsSaving(true);
@@ -208,6 +230,21 @@ function ParameterMappingRow({
       {/* Destination */}
       <TableCell className="align-top py-3">
         <div className="space-y-2">
+          {!isMapped && suggestion && (
+            <div
+              className={`flex items-start gap-1.5 rounded-md border px-2 py-1 text-[9px] font-semibold uppercase tracking-wider ${
+                suggestion.confidence === 'precedent'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+              }`}
+              title={suggestion.rationale}
+            >
+              <Sparkles className="h-3 w-3 flex-none mt-px" />
+              <span>
+                {suggestion.confidence === 'precedent' ? 'Suggested · precedent match' : 'Suggested · heuristic guess'}
+              </span>
+            </div>
+          )}
           <Select value={destination} onValueChange={(v: PlatformTelemetryDestination) => setDestination(v)}>
             <SelectTrigger className={`h-8 text-xs ${isDirty && destination !== m?.destination ? 'border-primary/50 bg-primary/5 ring-1 ring-primary/20' : 'bg-background'}`}>
               <SelectValue />
@@ -225,8 +262,8 @@ function ParameterMappingRow({
             <div className="space-y-1">
               <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Physical inverter</p>
               <Select value={inverterIdentity} onValueChange={setInverterIdentity}>
-                <SelectTrigger className={`h-8 text-xs ${isDirty && inverterIdentity !== m?.inverterIdentity ? 'border-primary/50 bg-primary/5 ring-1 ring-primary/20' : 'bg-background border-amber-500/30'}`}>
-                  <SelectValue />
+                <SelectTrigger className={`h-8 text-xs ${needsInverterChoice ? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500/20' : isDirty && inverterIdentity !== m?.inverterIdentity ? 'border-primary/50 bg-primary/5 ring-1 ring-primary/20' : 'bg-background border-amber-500/30'}`}>
+                  <SelectValue placeholder="Choose inverter…" />
                 </SelectTrigger>
                 <SelectContent>
                   {['inv1', 'inv2', 'inv3', 'inv4', 'inv5'].map(inv => (
@@ -236,10 +273,15 @@ function ParameterMappingRow({
                   ))}
                 </SelectContent>
               </Select>
+              {needsInverterChoice && (
+                <p className="text-[9px] text-amber-700 dark:text-amber-300">
+                  {suggestion ? "The suggestion couldn't safely infer a physical inverter — confirm it before saving." : "Choose the physical inverter before saving."}
+                </p>
+              )}
             </div>
           )}
           <div className="rounded-md border border-primary/15 bg-primary/[0.035] p-2 text-[10px] leading-4">
-            <p className="font-semibold text-primary">Suggested mapping: {guidance.recommendedLabel}</p>
+            <p className="font-semibold text-primary">Guidance: {guidance.recommendedLabel}</p>
             <p className="mt-0.5 text-muted-foreground">{guidance.explanation}</p>
             <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">SCADA display:</span> {guidance.frontEndDisplay}</p>
             <button type="button" onClick={applyGuidance} className="mt-1.5 text-[9px] font-semibold text-primary hover:underline">
@@ -354,11 +396,11 @@ function ParameterMappingRow({
             size="sm" 
             className={`h-8 w-28 text-xs font-semibold shadow-sm transition-all duration-300 ${canSave ? 'opacity-100 translate-x-0' : 'opacity-50 grayscale'}`}
             variant={canSave ? "default" : "secondary"}
-            disabled={!canSave || isSaving || needsConfirmedUnit}
+            disabled={!canSave || isSaving || needsConfirmedUnit || needsInverterChoice}
             onClick={handleSave}
           >
             {isSaving ? <RefreshCw className="w-3 h-3 animate-spin mr-1.5" /> : <Save className="w-3 h-3 mr-1.5" />}
-            {isSaving ? "Saving" : needsConfirmedUnit ? "Choose unit" : isDirty ? "Save edit" : isMapped ? "Saved" : "Save mapping"}
+            {isSaving ? "Saving" : needsConfirmedUnit ? "Choose unit" : needsInverterChoice ? "Choose inverter" : isDirty ? "Save edit" : isMapped ? "Saved" : "Save mapping"}
           </Button>
 
           {isMapped && (
@@ -450,6 +492,7 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
   }
 
   const parameters = data?.parameters || []
+  const precedentMappings = data?.precedentMappings || []
   const unmappedParameters = parameters.filter((parameter) =>
     parameter.mappingLifecycleStatus === 'unmapped' && parameter.mapping === null
   )
@@ -573,6 +616,7 @@ function MappingWorkspace({ siteName, deviceId }: { siteName: string, deviceId: 
                 <ParameterMappingRow 
                   key={[param.siteName, param.deviceId, param.sourceIdentity, param.normalizedName, param.address ?? "—"].join("\u001f")}
                   parameter={param} 
+                  precedentMappings={precedentMappings}
                   onSave={handleSave} 
                   onClear={handleClear} 
                 />

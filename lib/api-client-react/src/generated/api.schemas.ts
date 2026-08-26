@@ -427,11 +427,37 @@ export interface PlatformTelemetryParameter {
   mapping: PlatformTelemetryMapping | null;
 }
 
+/**
+ * A minimal projection of another active mapping (any site or device) offered as auto-suggestion precedent. It never activates anything by itself.
+ */
+export interface PlatformTelemetryMappingPrecedent {
+  siteName: string;
+  deviceId: string;
+  sourceName: string;
+  normalizedName: string;
+  /** @nullable */
+  address: string | null;
+  destination: PlatformTelemetryDestination;
+  displayLabel: string;
+  category: string;
+  /** @nullable */
+  inverterIdentity: string | null;
+  /** @nullable */
+  sourceUnit: string | null;
+  /** @nullable */
+  displayUnit: string | null;
+  scalingMultiplier: number;
+  scalingOffset: number;
+  updatedAt: string;
+}
+
 export interface PlatformTelemetryParameterList {
   siteName: string;
   /** @nullable */
   deviceId: string | null;
   parameters: PlatformTelemetryParameter[];
+  /** Every other active mapping platform-wide, for client-side auto-suggestion precedent matching on unmapped parameters. Not scoped to this site. */
+  precedentMappings: PlatformTelemetryMappingPrecedent[];
 }
 
 export interface PlatformTelemetrySnapshotGapSummary {
