@@ -2583,10 +2583,80 @@ function InverterFaultBoard({ devices, rows = [], onOpenInverter }: { devices: D
 }
 
 function SavedBackendDataPanel({ snapshot, persistence }: { snapshot: SavedKpiSnapshot | null; persistence: PersistenceStatus }) {
-  const rows = (snapshot?.parameters ?? []) as ModbusRow[];
+  const rows = useMemo(() => (snapshot?.parameters ?? []) as ModbusRow[], [snapshot]);
+  const [query, setQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('All categories');
+  const [sortKey, setSortKey] = useState<TelemetrySortKey>('parameter');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
   const savedAt = snapshot
     ? formatInPlantTimezone(snapshot.capturedAt, snapshot.timezone ?? persistence.timezone)
     : 'Not available';
+  const windowLabel = snapshot
+    ? `${formatInPlantTimezone(snapshot.windowStartedAt, snapshot.timezone ?? persistence.timezone)} – ${formatInPlantTimezone(snapshot.windowEndedAt, snapshot.timezone ?? persistence.timezone)}`
+    : '—';
+
+  const categories = useMemo(() => ['All categories', ...Array.from(new Set(rows.map(telemetryCategory))).sort()], [rows]);
+  const deviceNames = useMemo(() => Array.from(new Set(rows.map((row) => String(row.server_name || 'Modbus')))), [rows]);
+
+  const qualityCounts = useMemo(() => rows.reduce<{ good: number; scaling: number; bad: number; unreported: number }>((counts, row) => {
+    const quality = String(row.quality ?? row.data_quality ?? '').toLowerCase();
+    if (quality.includes('bad') || quality.includes('error') || quality.includes('fault')) counts.bad += 1;
+    else if (quality.includes('good') || quality.includes('ok') || quality.includes('valid') || explicitScalingValidated(row)) counts.good += 1;
+    else if (!explicitScalingValidated(row) && electricalKind(row)) counts.scaling += 1;
+    else counts.unreported += 1;
+    return counts;
+  }, { good: 0, scaling: 0, bad: 0, unreported: 0 }), [rows]);
+  const qualityObserved = qualityCounts.good + qualityCounts.scaling + qualityCounts.bad + qualityCounts.unreported;
+  const qualityPercent = qualityObserved ? Math.round((qualityCounts.good / qualityObserved) * 100) : null;
+
+  const categoryBreakdown = useMemo(() => {
+    const counts = new Map<string, number>();
+    rows.forEach((row) => { const category = telemetryCategory(row); counts.set(category, (counts.get(category) ?? 0) + 1); });
+    return [...counts.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [rows]);
+
+  const qualityChartData = useMemo(() => [
+    { name: 'Good', value: qualityCounts.good, color: '#34D399' },
+    { name: 'Scaling required', value: qualityCounts.scaling, color: '#FBBF24' },
+    { name: 'Bad', value: qualityCounts.bad, color: '#FB7185' },
+    { name: 'Unreported', value: qualityCounts.unreported, color: '#64748B' },
+  ].filter((slice) => slice.value > 0), [qualityCounts]);
+
+  const filteredRows = useMemo(() => rows.filter((row) => {
+    const dateTime = telemetryDateTime(row);
+    const searchable = `${telemetryDisplayLabel(row)} ${telemetrySourceParameter(row)} ${row.full_addr ?? row.addr ?? ''} ${row.server_name ?? ''} ${sourceReportedValue(row) ?? ''} ${dateTime.date} ${dateTime.time}`.toLowerCase();
+    return searchable.includes(query.trim().toLowerCase()) && (categoryFilter === 'All categories' || telemetryCategory(row) === categoryFilter);
+  }), [rows, query, categoryFilter]);
+
+  const sortedRows = useMemo(() => [...filteredRows].sort((a, b) => {
+    const values: Record<TelemetrySortKey, (row: ModbusRow) => string | number> = {
+      category: telemetryCategory,
+      parameter: telemetryDisplayLabel,
+      raw: (row) => String(sourceTransportValue(row) ?? row.data ?? ''),
+      scaled: (row) => String(sourceReportedValue(row) ?? sourceTransportValue(row) ?? row.data ?? ''),
+      unit: telemetryUnit,
+      address: (row) => String(row.full_addr ?? row.addr ?? ''),
+      date: (row) => telemetryDateTime(row).date,
+      time: (row) => telemetryDateTime(row).time,
+      source: (row) => String(row.server_name || 'Modbus'),
+    };
+    const left = values[sortKey](a);
+    const right = values[sortKey](b);
+    const result = typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+    return sortDirection === 'asc' ? result : -result;
+  }), [filteredRows, sortKey, sortDirection]);
+
+  const handleSort = (nextKey: TelemetrySortKey) => {
+    if (nextKey === sortKey) setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+    else {
+      setSortKey(nextKey);
+      setSortDirection('asc');
+    }
+  };
+  const sortLabel = `${sortKey} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`;
+  const sortButton = (key: TelemetrySortKey, label: string) => <button type="button" onClick={() => handleSort(key)} aria-label={`Sort by ${label}; currently ${key === sortKey ? sortLabel : 'not sorted'}`} aria-sort={key === sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} data-testid={`button-sort-saved-${key}`} className="inline-flex items-center gap-1 rounded px-1 py-1 text-left hover:bg-scada-hover/60 hover:text-scada-text focus-ring">{label}<span aria-hidden="true" className={key === sortKey ? 'text-blue-400' : 'text-slate-600'}>{key === sortKey ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span></button>;
+
   return (
     <section data-testid="panel-saved-backend-record" className="mt-6 overflow-hidden rounded-xl border border-scada-border bg-scada-surface">
       <div className="flex flex-col gap-3 border-b border-scada-border p-5 sm:flex-row sm:items-start sm:justify-between">
@@ -2594,13 +2664,113 @@ function SavedBackendDataPanel({ snapshot, persistence }: { snapshot: SavedKpiSn
           <div className="flex items-center gap-2"><Database size={16} className="text-blue-300" /><h3 className="text-sm font-bold text-scada-text">Saved Data</h3></div>
           <p className="mt-1 text-xs text-scada-muted">Latest successfully saved backend record only. Queued, incomplete, missing, and direct live telemetry are excluded.</p>
         </div>
-        <span data-testid="saved-data-record-timestamp" className="rounded border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-200">Saved · {savedAt}</span>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-300" title="This record refreshes automatically when a new saved backend record arrives."><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 pulse-soft" />Auto-refresh</span>
+          <span data-testid="saved-data-record-timestamp" className="rounded border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-200">Saved · {savedAt}</span>
+        </div>
       </div>
-      {snapshot ? <div className="p-3">
-        <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-scada-muted"><span><strong className="text-scada-text">Captured:</strong> {formatInPlantTimezone(snapshot.capturedAt, snapshot.timezone ?? persistence.timezone)}</span><span><strong className="text-scada-text">Window:</strong> {formatInPlantTimezone(snapshot.windowStartedAt, snapshot.timezone ?? persistence.timezone)} – {formatInPlantTimezone(snapshot.windowEndedAt, snapshot.timezone ?? persistence.timezone)}</span><span><strong className="text-scada-text">Parameters:</strong> {snapshot.parameterCount}</span></div>
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{rows.slice(0, 8).map((row, index) => <div key={`${modbusRowKey(row)}-${index}`} className="rounded-lg border border-scada-border bg-scada-surface px-3 py-2"><p className="truncate text-[10px] font-semibold text-scada-muted" title={telemetryDisplayLabel(row)}>{telemetryDisplayLabel(row)}</p><p className="mt-1 truncate font-mono text-xs text-scada-text">{formatValue(sourceReportedValue(row) ?? sourceTransportValue(row) ?? row.data ?? '—')}</p><p className="mt-1 truncate text-[10px] text-scada-muted">{telemetryUnit(row)} · {telemetryDateTime(row).full}</p></div>)}</div>
-        {rows.length > 8 && <p className="mt-3 text-[10px] text-scada-muted">Showing 8 of {rows.length} saved source parameters. Electrical analysis retains the complete saved record.</p>}
-      </div> : <div className="px-5 py-8 text-center text-xs text-scada-muted">No successfully saved backend record is available for this site yet. Direct MQTT remains available only in Live Data.</div>}
+      {snapshot ? (
+        <div className="p-4">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="scada-dashboard-status-card scada-dashboard-status-card--neutral" title={`Window: ${windowLabel}`}>
+              <span className="scada-dashboard-status-icon scada-dashboard-status-icon--clock"><Activity size={18} aria-hidden="true" /></span>
+              <div className="min-w-0"><p className="scada-dashboard-status-label">Captured</p><strong className="scada-dashboard-status-value truncate">{savedAt}</strong><p className="scada-dashboard-status-detail truncate">Window {windowLabel}</p></div>
+            </div>
+            <div className="scada-dashboard-status-card scada-dashboard-status-card--neutral">
+              <span className="scada-dashboard-status-icon scada-dashboard-status-icon--database"><Layers3 size={18} aria-hidden="true" /></span>
+              <div className="min-w-0"><p className="scada-dashboard-status-label">Parameters saved</p><strong className="scada-dashboard-status-value">{snapshot.parameterCount}</strong><p className="scada-dashboard-status-detail">{deviceNames.length} device{deviceNames.length === 1 ? '' : 's'}/source{deviceNames.length === 1 ? '' : 's'}</p></div>
+            </div>
+            <div className={`scada-dashboard-status-card ${qualityPercent !== null && qualityPercent >= 90 ? 'scada-dashboard-status-card--healthy' : qualityPercent !== null ? 'scada-dashboard-status-card--attention' : 'scada-dashboard-status-card--neutral'}`}>
+              <span className="scada-dashboard-status-icon scada-dashboard-status-icon--heartbeat"><Check size={18} aria-hidden="true" /></span>
+              <div className="min-w-0"><p className="scada-dashboard-status-label">Data quality</p><strong className="scada-dashboard-status-value">{qualityPercent !== null ? `${qualityPercent}%` : '—'}</strong><p className="scada-dashboard-status-detail">{qualityObserved ? `${qualityCounts.good} of ${qualityObserved} good` : 'No quality metadata'}</p></div>
+            </div>
+            <div className="scada-dashboard-status-card scada-dashboard-status-card--neutral">
+              <span className="scada-dashboard-status-icon scada-dashboard-status-icon--radio"><Gauge size={18} aria-hidden="true" /></span>
+              <div className="min-w-0"><p className="scada-dashboard-status-label">Save status</p><strong className="scada-dashboard-status-value capitalize">{snapshot.saveStatus}</strong><p className="scada-dashboard-status-detail truncate">{snapshot.missingReason || `${snapshot.messageCount} message${snapshot.messageCount === 1 ? '' : 's'} captured`}</p></div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div className="scada-chart-surface rounded-xl border border-scada-border bg-scada-surface p-3">
+              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-scada-muted">Saved record composition</p>
+              <h4 className="mt-1 text-xs font-bold text-scada-text">Parameters by category</h4>
+              <div className="mt-2 h-48">
+                {categoryBreakdown.length ? <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={categoryBreakdown} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--scada-border)" horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" width={92} tick={{ fill: 'var(--scada-muted)', fontSize: 10 }} />
+                    <Tooltip cursor={{ fill: 'var(--scada-hover)' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value: number) => [`${value} parameter${value === 1 ? '' : 's'}`, 'Saved']} />
+                    <Bar dataKey="value" fill="var(--scada-accent)" radius={[0, 4, 4, 0]} isAnimationActive={false} />
+                  </BarChart>
+                </ResponsiveContainer> : <div className="grid h-full place-items-center text-xs text-scada-muted">No saved parameters to chart yet.</div>}
+              </div>
+            </div>
+            <div className="scada-chart-surface rounded-xl border border-scada-border bg-scada-surface p-3">
+              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-scada-muted">Saved record integrity</p>
+              <h4 className="mt-1 text-xs font-bold text-scada-text">Data quality distribution</h4>
+              <div className="mt-2 h-48">
+                {qualityChartData.length ? <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={qualityChartData} dataKey="value" nameKey="name" innerRadius={40} outerRadius={64} paddingAngle={2} isAnimationActive={false}>
+                      {qualityChartData.map((slice) => <Cell key={slice.name} fill={slice.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value: number, name: string) => [`${value} parameter${value === 1 ? '' : 's'}`, name]} />
+                  </PieChart>
+                </ResponsiveContainer> : <div className="grid h-full place-items-center text-center text-xs text-scada-muted">No quality metadata was reported in the saved record.</div>}
+              </div>
+              {qualityChartData.length > 0 && <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-scada-muted">{qualityChartData.map((slice) => <span key={slice.name} className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full" style={{ background: slice.color }} />{slice.name} · {slice.value}</span>)}</div>}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-col items-stretch gap-2 rounded-xl border border-scada-border bg-scada-surface-raised p-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <label className="relative w-full min-w-0 flex-1 sm:min-w-[220px] sm:flex-none">
+              <span className="sr-only">Search saved parameters</span>
+              <Search size={14} aria-hidden="true" className="absolute left-3 top-2.5 text-scada-muted" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} data-testid="input-filter-saved-data" placeholder="Search saved parameter, source, date..." className="w-full rounded-lg border border-scada-border bg-scada-surface py-2 pl-9 pr-3 text-xs text-scada-text placeholder:text-scada-muted focus-ring" />
+            </label>
+            <label>
+              <span className="sr-only">Filter saved parameters by category</span>
+              <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} data-testid="select-filter-saved-category" className="w-full rounded-lg border border-scada-border bg-scada-surface px-3 py-2 text-xs text-scada-text focus-ring sm:w-auto">
+                {categories.map((category) => <option key={category}>{category}</option>)}
+              </select>
+            </label>
+            {(query || categoryFilter !== 'All categories') && <button type="button" onClick={() => { setQuery(''); setCategoryFilter('All categories'); }} data-testid="button-clear-saved-filters" className="rounded-lg px-2.5 py-2 text-xs font-semibold text-scada-muted hover:bg-scada-hover hover:text-scada-text focus-ring">Clear filters</button>}
+            <span role="status" data-testid="text-saved-data-count" className="text-xs text-scada-muted sm:ml-auto">{sortedRows.length} of {rows.length} saved parameters</span>
+          </div>
+
+          <div className="mt-3 max-w-full overflow-x-auto scrollbar-thin rounded-xl border border-scada-border" data-scroll-region="saved-data-table">
+            <table className="w-full min-w-[900px] text-left whitespace-nowrap">
+              <thead className="bg-scada-surface-raised">
+                <tr>
+                  {[['parameter', 'Parameter'], ['scaled', 'Value'], ['unit', 'Unit'], ['source', 'Device / Source'], ['date', 'Date'], ['time', 'Time']].map(([key, label]) => <th key={key} className="px-4 py-2.5 text-[9px] font-semibold uppercase tracking-wider text-scada-muted">{sortButton(key as TelemetrySortKey, label)}</th>)}
+                  <th className="px-4 py-2.5 text-[9px] font-semibold uppercase tracking-wider text-scada-muted">Data Quality</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--scada-border)]">
+                {sortedRows.length ? sortedRows.map((row, index) => {
+                  const scaledValue = formatValue(sourceReportedValue(row) ?? sourceTransportValue(row) ?? row.data ?? '—');
+                  const rawValue = formatValue(sourceTransportValue(row) ?? '—');
+                  const dateTime = telemetryDateTime(row);
+                  const displayLabel = telemetryDisplayLabel(row);
+                  const sourceParameter = telemetrySourceParameter(row);
+                  return (
+                    <tr key={`${modbusRowKey(row)}-${index}`} data-testid={`row-saved-data-${index}`} title={`${displayLabel}\nValue: ${scaledValue} ${telemetryUnit(row)}\nTransport raw value: ${rawValue}\nModbus address: ${String(row.full_addr || row.addr || '—')}\nSource: ${String(row.server_name || 'Modbus')}\nQuality: ${String(row.quality || row.source_mapping_status || 'Good')}\nDate: ${dateTime.date}\nTime: ${dateTime.time}`} className="hover:bg-scada-hover/40 transition-colors">
+                      <td className="px-4 py-2.5 text-[11px] font-medium text-scada-text"><div>{displayLabel}</div>{displayLabel !== sourceParameter && <div className="mt-0.5 font-mono text-[9px] font-normal text-scada-muted">Source: {sourceParameter}</div>}</td>
+                      <td className="px-4 py-2.5 text-[11px] font-mono font-bold text-scada-text">{scaledValue}</td>
+                      <td className="px-4 py-2.5 text-[11px] text-scada-muted">{telemetryUnit(row)}</td>
+                      <td className="px-4 py-2.5 text-[11px] text-scada-muted">{String(row.server_name || 'Modbus')}</td>
+                      <td className="px-4 py-2.5 text-[11px] text-scada-muted">{dateTime.date}</td>
+                      <td className="px-4 py-2.5 text-[11px] font-mono text-scada-muted">{dateTime.time}</td>
+                      <td className="px-4 py-2.5"><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${explicitScalingValidated(row) ? 'bg-emerald-500/10 text-emerald-400' : hasSourceReportedValue(row) ? 'bg-blue-500/10 text-blue-300' : 'bg-amber-500/10 text-amber-400'}`}><span className="h-1 w-1 rounded-full bg-current" />{explicitScalingValidated(row) ? 'Validated' : hasSourceReportedValue(row) ? 'Source-reported' : String(row.quality || 'Raw / scaling required')}</span></td>
+                    </tr>
+                  );
+                }) : <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-scada-muted">{rows.length ? 'No saved parameters match the current filters.' : 'No parameters were recorded in this saved snapshot.'}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : <div className="px-5 py-8 text-center text-xs text-scada-muted">No successfully saved backend record is available for this site yet. Direct MQTT remains available only in Live Data.</div>}
     </section>
   );
 }
