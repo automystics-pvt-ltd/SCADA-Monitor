@@ -25,7 +25,7 @@ import { allowGrantedSite, allowSitePermission, allowUnscopedScadaEvidence, gran
 import { deviceCommunicationState, heartbeatWindows, latestBootstrapMessages, medianCadenceMs, recoveryNeedsResync, retainValidSourceTimestamp, sourceTimestampIso, sourceTimestampMilliseconds, telemetryParameterFromRawPayload } from "../lib/telemetry-reliability";
 import { inverterActivePowerObservationFromParameter, inverterEnergyObservationFromParameter, inverterMeasurementObservationFromParameter, type InverterActivePowerObservation } from "../lib/inverter-energy";
 import { applyTrn246TelemetryCalibration } from "../lib/trn246-telemetry-calibration";
-import { deviceParameterFreshness, discoverDeviceParameters, discoverDeviceParametersFromRawPayload, latestDeviceParameterWins, type DiscoveredDeviceParameter } from "../lib/device-parameter-discovery";
+import { canonicalTelemetrySourceIdentity, deviceParameterFreshness, discoverDeviceParameters, discoverDeviceParametersFromRawPayload, latestDeviceParameterWins, type DiscoveredDeviceParameter } from "../lib/device-parameter-discovery";
 import { applyActiveTelemetryMappings } from "../lib/telemetry-mapping-resolution";
 import { managedSourceIdentity, telemetryCaptureSite } from "../lib/telemetry-capture-site";
 import {
@@ -100,7 +100,10 @@ function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
   if (!siteName) return true;
   if (!isRecord(snapshot.data)) return false;
   const messages = Array.isArray(snapshot.data.messages) ? snapshot.data.messages : [];
-  const parameters = Array.isArray(snapshot.data.parameters) ? snapshot.data.parameters : [];
+  const parameters = [
+    ...(Array.isArray(snapshot.data.latestParameters) ? snapshot.data.latestParameters : []),
+    ...(Array.isArray(snapshot.data.parameters) ? snapshot.data.parameters : []),
+  ];
   const discovered = Array.isArray(snapshot.data.latestDiscoveredParameters)
     ? snapshot.data.latestDiscoveredParameters
     : isRecord(snapshot.data.latestDiscoveredParameters)
@@ -112,7 +115,7 @@ function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
     || discovered.some((parameter) => isRecord(parameter) && (parameter.siteName === siteName || parameter.site_name === siteName));
 }
 
-type StoredMessage = {
+export type StoredMessage = {
   topic: string;
   payload: string;
   parameter?: Record<string, unknown>;
@@ -122,6 +125,11 @@ type StoredMessage = {
   sourceTimestamp?: string;
   inverterRecords?: InverterActivePowerObservation[];
   delivery: "immediate" | "retained";
+  // The site resolved for this exact delivery (explicit payload site, sole
+  // managed site, or configured fallback). Scoped to snapshot persistence
+  // only -- other consumers of `parameter` intentionally re-resolve site
+  // identity themselves (see canonicalizeCapturedSnapshotParameter).
+  captureSiteName: string;
 };
 export type LiveTelemetryDevice = {
   siteName: string;
@@ -270,6 +278,29 @@ type SavedSnapshotEvidence = {
     specificYield: SavedKpiMetric | null;
   };
   calibrationProfile?: PublicPlantCalibrationProfile | null;
+};
+
+export type SavedParameterEvidence = Record<string, unknown> & {
+  sourceIdentity: string;
+  originalName: string;
+  normalizedName: string;
+  displayLabel: string;
+  originalValue: string;
+  transportRawValue: string | null;
+  sourceReportedValue: string | null;
+  normalizedValue: number | null;
+  sourceUnit: string | null;
+  displayUnit: string | null;
+  dataQuality: "validated" | "raw" | "source-reported";
+  scalingStatus: "validated" | "raw";
+  validationStatus: "validated" | "raw";
+  observedAt?: string;
+  receivedAt?: string;
+  siteName?: string;
+  deviceId?: string;
+  deviceName?: string;
+  sourceName: string;
+  address: string;
 };
 
 type CalibrationRole = "acPower" | "dailyEnergy" | "totalEnergy";
@@ -683,7 +714,7 @@ function recordCommunicationEvent(event: CommunicationEventDraft) {
   enqueueCommunicationEvent(event);
 }
 
-function parameterFromPayload(rawPayload: string): Record<string, unknown> | undefined {
+export function parameterFromPayload(rawPayload: string): Record<string, unknown> | undefined {
   const parameter = telemetryParameterFromRawPayload(rawPayload);
   return parameter ? applyTrn246TelemetryCalibration(parameter) : undefined;
 }
@@ -693,8 +724,11 @@ function sourceTimestampFromPayload(rawPayload: string) {
   return parameter ? parameterObservationTime(parameter) : undefined;
 }
 
-function snapshotParameterKey(parameter: Record<string, unknown>) {
-  return `${String(parameter.server_name ?? "")}|${String(parameter.name ?? "")}|${String(parameter.addr ?? "")}`;
+export function snapshotParameterKey(parameter: Record<string, unknown>) {
+  // Keep every live source/register tuple available until the scheduled save.
+  // `addr` is absent on some Modbus payloads, while `full_addr` and source
+  // identity still distinguish separate raw signals.
+  return savedParameterEvidenceIdentity(parameter);
 }
 
 function validTimezone(timezone: string) {
@@ -1008,6 +1042,154 @@ export function normalizeSavedSnapshotParameter(parameter: Record<string, unknow
   };
 }
 
+function evidenceString(value: unknown) {
+  if (value === undefined || value === null) return null;
+  return typeof value === "string" ? value : String(value);
+}
+
+function firstEvidenceString(...values: unknown[]) {
+  for (const value of values) {
+    const text = evidenceString(value);
+    if (text !== null && text.trim()) return text;
+  }
+  return null;
+}
+
+function normalizedEvidenceName(value: unknown) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function savedParameterEvidenceIdentity(parameter: Record<string, unknown>) {
+  const sourceIdentity = firstEvidenceString(parameter.sourceIdentity, parameter.source_identity);
+  if (sourceIdentity) return sourceIdentity;
+  const siteName = firstEvidenceString(parameter.siteName, parameter.site_name, parameter.plantName, parameter.plant_name) ?? "";
+  const sourceName = firstEvidenceString(parameter.sourceName, parameter.server_name, parameter.source, parameter.server) ?? "Saved MQTT snapshot";
+  const originalName = firstEvidenceString(parameter.originalName, parameter.name, parameter.parameter, parameter.tag) ?? "register";
+  const address = firstEvidenceString(parameter.address, parameter.full_addr, parameter.addr) ?? "—";
+  return `${siteName}|${sourceName}|${normalizedEvidenceName(originalName)}|${address}`;
+}
+
+function savedParameterObservation(parameter: Record<string, unknown>) {
+  return firstEvidenceString(parameter.observedAt, parameter.date_iso_8601, parameter.timestamp, parameter.date);
+}
+
+/**
+ * A schema-v4 record is an immutable source-evidence envelope. The aliases
+ * keep legacy KPI consumers working, while the explicit fields give every new
+ * saved-data consumer one honest contract: source value, transport value,
+ * approved normalized value, quality, validation and provenance are distinct.
+ */
+export function canonicalSavedSnapshotParameter(input: Record<string, unknown>): SavedParameterEvidence {
+  const parameter: Record<string, unknown> = normalizeSavedSnapshotParameter(input);
+  const originalName = firstEvidenceString(parameter.originalName, parameter.name, parameter.parameter, parameter.tag) ?? "register";
+  const sourceReportedValue = firstEvidenceString(
+    parameter.reported_value, parameter.reportedValue,
+    parameter.customer_value, parameter.customerValue,
+    parameter.engineering_value, parameter.engineeringValue,
+  );
+  const transportRawValue = firstEvidenceString(
+    parameter.transportRawValue, parameter.transport_raw_value,
+    parameter.raw_data, parameter.rawValue, parameter.raw_value,
+    parameter.source_raw_value, parameter.sourceRawValue,
+  );
+  const declaredValue = sourceReportedValue ?? firstEvidenceString(parameter.data, parameter.value);
+  const rawScaling = String(parameter.scalingStatus ?? parameter.scaling_status ?? "").toLowerCase() === "validated"
+    || String(parameter.validationStatus ?? parameter.validation_status ?? "").toLowerCase() === "validated"
+    || parameter.scaling_validated === true
+    || parameter.scalingValidated === true;
+  const sourceMappingStatus = String(parameter.source_mapping_status ?? parameter.sourceMappingStatus ?? "").toLowerCase();
+  const dataQuality = rawScaling
+    ? "validated" as const
+    : sourceMappingStatus === "source-reported" || sourceReportedValue !== null
+      ? "source-reported" as const
+      : "raw" as const;
+  const displayCandidate = parameter.displayNumericValue ?? parameter.display_value ?? parameter.normalizedValue;
+  const sourceCandidate = sourceReportedValue ?? parameter.value;
+  const candidate = rawScaling ? displayCandidate ?? sourceCandidate : null;
+  const normalizedValue = typeof candidate === "number"
+    ? candidate
+    : typeof candidate === "string" && candidate.trim() !== "" && Number.isFinite(Number(candidate))
+      ? Number(candidate)
+      : null;
+  const sourceUnit = firstEvidenceString(
+    parameter.sourceUnit, parameter.source_unit,
+    parameter.reported_unit, parameter.reportedUnit,
+    parameter.customer_unit, parameter.customerUnit,
+  );
+  const displayUnit = firstEvidenceString(parameter.displayUnit, parameter.display_unit, parameter.unit, parameter.engineering_unit, parameter.engineeringUnit);
+  const observedAt = savedParameterObservation(parameter) ?? undefined;
+  const receivedAt = firstEvidenceString(parameter.receivedAt, parameter.received_at) ?? undefined;
+  const siteName = firstEvidenceString(parameter.siteName, parameter.site_name, parameter.plantName, parameter.plant_name) ?? undefined;
+  const deviceId = firstEvidenceString(parameter.deviceId, parameter.device_id, parameter.inverterId, parameter.inverter_id) ?? undefined;
+  const deviceName = firstEvidenceString(parameter.deviceName, parameter.device_name, parameter.inverterName, parameter.inverter_name) ?? undefined;
+  const sourceName = firstEvidenceString(parameter.sourceName, parameter.server_name, parameter.source, parameter.server) ?? "Saved MQTT snapshot";
+  const address = firstEvidenceString(parameter.address, parameter.full_addr, parameter.addr) ?? "—";
+
+  return {
+    ...parameter,
+    sourceIdentity: savedParameterEvidenceIdentity(parameter),
+    originalName,
+    normalizedName: firstEvidenceString(parameter.normalizedName) ?? normalizedEvidenceName(originalName),
+    displayLabel: firstEvidenceString(parameter.displayLabel, parameter.display_name, parameter.displayName, parameter.label) ?? originalName,
+    originalValue: declaredValue ?? transportRawValue ?? "",
+    transportRawValue,
+    sourceReportedValue,
+    normalizedValue,
+    sourceUnit,
+    displayUnit,
+    dataQuality,
+    scalingStatus: rawScaling ? "validated" : "raw",
+    validationStatus: rawScaling ? "validated" : "raw",
+    ...(observedAt ? { observedAt } : {}),
+    ...(receivedAt ? { receivedAt } : {}),
+    ...(siteName ? { siteName } : {}),
+    ...(deviceId ? { deviceId } : {}),
+    ...(deviceName ? { deviceName } : {}),
+    sourceName,
+    address,
+    // Legacy consumers need these transport aliases; normalized engineering
+    // values remain separate and are never substituted into raw evidence.
+    name: parameter.name ?? originalName,
+    raw_data: parameter.raw_data ?? transportRawValue ?? "",
+    full_addr: parameter.full_addr ?? address,
+    source_identity: parameter.source_identity ?? savedParameterEvidenceIdentity(parameter),
+    source_mapping_status: parameter.source_mapping_status ?? parameter.sourceMappingStatus ?? (sourceReportedValue !== null ? "source-reported" : "raw"),
+    reported_value: parameter.reported_value ?? sourceReportedValue ?? undefined,
+    reported_unit: parameter.reported_unit ?? sourceUnit ?? undefined,
+    source_unit: parameter.source_unit ?? sourceUnit ?? undefined,
+  };
+}
+
+export function canonicalSavedSnapshotParameters(data: unknown) {
+  if (!isRecord(data)) return [] as SavedParameterEvidence[];
+  const discovered = Array.isArray(data.latestDiscoveredParameters)
+    ? data.latestDiscoveredParameters
+    : isRecord(data.latestDiscoveredParameters) ? Object.values(data.latestDiscoveredParameters) : [];
+  const raw = Array.isArray(data.latestParameters)
+    ? data.latestParameters
+    : isRecord(data.latestParameters) ? Object.values(data.latestParameters) : [];
+  const latest = new Map<string, SavedParameterEvidence>();
+  for (const candidate of [...raw, ...discovered]) {
+    if (!isRecord(candidate)) continue;
+    const normalized = normalizeSavedSnapshotParameter(candidate);
+    const calibrated = {
+      ...applyTrn246TelemetryCalibration(normalized),
+      // Calibration may add presentation annotations, but a saved source
+      // identity is part of the original record and must never be rewritten.
+      source_identity: normalized.source_identity,
+    };
+    const parameter = canonicalSavedSnapshotParameter(calibrated);
+    const existing = latest.get(parameter.sourceIdentity);
+    const incomingTime = sourceTimestampMilliseconds(parameter.observedAt ?? parameter.receivedAt) ?? 0;
+    const existingTime = existing ? sourceTimestampMilliseconds(existing.observedAt ?? existing.receivedAt) ?? 0 : -1;
+    if (!existing || incomingTime >= existingTime) latest.set(parameter.sourceIdentity, parameter);
+  }
+  return [...latest.values()].sort((left, right) =>
+    left.displayLabel.localeCompare(right.displayLabel)
+    || left.sourceIdentity.localeCompare(right.sourceIdentity),
+  );
+}
+
 function snapshotSaveStatus(data: unknown, messageCount: number, parameterCount: number): SnapshotSaveStatus {
   if (isRecord(data) && data.saveStatus === "missing") return "missing";
   if (isRecord(data) && data.saveStatus === "incomplete") return "incomplete";
@@ -1026,22 +1208,7 @@ export function snapshotEvidence(snapshot: {
   data: unknown;
 }): SavedSnapshotEvidence {
   const data = isRecord(snapshot.data) ? snapshot.data : {};
-  const savedParameters = Array.isArray(data.latestDiscoveredParameters)
-    ? data.latestDiscoveredParameters
-    : isRecord(data.latestDiscoveredParameters)
-      ? Object.values(data.latestDiscoveredParameters)
-      : Array.isArray(data.latestParameters)
-        ? data.latestParameters
-        : [];
-  const parameters = savedParameters
-    .filter(isRecord)
-    .map(normalizeSavedSnapshotParameter)
-    .map((parameter) => ({
-      ...applyTrn246TelemetryCalibration(parameter),
-      // The persisted discovered shape has already resolved this exact source
-      // identity; calibration annotations must not replace that provenance.
-      source_identity: parameter.source_identity,
-    }));
+  const parameters = canonicalSavedSnapshotParameters(data);
   const saveStatus = snapshotSaveStatus(data, snapshot.messageCount, snapshot.parameterCount);
   const scheduledFor = typeof data.scheduledFor === "string" ? data.scheduledFor : snapshot.windowEndedAt.toISOString();
 
@@ -1201,10 +1368,40 @@ function queueSnapshotMessage(message: StoredMessage) {
     void persistSnapshot(previousBuffer, schedule.currentSlotStart, now);
   }
   snapshotBuffer.messages.push(message);
-  if (parameter) snapshotBuffer.latestParameters[snapshotParameterKey(parameter)] = parameter;
+  if (parameter) {
+    const canonicalParameter = canonicalizeCapturedSnapshotParameter(parameter, message);
+    snapshotBuffer.latestParameters[snapshotParameterKey(canonicalParameter)] = canonicalParameter;
+  }
   for (const discovered of message.discoveredParameters ?? []) {
     snapshotBuffer.latestDiscoveredParameters[discovered.signalKey] = discovered;
   }
+}
+
+/**
+ * A raw MQTT/Modbus parameter has no resolved site identity of its own -- an
+ * unscoped broker feed only gets one once `captureMqttMessage` resolves it.
+ * Discovery stamps that resolved site into every discovered parameter's
+ * identity, but the raw representation of the exact same physical register
+ * previously kept whatever (often absent, or calibration-only) identity it
+ * was parsed with. Left alone, the two representations of one register never
+ * collapse into a single saved record. Stamp the same site-qualified
+ * identity discovery would compute so `canonicalSavedSnapshotParameters` can
+ * merge them onto one row instead of saving duplicates.
+ */
+export function canonicalizeCapturedSnapshotParameter(parameter: Record<string, unknown>, message: StoredMessage) {
+  const canonical = canonicalTelemetrySourceIdentity(parameter, {
+    siteName: message.captureSiteName,
+    topic: message.topic,
+    receivedAt: message.receivedAt,
+    provenance: message.delivery === "retained" ? "retained" : "live",
+  });
+  if (!canonical) return parameter;
+  return {
+    ...parameter,
+    site_name: message.captureSiteName,
+    source_identity: canonical.sourceIdentity,
+    sourceIdentity: canonical.sourceIdentity,
+  };
 }
 
 function snapshotOutcome(buffer: SnapshotBuffer) {
@@ -1274,7 +1471,10 @@ async function persistSnapshot(
       capturedAt: savedAt,
       topic: buffer.topic,
       messageCount: buffer.messages.length,
-      parameterCount: Math.max(Object.keys(buffer.latestParameters).length, Object.keys(buffer.latestDiscoveredParameters).length),
+      parameterCount: canonicalSavedSnapshotParameters({
+        latestParameters: buffer.latestParameters,
+        latestDiscoveredParameters: buffer.latestDiscoveredParameters,
+      }).length,
       data: {
         schemaVersion: 4,
         recordType: "scheduled-telemetry-snapshot",
@@ -1317,7 +1517,7 @@ async function persistSnapshot(
     broadcast("snapshot", evidence);
     broadcast("status", status());
     await clearStagedSnapshotAfterConfirmation(queuedEntry.id, scheduledForIso);
-    logger.info({ scheduledFor: scheduledForIso, saveStatus: outcome.saveStatus, messageCount: buffer.messages.length, parameterCount: Math.max(Object.keys(buffer.latestParameters).length, Object.keys(buffer.latestDiscoveredParameters).length) }, "MQTT snapshot stored");
+    logger.info({ scheduledFor: scheduledForIso, saveStatus: outcome.saveStatus, messageCount: buffer.messages.length, parameterCount: inserted.parameterCount }, "MQTT snapshot stored");
     return true;
   } catch (error) {
     snapshotError = error instanceof Error ? error.message : "Snapshot write failed";
@@ -1336,6 +1536,70 @@ async function latestSavedSnapshotEvidence(siteName?: string) {
     .limit(96);
   const snapshot = snapshots.find((candidate) => isRecord(candidate.data) && (candidate.data.schemaVersion === 3 || candidate.data.schemaVersion === 4) && snapshotSaveStatus(candidate.data, candidate.messageCount, candidate.parameterCount) === "saved" && snapshotBelongsToSite(candidate, siteName));
   return snapshot ? snapshotEvidence(snapshot) : null;
+}
+
+type SavedParameterHistorySnapshot = {
+  id: number;
+  topic: string;
+  windowStartedAt: Date;
+  windowEndedAt: Date;
+  capturedAt: Date;
+  messageCount: number;
+  parameterCount: number;
+  data: unknown;
+};
+
+export type SavedParameterHistoryRecord = SavedParameterEvidence & {
+  snapshotId: number;
+  scheduledFor: string;
+  capturedAt: string;
+  windowStartedAt: string;
+  windowEndedAt: string;
+  provenance: "saved-snapshot";
+};
+
+function savedParameterBelongsToSite(parameter: SavedParameterEvidence, siteName: string) {
+  const explicitSite = parameter.siteName ?? payloadSiteName(parameter);
+  return !explicitSite || explicitSite === siteName;
+}
+
+/**
+ * Flatten immutable successful snapshots into a bounded saved-only history.
+ * Dedupe is intentionally per scheduled record: a stable signal can appear in
+ * later snapshots so that charts retain their complete temporal evidence.
+ */
+export function pageSavedParameterHistory(
+  snapshots: SavedParameterHistorySnapshot[],
+  options: { siteName: string; page: number; pageSize: number },
+) {
+  const records = snapshots.flatMap((snapshot) => {
+    if (!snapshotBelongsToSite(snapshot, options.siteName)) return [] as SavedParameterHistoryRecord[];
+    const evidence = snapshotEvidence(snapshot);
+    if (evidence.saveStatus !== "saved") return [] as SavedParameterHistoryRecord[];
+    return evidence.parameters
+      .filter((parameter): parameter is SavedParameterEvidence => isRecord(parameter))
+      .filter((parameter) => savedParameterBelongsToSite(parameter, options.siteName))
+      .map((parameter) => ({
+        ...parameter,
+        snapshotId: evidence.id,
+        scheduledFor: evidence.scheduledFor,
+        capturedAt: evidence.capturedAt,
+        windowStartedAt: evidence.windowStartedAt,
+        windowEndedAt: evidence.windowEndedAt,
+        provenance: "saved-snapshot" as const,
+      }));
+  }).sort((left, right) => {
+    const leftTime = sourceTimestampMilliseconds(left.observedAt ?? left.capturedAt) ?? 0;
+    const rightTime = sourceTimestampMilliseconds(right.observedAt ?? right.capturedAt) ?? 0;
+    return rightTime - leftTime
+      || right.capturedAt.localeCompare(left.capturedAt)
+      || left.sourceIdentity.localeCompare(right.sourceIdentity);
+  });
+  const start = (options.page - 1) * options.pageSize;
+  return {
+    total: records.length,
+    records: records.slice(start, start + options.pageSize),
+  };
 }
 
 async function reconcileCompletedWindows(now = new Date()) {
@@ -2197,6 +2461,7 @@ async function captureMqttMessage(topic: string, payload: Buffer, retained = fal
     sourceTimestamp: parameter ? parameterObservationTime(parameter) : undefined,
     inverterRecords: inverterRecord ? [inverterRecord] : undefined,
     delivery: retained ? "retained" : "immediate",
+    captureSiteName,
   };
   latestMessage = message;
   lastTelemetrySourceTimestampMs = retainValidSourceTimestamp(lastTelemetrySourceTimestampMs, parameter);
@@ -2340,6 +2605,48 @@ router.get("/mqtt/snapshots/latest", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ err: error }, "Latest MQTT snapshot query failed");
     res.status(500).json({ message: "Unable to load the latest saved MQTT snapshot." });
+  }
+});
+
+router.get("/mqtt/saved-parameters", async (req, res): Promise<void> => {
+  const siteName = parseSiteName(req.query.siteName);
+  const requestedPage = typeof req.query.page === "string" ? Number(req.query.page) : 1;
+  const requestedPageSize = typeof req.query.pageSize === "string" ? Number(req.query.pageSize) : 120;
+  const page = Number.isInteger(requestedPage) ? Math.max(1, requestedPage) : 1;
+  const pageSize = Number.isInteger(requestedPageSize) ? Math.min(300, Math.max(1, requestedPageSize)) : 120;
+  const now = new Date();
+  const defaultFrom = new Date(now.getTime() - 48 * 60 * 60_000);
+  const requestedFrom = typeof req.query.from === "string" ? new Date(req.query.from) : defaultFrom;
+  const requestedTo = typeof req.query.to === "string" ? new Date(req.query.to) : now;
+  const from = Number.isFinite(requestedFrom.getTime()) ? requestedFrom : defaultFrom;
+  const to = Number.isFinite(requestedTo.getTime()) ? requestedTo : now;
+  if (!siteName || siteName.length > 160 || from > to || to.getTime() - from.getTime() > 31 * 24 * 60 * 60_000) {
+    res.status(400).json({ message: "Use an assigned site and a valid saved-data range up to 31 days." });
+    return;
+  }
+  if (!await allowGrantedSite(req, res, siteName)) return;
+  if (!await allowSitePermission(req, res, siteName, "historical-data")) return;
+  try {
+    const snapshots = await db.select().from(mqttSnapshotsTable)
+      .where(and(
+        eq(mqttSnapshotsTable.topic, subscriptionTopic),
+        gte(mqttSnapshotsTable.windowEndedAt, from),
+        lte(mqttSnapshotsTable.windowStartedAt, to),
+      ))
+      .orderBy(desc(mqttSnapshotsTable.windowEndedAt), desc(mqttSnapshotsTable.capturedAt));
+    const history = pageSavedParameterHistory(snapshots, { siteName, page, pageSize });
+    res.set("Cache-Control", "no-store").json({
+      siteName,
+      savedOnly: true,
+      range: { from: from.toISOString(), to: to.toISOString() },
+      page,
+      pageSize,
+      total: history.total,
+      records: history.records,
+    });
+  } catch (error) {
+    req.log.error({ err: error, siteName }, "Saved MQTT parameter history query failed");
+    res.status(500).json({ message: "Unable to load saved parameter evidence." });
   }
 });
 
@@ -3519,6 +3826,9 @@ async function replayableMessagesAfter(lastEventId: number, replayHighWater: num
       sourceTimestamp: event.sourceTimestamp ?? undefined,
       inverterRecords: inverterRecord ? [inverterRecord] : undefined,
       delivery: isRecord(event.metadata) && event.metadata.delivery === "retained" ? "retained" : "immediate",
+      // Replay/recovery messages never re-enter queueSnapshotMessage -- this
+      // is only a type placeholder, never consulted for persisted evidence.
+      captureSiteName: configuredMqttPlantSite,
     });
   }
   for (const message of messageHistory) {

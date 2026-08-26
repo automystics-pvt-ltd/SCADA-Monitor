@@ -198,11 +198,36 @@ function parameterValue(source: Record<string, unknown>) {
   return undefined;
 }
 
-function sourceIdentity(source: Record<string, unknown>, context: DeviceParameterDiscoveryContext) {
+function resolveSourceContext(source: Record<string, unknown>, context: DeviceParameterDiscoveryContext) {
   const sourceName = firstText(source, ["server_name", "source", "server", "device", "server_id", "serverId"]) ?? "MQTT source";
   const deviceId = firstText(source, ["device_id", "deviceId", "inverter_id", "inverterId", "asset_id", "assetId", "server_id", "serverId"]) ?? `source:${sourceName}`;
   const deviceName = firstText(source, ["device_name", "deviceName", "inverter_name", "inverterName", "device", "server_name", "serverName"]) ?? deviceId;
   return { sourceName, deviceId, deviceName, siteName: context.siteName };
+}
+
+/**
+ * The one identity formula every saved-evidence consumer must agree on:
+ * discovered parameters, admin mappings, and the report SQL all key off
+ * `siteName|sourceName|normalizedName|address`. Raw MQTT/Modbus parameters
+ * captured outside this module (e.g. the live telemetry buffer) must stamp
+ * this exact identity too, or the same physical register saved from its raw
+ * and discovered representations will look like two different signals.
+ * `mappedSource` should already have any calibration annotation applied
+ * (e.g. `applyTrn246TelemetryCalibration`) — this function only resolves
+ * identity fields, it never re-derives calibration state.
+ */
+export function canonicalTelemetrySourceIdentity(
+  mappedSource: Record<string, unknown>,
+  context: DeviceParameterDiscoveryContext,
+  originalName?: string,
+) {
+  const name = originalName ?? parameterName(mappedSource);
+  if (!name) return null;
+  const identity = resolveSourceContext(mappedSource, context);
+  const normalizedName = normalized(name) || "unnamed";
+  const address = firstText(mappedSource, ["full_addr", "address", "register", "addr"]) ?? null;
+  const sourceIdentity = [identity.siteName, identity.sourceName, normalizedName, address ?? "—"].join("|");
+  return { ...identity, normalizedName, address, sourceIdentity };
 }
 
 function sourceSiteMatchesConfiguredSite(source: Record<string, unknown>, context: DeviceParameterDiscoveryContext) {
@@ -218,15 +243,16 @@ function buildParameter(
   context: DeviceParameterDiscoveryContext,
 ): DiscoveredDeviceParameter {
   const mappedSource = applyTrn246TelemetryCalibration(source);
-  const identity = sourceIdentity(mappedSource, context);
-  const normalizedName = normalized(originalName) || "unnamed";
-  const address = firstText(mappedSource, ["full_addr", "address", "register", "addr"]) ?? null;
+  const canonical = canonicalTelemetrySourceIdentity(mappedSource, context, originalName)!;
+  const identity = canonical;
+  const normalizedName = canonical.normalizedName;
+  const address = canonical.address;
   const observedAt = observationTime(mappedSource);
   const reported = parameterValue(mappedSource) ?? rawValue;
   const value = numericValue(reported);
   const validated = scalingValidated(mappedSource);
   const sourceMappingStatus = mappedSource.source_mapping_status === "source-reported" ? "source-reported" as const : "raw" as const;
-  const sourceIdentityKey = [identity.siteName, identity.sourceName, normalizedName, address ?? "—"].join("|");
+  const sourceIdentityKey = canonical.sourceIdentity;
   const signalKey = [identity.siteName, identity.deviceId, sourceIdentityKey, normalizedName, address ?? "—"].join("|");
   const observationId = `parameter:${hash([sourceIdentityKey, observedAt ?? "", context.receivedAt, rawText(reported), rawText(mappedSource.raw_data ?? mappedSource.rawValue ?? mappedSource.raw_value ?? rawValue)].join("|"))}`;
   return {

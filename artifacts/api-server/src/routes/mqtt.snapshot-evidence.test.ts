@@ -1,13 +1,73 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PlatformTelemetryMapping } from "@workspace/db";
+import { discoverDeviceParametersFromRawPayload } from "../lib/device-parameter-discovery.ts";
 import {
   canWriteScheduledSnapshot,
+  canonicalizeCapturedSnapshotParameter,
+  canonicalSavedSnapshotParameters,
   isPersistenceWindowOpen,
+  pageSavedParameterHistory,
+  parameterFromPayload,
   persistenceSchedule,
   scadaTelemetryMappingResponse,
+  snapshotParameterKey,
   snapshotEvidence,
+  type StoredMessage,
 } from "./mqtt.ts";
+
+test("stamps the raw capture-path parameter with the same site-qualified identity discovery computes, so one physical register never saves as two records", () => {
+  const rawPayload = JSON.stringify({
+    name: "actpow",
+    data: -11_309.54752,
+    raw_data: "raw-register-evidence",
+    full_addr: "305031",
+    server_name: "ana",
+  });
+  const receivedAt = "2026-08-26T05:00:00.000Z";
+  const captureSiteName = "Sunrise Solar Plant";
+  const topic = "ana/telemetry";
+
+  const parameter = parameterFromPayload(rawPayload);
+  assert.ok(parameter);
+  // TRN246 calibration stamps its own bookkeeping identity here, unrelated to
+  // (and never collapsible with) the site-qualified format discovery uses.
+  assert.equal(parameter!.source_identity, "trn246|ana|actpow|305031");
+
+  const discoveredParameters = discoverDeviceParametersFromRawPayload(rawPayload, {
+    siteName: captureSiteName,
+    topic,
+    receivedAt,
+    provenance: "live",
+  });
+  assert.equal(discoveredParameters.length, 1);
+  const discovered = discoveredParameters[0]!;
+  assert.equal(discovered.sourceIdentity, "Sunrise Solar Plant|ana|actpow|305031");
+
+  const message: StoredMessage = {
+    topic,
+    payload: rawPayload,
+    parameter,
+    discoveredParameters,
+    receivedAt,
+    sequence: 1,
+    delivery: "immediate",
+    captureSiteName,
+  };
+
+  const canonicalRaw = canonicalizeCapturedSnapshotParameter(parameter!, message);
+  // This is the exact defect this test guards against: without capture-time
+  // identity unification, the raw and discovered representations of one
+  // physical register carry different sourceIdentity values and never merge.
+  assert.equal(canonicalRaw.source_identity, discovered.sourceIdentity);
+
+  const evidence = canonicalSavedSnapshotParameters({
+    latestParameters: { [snapshotParameterKey(canonicalRaw)]: canonicalRaw },
+    latestDiscoveredParameters: { [discovered.signalKey]: discovered },
+  });
+  assert.equal(evidence.length, 1);
+  assert.equal(evidence[0]!.sourceIdentity, discovered.sourceIdentity);
+});
 
 test("returns every approved transform field needed by the SCADA mapping overlay", () => {
   const mapping: PlatformTelemetryMapping = {
@@ -163,4 +223,156 @@ test("normalizes schema-v4 discovered snapshot evidence for saved KPIs without l
   assert.equal(evidence.metrics.specificYield?.value, 1.4);
   assert.equal(evidence.parameters[0]?.name, "actpow");
   assert.equal(evidence.parameters[0]?.raw_data, "31393536383339343234");
+});
+
+test("retains raw-only parameters alongside discovered parameters with explicit value and validation provenance", () => {
+  const parameters = canonicalSavedSnapshotParameters({
+    latestParameters: [
+      {
+        name: "Vendor mode",
+        data: "enabled",
+        raw_data: "0x01",
+        site_name: "Plant A",
+        server_name: "PLC A",
+        full_addr: "40100",
+        source_identity: "Plant A|PLC A|vendormode|40100",
+        date_iso_8601: "2026-08-25T04:00:00.000Z",
+      },
+      {
+        name: "Duplicate current",
+        data: "11",
+        raw_data: "0011",
+        site_name: "Plant A",
+        server_name: "PLC A",
+        full_addr: "40101",
+        source_identity: "Plant A|PLC A|duplicatecurrent|40101",
+        date_iso_8601: "2026-08-25T04:00:00.000Z",
+      },
+    ],
+    latestDiscoveredParameters: [
+      {
+        originalName: "Duplicate current",
+        normalizedName: "duplicatecurrent",
+        displayLabel: "DC current",
+        rawValue: "0012",
+        reportedValue: "12",
+        sourceUnit: "A",
+        siteName: "Plant A",
+        sourceName: "PLC A",
+        address: "40101",
+        sourceIdentity: "Plant A|PLC A|duplicatecurrent|40101",
+        observedAt: "2026-08-25T04:01:00.000Z",
+        receivedAt: "2026-08-25T04:01:01.000Z",
+        sourceMappingStatus: "source-reported",
+        dataQuality: "source-reported",
+        scalingStatus: "raw",
+      },
+    ],
+  });
+
+  assert.equal(parameters.length, 2);
+  const rawOnly = parameters.find((parameter) => parameter.originalName === "Vendor mode");
+  assert.deepEqual({
+    originalValue: rawOnly?.originalValue,
+    transportRawValue: rawOnly?.transportRawValue,
+    normalizedValue: rawOnly?.normalizedValue,
+    dataQuality: rawOnly?.dataQuality,
+    validationStatus: rawOnly?.validationStatus,
+  }, {
+    originalValue: "enabled",
+    transportRawValue: "0x01",
+    normalizedValue: null,
+    dataQuality: "raw",
+    validationStatus: "raw",
+  });
+  const deduplicated = parameters.find((parameter) => parameter.originalName === "Duplicate current");
+  assert.equal(deduplicated?.sourceReportedValue, "12");
+  assert.equal(deduplicated?.transportRawValue, "0012");
+  assert.equal(deduplicated?.observedAt, "2026-08-25T04:01:00.000Z");
+});
+
+test("pages saved-only history by stable source identity without dropping later snapshot evidence", () => {
+  const snapshot = (id: number, endedAt: string, parameters: Record<string, unknown>[]) => ({
+    id,
+    topic: "trn246/modbus",
+    windowStartedAt: new Date(new Date(endedAt).getTime() - 15 * 60_000),
+    windowEndedAt: new Date(endedAt),
+    capturedAt: new Date(endedAt),
+    messageCount: parameters.length,
+    parameterCount: parameters.length,
+    data: { saveStatus: "saved", scheduledFor: endedAt, latestParameters: parameters },
+  });
+  const parameter = (value: string, observedAt: string) => ({
+    name: "Validated DC voltage",
+    data: value,
+    raw_data: value,
+    reported_value: value,
+    source_unit: "V",
+    scaling_status: "validated",
+    site_name: "Plant A",
+    server_name: "PLC A",
+    full_addr: "40200",
+    source_identity: "Plant A|PLC A|dcvoltage|40200",
+    date_iso_8601: observedAt,
+  });
+  const history = pageSavedParameterHistory([
+    snapshot(1, "2026-08-25T04:15:00.000Z", [parameter("600", "2026-08-25T04:14:00.000Z")]),
+    snapshot(2, "2026-08-25T04:30:00.000Z", [parameter("610", "2026-08-25T04:29:00.000Z")]),
+    snapshot(3, "2026-08-25T04:30:00.000Z", [{ ...parameter("700", "2026-08-25T04:29:00.000Z"), site_name: "Plant B", source_identity: "Plant B|PLC A|dcvoltage|40200" }]),
+  ], { siteName: "Plant A", page: 1, pageSize: 1 });
+
+  assert.equal(history.total, 2);
+  assert.equal(history.records.length, 1);
+  assert.equal(history.records[0]?.normalizedValue, 610);
+  assert.equal(history.records[0]?.provenance, "saved-snapshot");
+});
+
+test("keeps same-name raw registers with different full addresses separate until the scheduled save", () => {
+  const first = snapshotParameterKey({
+    name: "Vendor register",
+    server_name: "PLC A",
+    full_addr: "41001",
+    site_name: "Plant A",
+  });
+  const second = snapshotParameterKey({
+    name: "Vendor register",
+    server_name: "PLC A",
+    full_addr: "41002",
+    site_name: "Plant A",
+  });
+  assert.notEqual(first, second);
+});
+
+test("retains saved history pages beyond the first 256 scheduled snapshots", () => {
+  const base = Date.parse("2026-08-01T06:00:00.000Z");
+  const snapshots = Array.from({ length: 300 }, (_, index) => {
+    const endedAt = new Date(base + index * 15 * 60_000).toISOString();
+    return {
+      id: index + 1,
+      topic: "trn246/modbus",
+      windowStartedAt: new Date(new Date(endedAt).getTime() - 15 * 60_000),
+      windowEndedAt: new Date(endedAt),
+      capturedAt: new Date(endedAt),
+      messageCount: 1,
+      parameterCount: 1,
+      data: {
+        saveStatus: "saved",
+        scheduledFor: endedAt,
+        latestParameters: [{
+          name: "Archive counter",
+          data: String(index),
+          raw_data: String(index),
+          site_name: "Plant A",
+          server_name: "PLC A",
+          full_addr: "42000",
+          source_identity: "Plant A|PLC A|archivecounter|42000",
+          date_iso_8601: endedAt,
+        }],
+      },
+    };
+  });
+  const history = pageSavedParameterHistory(snapshots, { siteName: "Plant A", page: 3, pageSize: 120 });
+  assert.equal(history.total, 300);
+  assert.equal(history.records.length, 60);
+  assert.equal(history.records.at(-1)?.originalValue, "0");
 });

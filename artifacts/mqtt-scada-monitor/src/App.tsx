@@ -10,6 +10,7 @@ import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetr
 import { appendLiveEnergySamples, liveEnergySamplesFromRows, selectLiveEnergySeries, type LiveEnergySample } from './energy-stream';
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation, type ValidatedInverterFleet, type ValidatedInverterPowerRecord } from './verified-kpis';
 import { DashboardPowerFlow } from './components/dashboard-power-flow';
+import { SavedParameterAnalytics, type SavedParameterRecord } from './components/saved-parameter-analytics';
 import { collectAlarmFaultEvidence, collectAlarmFaultEvidenceFromRows, getFaultGuidance, telemetryText, type FaultEvidence } from './fault-guidance';
 import { dashboardAccessState } from './scada-access';
 import { selectDashboardEvidenceSource } from './dashboard-evidence-selection';
@@ -114,6 +115,13 @@ type CommunicationHealth = {
   persistenceError?: string;
   replayWindow?: { oldestSequence?: number; newestSequence?: number; capacity: number };
 };
+type SavedParameterHistoryState = {
+  records: SavedParameterRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  range?: { from: string; to: string };
+};
 type StreamPhase = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed';
 type ThemeMode = 'light' | 'dark';
 type WeatherLocation = {
@@ -203,6 +211,60 @@ function isRecord(value: JsonValue): value is Record<string, JsonValue> {
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const explicitSavedKpiDestinations = new Set(['active-power', 'daily-energy', 'total-energy', 'specific-yield']);
+
+function savedParameterRecordFromApi(value: unknown): SavedParameterRecord | null {
+  if (!isUnknownRecord(value)) return null;
+  const sourceIdentity = typeof value.sourceIdentity === 'string' ? value.sourceIdentity.trim() : '';
+  const parameterName = typeof value.displayLabel === 'string' && value.displayLabel.trim()
+    ? value.displayLabel
+    : typeof value.originalName === 'string' && value.originalName.trim()
+      ? value.originalName
+      : '';
+  const timestamp = typeof value.observedAt === 'string' && value.observedAt
+    ? value.observedAt
+    : typeof value.capturedAt === 'string' && value.capturedAt ? value.capturedAt : '';
+  const snapshotId = typeof value.snapshotId === 'number' || typeof value.snapshotId === 'string' ? String(value.snapshotId) : '';
+  const dataQuality = ['validated', 'raw', 'source-reported'].includes(String(value.dataQuality))
+    ? String(value.dataQuality) as SavedParameterRecord['dataQuality']
+    : 'raw';
+  const normalizedValue = typeof value.normalizedValue === 'number' && Number.isFinite(value.normalizedValue)
+    ? value.normalizedValue
+    : null;
+  const originalValue = typeof value.originalValue === 'string' ? value.originalValue : '';
+  if (!sourceIdentity || !parameterName || !timestamp || !snapshotId) return null;
+  const destination = typeof value.admin_mapping_destination === 'string'
+    ? value.admin_mapping_destination
+    : typeof value.adminMappingDestination === 'string' ? value.adminMappingDestination : '';
+  const deviceId = typeof value.deviceId === 'string' ? value.deviceId : undefined;
+  const deviceName = typeof value.deviceName === 'string' ? value.deviceName : undefined;
+  const category = dataQuality !== 'validated' || normalizedValue === null
+    ? 'raw'
+    : explicitSavedKpiDestinations.has(destination)
+      ? 'kpi'
+      : deviceId || deviceName ? 'device' : 'summary';
+  return {
+    id: `${snapshotId}:${sourceIdentity}`,
+    parameterName,
+    sourceIdentity,
+    ...(deviceId ? { deviceId } : {}),
+    ...(deviceName ? { deviceName } : {}),
+    category,
+    dataQuality,
+    value: dataQuality === 'validated' && normalizedValue !== null ? normalizedValue : originalValue,
+    unit: dataQuality === 'validated'
+      ? typeof value.displayUnit === 'string' ? value.displayUnit : typeof value.sourceUnit === 'string' ? value.sourceUnit : undefined
+      : typeof value.sourceUnit === 'string' ? value.sourceUnit : undefined,
+    timestamp,
+    provenance: typeof value.provenance === 'string' ? value.provenance : 'saved-snapshot',
+    originalValue,
+    transportRawValue: typeof value.transportRawValue === 'string' ? value.transportRawValue : null,
+    sourceReportedValue: typeof value.sourceReportedValue === 'string' ? value.sourceReportedValue : null,
+    validationStatus: typeof value.validationStatus === 'string' ? value.validationStatus : 'raw',
+    address: typeof value.address === 'string' ? value.address : undefined,
+  };
 }
 
 function apiResponseMessage(payload: unknown, fallback: string) {
@@ -1933,7 +1995,7 @@ function WorkspaceHeader({ eyebrow, title, description, action, onBack }: {
   );
 }
 
-function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, calculations, savedSnapshot, validatedFleet, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now, energyStream, lastLiveDataTimestamp }: {
+function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence, calculations, savedSnapshot, savedParameterHistory, savedParameterHistoryLoadState, savedParameterHistoryError, onSavedParameterHistoryPageChange, validatedFleet, rawPayload, rawJson, rawTopic, rawPayloadSource, onCopy, onOpenInverter, onBack, onRefreshWeather, onSiteChange, siteName, sites, weather, now, energyStream, lastLiveDataTimestamp }: {
   section: string;
   devices: Device[];
   rows: ModbusRow[];
@@ -1942,6 +2004,10 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
   persistence: PersistenceStatus;
   calculations: VerifiedScadaKpis;
   savedSnapshot: SavedKpiSnapshot | null;
+  savedParameterHistory: SavedParameterHistoryState;
+  savedParameterHistoryLoadState: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+  savedParameterHistoryError: string;
+  onSavedParameterHistoryPageChange: (page: number) => void;
   validatedFleet: ValidatedInverterFleet;
   rawPayload: string;
   rawJson: JsonValue | null;
@@ -1986,11 +2052,11 @@ function MonitorWorkspace({ section, devices, rows, mode, liveState, persistence
     </div>
   );
   if (section === 'live-data') return <div data-testid="screen-live-data"><WorkspaceHeader eyebrow="Telemetry operations" title="Live data explorer" description="Inspect only direct MQTT/SSE telemetry. Saved, replayed, retained, and queued evidence never appears in this view." action={commonAction} onBack={onBack} /><DetailedLiveDataTable rows={rows} persistence={persistence} lastReceivedAt={lastLiveDataTimestamp} /><div className="mt-5"><CompletePayloadInspector rawPayload={rawPayload} rawJson={rawJson} topic={rawTopic} source={rawPayloadSource} onCopy={onCopy} /></div></div>;
-  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between demonstration values and source-backed live telemetry." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-3 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={workspaceRawFallbacks.dailyEnergy} savedLabel={workspaceSavedLabel} liveState={liveState} streamSamples={energyStream} now={now} /><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><div className="xl:col-span-2"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} rawInverters={workspaceRawInverters} rawInverterIdentities={workspaceRawInverterIdentities} validatedFleet={validatedFleet} mode={mode} savedLabel={workspaceSavedLabel} onOpenInverter={(record) => onOpenInverter(sourceBackedInverterDevice(record, siteName))} /></div></div></div>;
+  if (section === 'energy') return <div data-testid="screen-energy"><WorkspaceHeader eyebrow="Energy analytics" title="Energy performance" description="Compare generation trends and plant output with clear separation between direct live telemetry and immutable saved evidence." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-3 xl:grid-cols-2"><EnergySummaryChart mode={mode} dailyEnergy={calculations.dailyEnergy} rawFallback={workspaceRawFallbacks.dailyEnergy} savedLabel={workspaceSavedLabel} liveState={liveState} streamSamples={energyStream} now={now} /><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><div className="xl:col-span-2"><PowerDistributionChart inverters={mode === 'demo' ? devices.filter((device) => device.type === 'Power inverter') : []} rawInverters={workspaceRawInverters} rawInverterIdentities={workspaceRawInverterIdentities} validatedFleet={validatedFleet} mode={mode} savedLabel={workspaceSavedLabel} onOpenInverter={(record) => onOpenInverter(sourceBackedInverterDevice(record, siteName))} /></div></div><div className="mt-5"><SavedParameterAnalytics records={savedParameterHistory.records} isLoading={savedParameterHistoryLoadState === 'loading'} error={savedParameterHistoryError ? new Error(savedParameterHistoryError) : null} selectedTimestamp={savedSnapshot?.capturedAt} totalRecords={savedParameterHistory.total} serverPage={savedParameterHistory.page} serverPageSize={savedParameterHistory.pageSize} onServerPageChange={onSavedParameterHistoryPageChange} /></div></div>;
   if (section === 'environment') return <div data-testid="screen-environment"><WorkspaceHeader eyebrow="Site conditions" title="Environment" description="Review weather, irradiance, and site context using the verified coordinates configured for this plant." action={commonAction} onBack={onBack} /><EnvironmentDetails siteName={siteName} sites={sites} weather={weather} now={now} onRefresh={onRefreshWeather} onSiteChange={onSiteChange} /></div>;
   if (section === 'alarms') return <div data-testid="screen-alarms"><WorkspaceHeader eyebrow="Operations center" title="Alarms & events" description="Keep operational attention on source-reported alarms, faults, and data-quality exceptions that need review." action={<span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">Review required</span>} onBack={onBack} />{usingSavedSnapshot && <p role="status" className="mb-4 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-200">Saved backend alarm evidence · {workspaceSavedLabel}. Current alarm state requires direct live telemetry.</p>}<InverterFaultBoard devices={devices} rows={evidenceRows} onOpenInverter={onOpenInverter} /><div className="mt-5"><SidePanels devices={devices} rows={rows} liveState={liveState} savedRows={usingSavedSnapshot ? savedSnapshotRows : []} savedLabel={workspaceSavedLabel} /></div><div className="mt-5"><DetailedLiveDataTable rows={rows.filter((row) => isMappedAlarmOrFault(row) || /alarm|fault|error|warning/i.test(telemetrySourceParameter(row)))} persistence={persistence} lastReceivedAt={lastLiveDataTimestamp} /></div></div>;
   if (section === 'raw-data') return <Suspense fallback={<div role="status" className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-scada-border bg-scada-surface text-sm text-scada-muted">Loading Report Center…</div>}><ReportCenter siteName={siteName} sites={sites} devices={devices} parameters={Array.from(new Set([...rows, ...savedSnapshotRows].map((row) => String(row.name ?? row.parameter ?? '').trim()).filter(Boolean))).sort()} /></Suspense>;
-  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-3 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} siteName={siteName} /></div></div>;
+  return <div data-testid="screen-performance"><WorkspaceHeader eyebrow="Performance" title="Plant performance" description="Monitor output behavior and electrical source evidence together, with live and historical context kept clearly separated." action={commonAction} onBack={onBack} /><CalculationSummaryPanel calculations={calculations} rawRows={evidenceRows} className="mb-5" /><div className="grid gap-3 xl:grid-cols-2"><PowerTrendChart calculation={calculations.acPower} mode={mode} rawFallback={workspaceRawFallbacks.acPower} savedLabel={workspaceSavedLabel} /><ElectricalParametersChart rows={rows} mode={mode} liveState={liveState} savedSnapshot={savedSnapshot} siteName={siteName} /></div><div className="mt-5"><SavedParameterAnalytics records={savedParameterHistory.records} isLoading={savedParameterHistoryLoadState === 'loading'} error={savedParameterHistoryError ? new Error(savedParameterHistoryError) : null} selectedTimestamp={savedSnapshot?.capturedAt} totalRecords={savedParameterHistory.total} serverPage={savedParameterHistory.page} serverPageSize={savedParameterHistory.pageSize} onServerPageChange={onSavedParameterHistoryPageChange} /></div></div>;
 }
 
 function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calculation: VerifiedKpiCalculation; mode: 'demo' | 'live'; rawFallback?: RawKpiFallback; savedLabel?: string }) {
@@ -2345,7 +2411,7 @@ function EnvironmentDetails({ siteName, sites = [], weather, now, onRefresh, onS
         </article>
 
         <article className="environment-overview-card environment-location-card">
-          <div className="environment-overview-card__heading"><div><div className="environment-overview-card__eyebrow">Configured plant location</div><h3>{locationLabel}</h3></div><span className="environment-location-card__icon"><MapPin size={18} /></span></div>
+          <div className="environment-overview-card__heading environment-location-card__heading"><div className="min-w-0"><div className="environment-overview-card__eyebrow">Configured plant location</div><h3 title={locationLabel}>{locationLabel}</h3></div><span className="environment-location-card__icon"><MapPin size={18} /></span></div>
           <p className="environment-location-card__address" data-testid="weather-location-address">{addressSummary}</p>
           <p className="environment-location-card__source">Coordinate source: {coordinateSource}</p>
           <div className="environment-location-card__facts">
@@ -3177,6 +3243,9 @@ function AppShell() {
   const [resyncNotice, setResyncNotice] = useState('');
   const [savedKpiSnapshot, setSavedKpiSnapshot] = useState<SavedKpiSnapshot | null>(null);
   const [savedSnapshotLoadState, setSavedSnapshotLoadState] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle');
+  const [savedParameterHistory, setSavedParameterHistory] = useState<SavedParameterHistoryState>({ records: [], total: 0, page: 1, pageSize: 120 });
+  const [savedParameterHistoryLoadState, setSavedParameterHistoryLoadState] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle');
+  const [savedParameterHistoryError, setSavedParameterHistoryError] = useState('');
   const [rawTopic, setRawTopic] = useState(DEFAULT_BROKER_TOPIC);
   const [activeSite, setActiveSite] = useState('');
   const [siteAccessState, setSiteAccessState] = useState<{ sites: string[]; roles: Record<string, string>; activations: Record<string, 'active' | 'inactive'>; global: boolean; loading: boolean; error: string }>({ sites: [], roles: {}, activations: {}, global: false, loading: true, error: '' });
@@ -3338,6 +3407,48 @@ function AppShell() {
       window.clearInterval(refreshTimer);
     };
   }, [acceptConfirmedSnapshot, activeSite, applySnapshotMappings, mode, scadaSession.authenticated]);
+  useEffect(() => {
+    if (!activeSite) {
+      setSavedParameterHistory((current) => current.page === 1 ? current : { ...current, page: 1 });
+    }
+  }, [activeSite]);
+  useEffect(() => {
+    const controller = new AbortController();
+    if (mode !== 'live' || !scadaSession.authenticated || !activeSite) {
+      setSavedParameterHistory({ records: [], total: 0, page: 1, pageSize: 120 });
+      setSavedParameterHistoryLoadState('idle');
+      setSavedParameterHistoryError('');
+      return () => controller.abort();
+    }
+    const loadSavedParameterHistory = async () => {
+      setSavedParameterHistoryLoadState('loading');
+      setSavedParameterHistoryError('');
+      try {
+        const response = await fetch(`/api/mqtt/saved-parameters?siteName=${encodeURIComponent(activeSite)}&page=${savedParameterHistory.page}&pageSize=${savedParameterHistory.pageSize}`, { signal: controller.signal, cache: 'no-store' });
+        const payload = await readApiJson<{ records?: unknown[]; total?: unknown; page?: unknown; pageSize?: unknown; range?: { from?: unknown; to?: unknown } }>(response, 'Saved parameter evidence could not be loaded.');
+        if (controller.signal.aborted || !Array.isArray(payload.records)) return;
+        const records = payload.records.map(savedParameterRecordFromApi).filter((record): record is SavedParameterRecord => record !== null);
+        const total = typeof payload.total === 'number' && Number.isFinite(payload.total) ? payload.total : records.length;
+        const page = typeof payload.page === 'number' && Number.isInteger(payload.page) ? payload.page : savedParameterHistory.page;
+        const pageSize = typeof payload.pageSize === 'number' && Number.isInteger(payload.pageSize) ? payload.pageSize : savedParameterHistory.pageSize;
+        const from = typeof payload.range?.from === 'string' ? payload.range.from : undefined;
+        const to = typeof payload.range?.to === 'string' ? payload.range.to : undefined;
+        setSavedParameterHistory({ records, total, page, pageSize, ...(from && to ? { range: { from, to } } : {}) });
+        setSavedParameterHistoryLoadState(records.length ? 'ready' : 'empty');
+      } catch (loadError) {
+        if (!controller.signal.aborted) {
+          setSavedParameterHistoryLoadState('error');
+          setSavedParameterHistoryError(loadError instanceof Error ? loadError.message : 'Saved parameter evidence could not be loaded.');
+        }
+      }
+    };
+    void loadSavedParameterHistory();
+    const refreshTimer = window.setInterval(() => void loadSavedParameterHistory(), 5 * 60_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshTimer);
+    };
+  }, [activeSite, mode, savedKpiSnapshot?.capturedAt, savedParameterHistory.page, savedParameterHistory.pageSize, scadaSession.authenticated]);
   useEffect(() => {
     const controller = new AbortController();
     const loadLocationPermissions = async () => {
@@ -4327,7 +4438,7 @@ function AppShell() {
           {scadaSession.authenticated && scadaAccessState === 'unavailable' && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-rose-500/30 bg-rose-500/[.04] p-8 text-center"><div className="max-w-md"><AlertCircle size={28} className="mx-auto mb-4 text-rose-400" /><h1 className="text-lg font-bold text-scada-text">SCADA access unavailable</h1><p className="mt-2 text-sm leading-6 text-scada-muted">{siteAccessState.error}</p><button type="button" onClick={() => setAuthRefreshToken((current) => current + 1)} className="mt-5 inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 text-xs font-bold text-rose-200 transition hover:bg-rose-500/20 focus-ring"><RefreshCw size={14} aria-hidden="true" />Retry SCADA access</button></div></section>}
           {scadaSession.authenticated && (scadaAccessState === 'denied' || (scadaAccessState === 'ready' && !plantSiteName)) && <section className="grid min-h-[60vh] place-items-center rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[.04] p-8 text-center"><div className="max-w-md"><MapPin size={28} className="mx-auto mb-4 text-amber-400" /><h1 className="text-lg font-bold text-scada-text">{inactiveAssignedSites.length ? 'Assigned site awaiting activation' : 'No SCADA site assigned'}</h1><p className="mt-2 text-sm leading-6 text-scada-muted">{siteAccessState.error || (inactiveAssignedSites.length ? `${inactiveAssignedSites.join(', ')} is assigned to you, but live SCADA access remains blocked until a platform administrator completes a successful telemetry test and activates the site.` : 'Your account does not have an active site assignment. Ask a platform administrator to grant access before viewing live telemetry.')}</p></div></section>}
           {scadaSession.authenticated && scadaAccessState === 'ready' && plantSiteName && <><div className="scada-dashboard-site-bar mb-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-1.5 text-[10px]"><span className="font-medium text-scada-muted">Assigned site</span><strong className="min-w-0 max-w-[min(42vw,18rem)] truncate text-blue-300">{plantSiteName}</strong><span className="scada-dashboard-site-status rounded-full border px-2 py-0.5 font-bold uppercase tracking-[0.12em]">Active</span>{siteAccessState.roles[plantSiteName] && <span className="truncate rounded-full border border-scada-border px-2 py-0.5 uppercase tracking-[0.1em] text-scada-muted">{siteAccessState.roles[plantSiteName]}</span>}</div>
-          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={currentLiveRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={dashboardSavedSnapshot} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} energyStream={energyStream} lastLiveDataTimestamp={lastLiveDataTimestamp} /></div>}
+          {activeSection !== 'overview' && <div id={activeSection} className="scroll-mt-6"><MonitorWorkspace section={activeSection} devices={inverterDisplayDevices} rows={currentLiveRows} mode={mode} liveState={electricalLiveState} persistence={persistence} calculations={calculations} savedSnapshot={dashboardSavedSnapshot} savedParameterHistory={savedParameterHistory} savedParameterHistoryLoadState={savedParameterHistoryLoadState} savedParameterHistoryError={savedParameterHistoryError} onSavedParameterHistoryPageChange={(page) => setSavedParameterHistory((current) => ({ ...current, page: Math.max(1, page) }))} validatedFleet={validatedInverterFleet} rawPayload={rawPayload} rawJson={rawJson} rawTopic={rawTopic} rawPayloadSource={rawPayloadSource} onCopy={handleCopy} onOpenInverter={(device) => setSelectedInverterId(device.id)} onBack={() => navigateTo('overview')} onRefreshWeather={refreshWeather} onSiteChange={changeActiveSite} siteName={plantSiteName} sites={availableSites} weather={weatherState} now={now} energyStream={energyStream} lastLiveDataTimestamp={lastLiveDataTimestamp} /></div>}
           {activeSection === 'overview' && <>
           <section id="overview" data-section="overview" className="scada-dashboard-overview scroll-mt-6">
             <div className="scada-dashboard-heading mb-3 flex flex-wrap items-center justify-between gap-3">

@@ -2489,7 +2489,7 @@ button:not(:disabled):active,
   justify-content: space-between;
   gap: 1rem;
   border-bottom: 1px solid var(--scada-border);
-  padding: 1rem 1.1rem .85rem;
+  padding: .85rem 1rem .68rem;
 }
 .environment-toolbar__title,
 .environment-toolbar__actions,
@@ -2606,9 +2606,9 @@ button:not(:disabled):active,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .45rem .9rem;
+  gap: .4rem .85rem;
   border-bottom: 1px solid var(--scada-border);
-  padding: .62rem 1.1rem;
+  padding: .52rem 1rem;
   color: var(--scada-muted);
   font-size: .58rem;
   font-weight: 600;
@@ -2640,8 +2640,8 @@ button:not(:disabled):active,
 
 .environment-overview-grid {
   display: grid;
-  gap: .72rem;
-  padding: .85rem 1.1rem .35rem;
+  gap: .6rem;
+  padding: .7rem 1rem .3rem;
 }
 .environment-overview-card,
 .environment-analysis-card {
@@ -2649,10 +2649,10 @@ button:not(:disabled):active,
   border: 1px solid var(--scada-border);
   border-radius: .82rem;
   background: var(--scada-surface-raised);
-  padding: .9rem;
+  padding: .8rem;
 }
 .environment-overview-card {
-  min-height: 10.2rem;
+  min-height: 9.4rem;
 }
 .environment-overview-card__eyebrow {
   color: var(--scada-muted);
@@ -2664,8 +2664,8 @@ button:not(:disabled):active,
 }
 .environment-condition-card__body {
   min-width: 0;
-  gap: .85rem;
-  margin-top: .72rem;
+  gap: .75rem;
+  margin-top: .6rem;
 }
 .environment-condition-card__icon {
   display: grid;
@@ -2704,9 +2704,9 @@ button:not(:disabled):active,
   flex-wrap: wrap;
   align-items: center;
   gap: .35rem;
-  margin-top: .72rem;
+  margin-top: .6rem;
   border-top: 1px solid color-mix(in srgb, var(--scada-border) 76%, transparent);
-  padding-top: .55rem;
+  padding-top: .48rem;
   color: var(--scada-muted);
   font-size: .56rem;
 }
@@ -2869,15 +2869,15 @@ button:not(:disabled):active,
 
 .environment-metric-grid {
   display: grid;
-  gap: .72rem;
-  padding: .45rem 1.1rem .85rem;
+  gap: .6rem;
+  padding: .35rem 1rem .75rem;
 }
 .environment-metric-card {
-  min-height: 9.15rem;
+  min-height: 8.4rem;
   border: 1px solid var(--scada-border);
   border-radius: .82rem;
   background: var(--scada-surface);
-  padding: .82rem .88rem .7rem;
+  padding: .72rem .8rem .6rem;
 }
 .environment-metric-card__header {
   display: flex;
@@ -2904,7 +2904,7 @@ button:not(:disabled):active,
 }
 .environment-metric-card__value {
   overflow: hidden;
-  margin: 1rem 0 .75rem;
+  margin: .82rem 0 .62rem;
   color: var(--scada-text);
   font-family: var(--app-font-mono);
   font-size: clamp(1.12rem, 2.2vw, 1.5rem);
@@ -2952,11 +2952,11 @@ button:not(:disabled):active,
 
 .environment-analysis-grid {
   display: grid;
-  gap: .72rem;
-  padding: 0 1.1rem .85rem;
+  gap: .6rem;
+  padding: 0 1rem .75rem;
 }
 .environment-analysis-card {
-  min-height: 12rem;
+  min-height: 11rem;
 }
 .environment-analysis-card__heading {
   justify-content: space-between;
@@ -3045,9 +3045,9 @@ button:not(:disabled):active,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .4rem 1.15rem;
+  gap: .35rem 1rem;
   border-top: 1px solid var(--scada-border);
-  padding: .75rem 1.1rem;
+  padding: .65rem 1rem;
   color: var(--scada-muted);
   font-size: .55rem;
 }
