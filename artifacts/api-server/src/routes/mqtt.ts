@@ -90,6 +90,28 @@ export function __setConfiguredMqttPlantSiteForTest(siteName: string) {
   configuredMqttPlantSite = siteName;
 }
 
+// The real deployment shares one physical broker topic across every test
+// process that imports this module (each pulling real production traffic at
+// a high, unpredictable cadence). Overriding the subscription topic lets a
+// replay/recovery test read and write an isolated slice of
+// mqtt_communication_events -- exercising the exact same deliveryHighWater()/
+// replayableMessagesAfter() query path -- without racing real telemetry for
+// delivery-sequence numbers or contiguity.
+export function __setSubscriptionTopicForTest(topic: string) {
+  if (process.env.NODE_ENV !== "test") throw new Error("__setSubscriptionTopicForTest is only available under NODE_ENV=test");
+  subscriptionTopic = topic;
+}
+
+// Lets a test deterministically force the "standby" branch of the /mqtt/stream
+// ledger fanout (the setInterval loop only polls the durable ledger while
+// consumerLeaseHeld is false) without depending on whether some other
+// process in this environment happens to currently hold the real MQTT
+// consumer lease.
+export function __setConsumerLeaseHeldForTest(held: boolean) {
+  if (process.env.NODE_ENV !== "test") throw new Error("__setConsumerLeaseHeldForTest is only available under NODE_ENV=test");
+  consumerLeaseHeld = held;
+}
+
 // Lets regression tests exercise listLiveTelemetryDevices()/runLiveTelemetryTest()
 // against realistic in-memory message history without a live broker
 // connection. Mirrors __setConfiguredMqttPlantSiteForTest's NODE_ENV guard.
@@ -520,7 +542,15 @@ async function deliveryHighWater() {
       eq(mqttCommunicationEventsTable.topic, subscriptionTopic),
       eq(mqttCommunicationEventsTable.eventType, "telemetry"),
     ));
-  return event?.sequence ?? undefined;
+  // pg returns a bigint aggregate as a string, not a number, regardless of
+  // its magnitude. The initial-connect replay path happens to survive this
+  // because it always routes the result through Math.max() before use,
+  // which coerces numerically -- but the standby ledger fanout compares
+  // this value with strict equality against a JS number (recoveryNeedsResync),
+  // so an un-coerced string here made every standby recovery spuriously
+  // report a gap and silently drop the actual recovered telemetry. Coerce
+  // once, here, so every caller receives a real number.
+  return event?.sequence === null || event?.sequence === undefined ? undefined : Number(event.sequence);
 }
 
 function parseDeliverySequence(value: unknown) {

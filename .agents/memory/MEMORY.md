@@ -46,3 +46,5 @@
 - [SSE half-dead connection watchdog](sse-halfdead-connection-watchdog.md) — A live EventSource can show "connected" for minutes with no data; watchdog on heartbeat activity, not onerror.
 - [Sole-active-site fallback trap](sole-active-site-fallback-trap.md) — "sole active site" fallbacks silently break the moment a second site exists; use the explicit configured site mapping instead.
 - [MQTT plant-site configuration](mqtt-plant-site-configuration.md) — an unset/never-saved "plant site" admin setting silently defaults to the raw topic string, breaking message-to-site attribution.
+- [Bigint aggregate string coercion](bigint-aggregate-string-coercion.md) — pg/drizzle return `sql\`max(bigint)\`` as a string; strict equality against it silently and permanently misbehaves.
+- [MQTT test topic isolation](mqtt-test-topic-isolation.md) — override `subscriptionTopic`/consumer-lease test hooks to test replay logic without racing real broker traffic.
