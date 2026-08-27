@@ -115,6 +115,17 @@ export function __broadcastMessageForTest(message: StoredMessage) {
   broadcast("message", message, message.sequence);
 }
 
+// Parallel hook for the "snapshot" event's real fan-out path: the scheduled
+// (or retry-confirmed) persistSnapshot() write calls broadcast("snapshot",
+// evidence) with exactly this shape -- a SavedSnapshotEvidence object, not
+// the raw DB row -- and that is what snapshotBelongsToSite() actually gates
+// on in production. A unit test against snapshotBelongsToSite() alone cannot
+// prove the real `/mqtt/stream` route delivers it to the right listener.
+export function __broadcastSnapshotForTest(evidence: unknown) {
+  if (process.env.NODE_ENV !== "test") throw new Error("__broadcastSnapshotForTest is only available under NODE_ENV=test");
+  broadcast("snapshot", evidence);
+}
+
 function payloadSiteName(payload: unknown) {
   return isRecord(payload) ? parseSiteName(payload.site_name ?? payload.siteName ?? payload.plant_name ?? payload.plantName) : "";
 }
@@ -135,7 +146,7 @@ export function messageBelongsToSite(message: StoredMessage, siteName?: string) 
   return configuredMqttPlantSite === siteName;
 }
 
-function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
+export function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
   if (!siteName) return true;
   if (!isRecord(snapshot.data)) return false;
   const messages = Array.isArray(snapshot.data.messages) ? snapshot.data.messages : [];
@@ -148,10 +159,32 @@ function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
     : isRecord(snapshot.data.latestDiscoveredParameters)
       ? Object.values(snapshot.data.latestDiscoveredParameters)
       : [];
-  return messages.some((message) => isRecord(message) && typeof message.payload === "string"
-    && messageBelongsToSite({ ...message, sequence: 0, receivedAt: "", topic: "" } as StoredMessage, siteName))
-    || parameters.some((parameter) => payloadSiteName(parameter) === siteName)
-    || discovered.some((parameter) => isRecord(parameter) && (parameter.siteName === siteName || parameter.site_name === siteName));
+  // Only the *explicit* labels found in this evidence decide attribution
+  // here; an unlabeled entry contributes nothing either way at this stage
+  // (see the fallback below for why).
+  const explicitMessageSites = messages
+    .filter((message): message is Record<string, unknown> => isRecord(message) && typeof message.payload === "string")
+    .map((message) => payloadSiteName(message.parameter ?? parameterFromPayload(message.payload as string)))
+    .filter((explicitSiteName) => explicitSiteName);
+  const explicitParameterSites = parameters
+    .map((parameter) => payloadSiteName(parameter))
+    .filter((explicitSiteName) => explicitSiteName);
+  const explicitDiscoveredSites = discovered
+    .filter(isRecord)
+    .map((parameter) => (typeof parameter.siteName === "string" && parameter.siteName)
+      || (typeof parameter.site_name === "string" && parameter.site_name) || "")
+    .filter((explicitSiteName) => explicitSiteName);
+  const explicitSites = [...explicitMessageSites, ...explicitParameterSites, ...explicitDiscoveredSites];
+  if (explicitSites.length > 0) return explicitSites.includes(siteName);
+  // This snapshot's evidence carries no explicit site/plant label anywhere
+  // -- the same shape real, unlabeled broker payloads always have (see
+  // messageBelongsToSite) -- including the case where the evidence itself is
+  // entirely empty, e.g. a "missing"/"incomplete" scheduled window with zero
+  // captured messages. It must still resolve to the site this server's
+  // single configured broker/topic is mapped to, or the live "snapshot"
+  // broadcast silently stops reaching every plant's dashboard the moment
+  // that evidence has nothing explicit to key off of.
+  return configuredMqttPlantSite === siteName;
 }
 
 export type StoredMessage = {
