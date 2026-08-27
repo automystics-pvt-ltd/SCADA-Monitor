@@ -84,16 +84,29 @@ let configuredMqttPlantSite = runtimeConfiguration.plantSite;
 let plantTimezone = validTimezone(runtimeConfiguration.timezone);
 let configuredManagedSiteFallback: string | undefined;
 
+export function __setConfiguredMqttPlantSiteForTest(siteName: string) {
+  if (process.env.NODE_ENV !== "test") throw new Error("__setConfiguredMqttPlantSiteForTest is only available under NODE_ENV=test");
+  configuredMqttPlantSite = siteName;
+}
+
 function payloadSiteName(payload: unknown) {
   return isRecord(payload) ? parseSiteName(payload.site_name ?? payload.siteName ?? payload.plant_name ?? payload.plantName) : "";
 }
 
-function messageBelongsToSite(message: StoredMessage, siteName?: string) {
+export function messageBelongsToSite(message: StoredMessage, siteName?: string) {
   if (!siteName) return true;
   const parameter = message.parameter ?? parameterFromPayload(message.payload);
   const explicitSiteName = payloadSiteName(parameter);
   if (explicitSiteName) return explicitSiteName === siteName;
-  return configuredManagedSiteFallback === siteName;
+  // Real broker payloads never carry an explicit site/plant name field, so an
+  // unlabeled message is attributed to the site this server's single
+  // configured broker/topic is mapped to. This must NOT depend on how many
+  // platform sites happen to be active (configuredManagedSiteFallback) —
+  // once a second site (e.g. a QA fixture) is registered, that count-based
+  // fallback goes permanently undefined and silently drops every real
+  // telemetry message for every site, even though status/heartbeat traffic
+  // keeps flowing and the UI still reports "connected".
+  return configuredMqttPlantSite === siteName;
 }
 
 function snapshotBelongsToSite(snapshot: { data: unknown }, siteName?: string) {
