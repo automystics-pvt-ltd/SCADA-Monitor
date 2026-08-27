@@ -89,6 +89,19 @@ export function __setConfiguredMqttPlantSiteForTest(siteName: string) {
   configuredMqttPlantSite = siteName;
 }
 
+// Lets regression tests exercise listLiveTelemetryDevices()/runLiveTelemetryTest()
+// against realistic in-memory message history without a live broker
+// connection. Mirrors __setConfiguredMqttPlantSiteForTest's NODE_ENV guard.
+export function __injectMessageHistoryForTest(message: StoredMessage) {
+  if (process.env.NODE_ENV !== "test") throw new Error("__injectMessageHistoryForTest is only available under NODE_ENV=test");
+  messageHistory.push(message);
+}
+
+export function __resetMessageHistoryForTest() {
+  if (process.env.NODE_ENV !== "test") throw new Error("__resetMessageHistoryForTest is only available under NODE_ENV=test");
+  messageHistory.length = 0;
+}
+
 function payloadSiteName(payload: unknown) {
   return isRecord(payload) ? parseSiteName(payload.site_name ?? payload.siteName ?? payload.plant_name ?? payload.plantName) : "";
 }
@@ -214,7 +227,6 @@ export type LiveTelemetryTestResult = {
 type TelemetryTestWaiter = {
   siteName: string;
   deviceId: string;
-  acceptsConfiguredSiteFallback: boolean;
   resolve: (message: StoredMessage | undefined) => void;
   timer: NodeJS.Timeout;
 };
@@ -2280,11 +2292,6 @@ function deviceFromMessage(message: StoredMessage): LiveTelemetryDevice | undefi
   return { siteName, deviceId, deviceName, lastReceivedAt: message.receivedAt };
 }
 
-function messageHasExplicitSiteName(message: StoredMessage) {
-  const parameter = message.parameter ?? parameterFromPayload(message.payload);
-  return Boolean(parameter && payloadSiteName(parameter));
-}
-
 async function soleManagedSiteForConfiguredFallback() {
   const sites = await db.select({ siteName: platformSitesTable.siteName })
     .from(platformSitesTable)
@@ -2294,31 +2301,37 @@ async function soleManagedSiteForConfiguredFallback() {
   return configuredManagedSiteFallback;
 }
 
-function testMessageMatches(message: StoredMessage, siteName: string, deviceId: string, acceptsConfiguredSiteFallback = false) {
+// deviceFromMessage() already resolves an unlabeled device's siteName to
+// configuredMqttPlantSite, so a plain equality check against the requested
+// siteName is sufficient -- and correct for any number of active sites. This
+// used to accept a separate "configured site fallback" whenever the target
+// site happened to be the sole active managed site (a count-based signal),
+// but that fallback silently stopped applying once a second site was
+// registered, causing a live telemetry test to report "no telemetry" for a
+// site whose messages were, in fact, still arriving. It was also misleading
+// even with a single site: it could report success for a site the live SSE
+// stream (messageBelongsToSite) would never actually deliver to, since that
+// stream requires strict configuredMqttPlantSite equality with no fallback.
+// Matching that same strict rule here keeps the test result truthful.
+function testMessageMatches(message: StoredMessage, siteName: string, deviceId: string) {
   const device = deviceFromMessage(message);
-  return message.delivery === "immediate"
-    && (device?.siteName === siteName
-      || (acceptsConfiguredSiteFallback
-        && device?.siteName === configuredMqttPlantSite
-        && !messageHasExplicitSiteName(message)))
-    && device.deviceId === deviceId;
+  return message.delivery === "immediate" && device?.siteName === siteName && device.deviceId === deviceId;
 }
 
 function notifyTelemetryTestWaiters(message: StoredMessage) {
   for (const waiter of telemetryTestWaiters) {
-    if (!testMessageMatches(message, waiter.siteName, waiter.deviceId, waiter.acceptsConfiguredSiteFallback)) continue;
+    if (!testMessageMatches(message, waiter.siteName, waiter.deviceId)) continue;
     clearTimeout(waiter.timer);
     telemetryTestWaiters.delete(waiter);
     waiter.resolve(message);
   }
 }
 
-function waitForLiveTelemetry(siteName: string, deviceId: string, timeoutMs: number, acceptsConfiguredSiteFallback: boolean) {
+function waitForLiveTelemetry(siteName: string, deviceId: string, timeoutMs: number) {
   return new Promise<StoredMessage | undefined>((resolve) => {
     const waiter: TelemetryTestWaiter = {
       siteName,
       deviceId,
-      acceptsConfiguredSiteFallback,
       resolve,
       timer: setTimeout(() => {
         telemetryTestWaiters.delete(waiter);
@@ -2340,14 +2353,20 @@ function actualTelemetryValue(message: StoredMessage) {
 }
 
 export async function listLiveTelemetryDevices() {
-  const fallbackManagedSite = await soleManagedSiteForConfiguredFallback();
+  // Attribution intentionally comes straight from deviceFromMessage(), which
+  // always resolves an unlabeled device to configuredMqttPlantSite. This used
+  // to be overridden with the "sole active managed site" (a count-based
+  // fallback) whenever exactly one platform site existed, but that override
+  // silently reverted the moment a second site (e.g. a QA fixture) was
+  // registered -- devices attributed to the sole site's registered name would
+  // vanish from that site's live-device listing with no error, exactly like
+  // the messageBelongsToSite regression this task fixed. Attribution must
+  // stay anchored to configuredMqttPlantSite regardless of how many sites are
+  // active, matching messageBelongsToSite/the live SSE filter exactly.
   const latest = new Map<string, LiveTelemetryDevice>();
   for (const message of messageHistory) {
     if (message.delivery !== "immediate") continue;
-    const discovered = deviceFromMessage(message);
-    const device = discovered && !messageHasExplicitSiteName(message) && fallbackManagedSite
-      ? { ...discovered, siteName: fallbackManagedSite }
-      : discovered;
+    const device = deviceFromMessage(message);
     if (!device) continue;
     const key = `${device.siteName}:${device.deviceId}`;
     const existing = latest.get(key);
@@ -2520,6 +2539,21 @@ export async function listLatestDeviceParameters(siteName: string, deviceId?: st
     if (latestDeviceParameterWins(existing, parameter)) latest.set(identity, parameter);
   };
 
+  // Unlike messageBelongsToSite/deviceFromMessage (live attribution, which
+  // must always resolve to configuredMqttPlantSite regardless of site
+  // count), this is a one-time bridge for *historical* catalog rows that
+  // were captured before this site was configured to match
+  // configuredMqttPlantSite -- e.g. bootstrap-era discoveries filed under the
+  // raw MQTT plant-site default. It intentionally stays gated on "exactly
+  // one active managed site" rather than switching to configuredMqttPlantSite
+  // directly: once a second real site exists there is no way to tell which
+  // site those unlabeled legacy rows belong to, so silently guessing would
+  // risk leaking one site's historical evidence into another's mapping
+  // catalog. Going forward, new discoveries are always filed under
+  // configuredMqttPlantSite (see captureMqttMessage/telemetryCaptureSite),
+  // so this only affects pre-existing rows and never causes *live* telemetry
+  // to go dark -- it just stops backfilling old evidence once the site count
+  // becomes ambiguous, which is the safe failure mode here.
   const fallbackManagedSite = await soleManagedSiteForConfiguredFallback();
   const canAdoptLegacyConfiguredSource = fallbackManagedSite === siteName && configuredMqttPlantSite !== siteName;
   const discoveryConditions = [canAdoptLegacyConfiguredSource
@@ -2580,21 +2614,20 @@ export async function runLiveTelemetryTest(siteName: string, deviceId: string, t
   requestMqttConsumer();
   const startedAt = new Date();
   const initialHighWater = messageHistory.at(-1)?.sequence ?? 0;
-  const acceptsConfiguredSiteFallback = await soleManagedSiteForConfiguredFallback() === siteName;
   const initialRuntime = status();
   const existingFreshEvidence = [...messageHistory].reverse().find((candidate) =>
-    testMessageMatches(candidate, siteName, deviceId, acceptsConfiguredSiteFallback)
+    testMessageMatches(candidate, siteName, deviceId)
     && Date.now() - Date.parse(candidate.receivedAt) <= initialRuntime.communication.staleAfterMs);
   const message = existingFreshEvidence
-    ?? await waitForLiveTelemetry(siteName, deviceId, timeoutSeconds * 1_000, acceptsConfiguredSiteFallback);
+    ?? await waitForLiveTelemetry(siteName, deviceId, timeoutSeconds * 1_000);
   const runtime = status();
   const communication = runtime.communication;
   const latestForDevice = [...messageHistory].reverse().find((candidate) =>
-    testMessageMatches(candidate, siteName, deviceId, acceptsConfiguredSiteFallback));
+    testMessageMatches(candidate, siteName, deviceId));
   const received = message ?? latestForDevice;
   const processedValue = message ? actualTelemetryValue(message) : undefined;
   const messagesReceived = messageHistory.filter((candidate) =>
-    candidate.sequence > initialHighWater && testMessageMatches(candidate, siteName, deviceId, acceptsConfiguredSiteFallback)).length;
+    candidate.sequence > initialHighWater && testMessageMatches(candidate, siteName, deviceId)).length;
   const communicationErrors = [
     runtime.error,
     communication.activeInterruption?.reason,
