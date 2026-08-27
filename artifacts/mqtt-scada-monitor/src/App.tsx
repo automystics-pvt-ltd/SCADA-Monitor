@@ -413,6 +413,10 @@ function numberFrom(device: Device, path: string[], fallback = 0) {
 
 const DEVICE_ONLINE_MAX_AGE_MS = 30_000;
 const DEVICE_STALE_MAX_AGE_MS = 120_000;
+// The server emits an SSE heartbeat every 20s; allow for one missed beat
+// plus network jitter before declaring the live stream half-dead.
+const STREAM_WATCHDOG_TIMEOUT_MS = 50_000;
+const STREAM_WATCHDOG_CHECK_INTERVAL_MS = 10_000;
 function statusAt(device: Device, now: number, mode: 'demo' | 'live'): DeviceStatus {
   if (mode === 'demo') return device.status;
   const age = now - device.lastSeen;
@@ -3453,6 +3457,7 @@ function AppShell() {
   }, [applySnapshotMappings]);
   const streamRef = useRef<EventSource | null>(null);
   const streamGenerationRef = useRef(0);
+  const streamLastActivityRef = useRef(0);
   const weatherRequestAbortRef = useRef<AbortController | null>(null);
   const seenTelemetryEventsRef = useRef(new Map<string, true>());
   const energyStreamScopeRef = useRef('');
@@ -3849,12 +3854,15 @@ function AppShell() {
     }
     const stream = new EventSource(`/api/mqtt/stream?siteName=${encodeURIComponent(plantSiteName)}`);
     streamRef.current = stream;
+    streamLastActivityRef.current = Date.now();
     stream.onopen = () => {
       if (generation !== streamGenerationRef.current) return;
+      streamLastActivityRef.current = Date.now();
       setStreamPhase('connected');
     };
     stream.addEventListener('status', (event) => {
       if (generation !== streamGenerationRef.current) return;
+      streamLastActivityRef.current = Date.now();
       try {
         const status = JSON.parse((event as MessageEvent).data) as { connected: boolean; error?: string; persistence?: PersistenceStatus; communication?: CommunicationHealth };
         setConnected(status.connected);
@@ -3871,6 +3879,7 @@ function AppShell() {
     });
     stream.addEventListener('message', (event) => {
       if (generation !== streamGenerationRef.current) return;
+      streamLastActivityRef.current = Date.now();
       try {
         const message = JSON.parse((event as MessageEvent).data) as { topic: string; payload: string; parameter?: unknown; receivedAt?: string; replay?: boolean; recovered?: boolean; delivery?: 'immediate' | 'retained'; inverterRecords?: unknown[] };
         if (typeof message.topic !== 'string' || typeof message.payload !== 'string') return;
@@ -3882,6 +3891,7 @@ function AppShell() {
     });
     stream.addEventListener('snapshot', (event) => {
       if (generation !== streamGenerationRef.current) return;
+      streamLastActivityRef.current = Date.now();
       try {
         const parsedSnapshot = parseSavedKpiSnapshot(JSON.parse((event as MessageEvent).data));
         const snapshot = parsedSnapshot;
@@ -3893,6 +3903,7 @@ function AppShell() {
     });
     stream.addEventListener('site-activation', (event) => {
       if (generation !== streamGenerationRef.current) return;
+      streamLastActivityRef.current = Date.now();
       try {
         const update = JSON.parse((event as MessageEvent).data) as { siteName?: string; activationStatus?: 'active' | 'inactive' };
         if (!update.siteName || (update.activationStatus !== 'active' && update.activationStatus !== 'inactive')) return;
@@ -3909,6 +3920,7 @@ function AppShell() {
     });
     stream.addEventListener('telemetry-mapping', (event) => {
       if (generation !== streamGenerationRef.current) return;
+      streamLastActivityRef.current = Date.now();
       try {
         const update = JSON.parse((event as MessageEvent).data) as { siteName?: string };
         if (!update.siteName || update.siteName !== plantSiteName) return;
@@ -3921,6 +3933,7 @@ function AppShell() {
     });
     stream.addEventListener('resync', (event) => {
       if (generation !== streamGenerationRef.current) return;
+      streamLastActivityRef.current = Date.now();
       try {
         const resync = JSON.parse((event as MessageEvent).data) as { reason?: string };
         setResyncNotice(resync.reason ?? 'A stream recovery range was unavailable; the raw inspector was resynchronized from available evidence.');
@@ -3929,7 +3942,9 @@ function AppShell() {
       }
     });
     stream.addEventListener('heartbeat', () => {
-      if (generation === streamGenerationRef.current) setStreamPhase('connected');
+      if (generation !== streamGenerationRef.current) return;
+      streamLastActivityRef.current = Date.now();
+      setStreamPhase('connected');
     });
     stream.addEventListener('auth-expired', () => {
       if (generation !== streamGenerationRef.current) return;
@@ -3960,7 +3975,17 @@ function AppShell() {
       return;
     }
     connect();
+    const watchdog = window.setInterval(() => {
+      const idleFor = Date.now() - streamLastActivityRef.current;
+      // The server sends a heartbeat every 20s. A native EventSource can sit
+      // in a half-dead state for minutes after a proxy or network blip
+      // without ever firing onerror, showing "live" while no fresh telemetry
+      // arrives. Force a fresh connection if nothing has been heard in a
+      // while a proxy or network blip is silently dropping the connection.
+      if (idleFor > STREAM_WATCHDOG_TIMEOUT_MS) connect();
+    }, STREAM_WATCHDOG_CHECK_INTERVAL_MS);
     return () => {
+      window.clearInterval(watchdog);
       streamGenerationRef.current += 1;
       streamRef.current?.close();
       streamRef.current = null;
