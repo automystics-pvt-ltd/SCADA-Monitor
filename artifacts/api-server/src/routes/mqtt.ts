@@ -11,6 +11,7 @@ import {
   mqttInverterMeasurementHistoryTable,
   mqttSnapshotsTable,
   platformConfigurationTable,
+  platformLegacyTelemetrySiteAssignmentsTable,
   platformSitesTable,
   plantCalibrationProfilesTable,
   plantLocationsTable,
@@ -2531,6 +2532,61 @@ async function persistDiscoveredParameterCatalog(parameters: DiscoveredDevicePar
 }
 
 /**
+ * Pure decision rule behind resolveLegacyConfiguredSourceOwner, split out so
+ * it can be unit-tested directly against an explicit list of active site
+ * names instead of the live, globally-shared platformSitesTable (which other
+ * concurrently-running test fixtures also populate, making "exactly one
+ * active site" impossible to assert deterministically end-to-end). A new
+ * owner can only ever be established while ownership is unambiguous: exactly
+ * one active site differs from the raw legacy default.
+ */
+export function soleCandidateLegacyOwner(activeSiteNames: string[], rawSiteName: string): string | undefined {
+  const candidates = [...new Set(activeSiteNames)].filter((siteName) => siteName !== rawSiteName);
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/**
+ * Resolves which managed site owns the historical telemetry-catalog rows
+ * filed under the raw MQTT plant-site default (configuredMqttPlantSite)
+ * before that site's name was aligned with it. The decision is durable: once
+ * an assignment exists in platformLegacyTelemetrySiteAssignmentsTable, it is
+ * always honored, regardless of how many other active sites (real or
+ * QA/test fixtures) exist now. A new assignment is only ever established
+ * while ownership is unambiguous (see soleCandidateLegacyOwner) and is then
+ * persisted immediately, so a plant that later expands to multiple sites
+ * keeps its already-resolved legacy evidence visible to the right site
+ * instead of losing it to a live, count-based guess that breaks the moment a
+ * second site appears. Returns undefined when no assignment exists yet and
+ * ownership is not currently unambiguous (safe failure mode: nobody adopts
+ * the row).
+ */
+async function resolveLegacyConfiguredSourceOwner(): Promise<string | undefined> {
+  const [existingAssignment] = await db.select()
+    .from(platformLegacyTelemetrySiteAssignmentsTable)
+    .where(eq(platformLegacyTelemetrySiteAssignmentsTable.rawSiteName, configuredMqttPlantSite))
+    .limit(1);
+  if (existingAssignment) return existingAssignment.managedSiteName;
+
+  const activeSites = await db.select({ siteName: platformSitesTable.siteName })
+    .from(platformSitesTable)
+    .where(eq(platformSitesTable.status, "active"));
+  const candidateOwner = soleCandidateLegacyOwner(activeSites.map((site) => site.siteName), configuredMqttPlantSite);
+  if (!candidateOwner) return undefined;
+
+  // A concurrent caller may race to establish the same assignment; the
+  // unique primary key on rawSiteName makes that race harmless -- whichever
+  // insert wins is re-read below so every caller observes the same owner.
+  await db.insert(platformLegacyTelemetrySiteAssignmentsTable)
+    .values({ rawSiteName: configuredMqttPlantSite, managedSiteName: candidateOwner })
+    .onConflictDoNothing();
+  const [assignment] = await db.select()
+    .from(platformLegacyTelemetrySiteAssignmentsTable)
+    .where(eq(platformLegacyTelemetrySiteAssignmentsTable.rawSiteName, configuredMqttPlantSite))
+    .limit(1);
+  return assignment?.managedSiteName;
+}
+
+/**
  * Returns the latest complete source evidence per stable parameter identity.
  * Both Platform Admin and SCADA consume this single aggregation so a mapping
  * cannot be saved against a different interpretation than an operator sees.
@@ -2551,51 +2607,48 @@ export async function listLatestDeviceParameters(siteName: string, deviceId?: st
     if (latestDeviceParameterWins(existing, parameter)) latest.set(identity, parameter);
   };
 
+  const ownConditions = [eq(platformTelemetryDiscoveriesTable.siteName, siteName)];
+  if (deviceId) ownConditions.push(eq(platformTelemetryDiscoveriesTable.deviceId, deviceId));
+  const ownDiscoveries = await db.select().from(platformTelemetryDiscoveriesTable)
+    .where(and(...ownConditions))
+    .orderBy(desc(platformTelemetryDiscoveriesTable.lastSeenAt));
+  for (const discovery of ownDiscoveries) add(discoveryCatalogParameter(discovery));
+
   // Unlike messageBelongsToSite/deviceFromMessage (live attribution, which
   // must always resolve to configuredMqttPlantSite regardless of site
   // count), this is a one-time bridge for *historical* catalog rows that
   // were captured before this site was configured to match
   // configuredMqttPlantSite -- e.g. bootstrap-era discoveries filed under the
-  // raw MQTT plant-site default. It intentionally stays gated on "exactly
-  // one active managed site" rather than switching to configuredMqttPlantSite
-  // directly: once a second real site exists there is no way to tell which
-  // site those unlabeled legacy rows belong to, so silently guessing would
-  // risk leaking one site's historical evidence into another's mapping
-  // catalog. Going forward, new discoveries are always filed under
-  // configuredMqttPlantSite (see captureMqttMessage/telemetryCaptureSite),
-  // so this only affects pre-existing rows and never causes *live* telemetry
-  // to go dark -- it just stops backfilling old evidence once the site count
-  // becomes ambiguous, which is the safe failure mode here.
-  const fallbackManagedSite = await soleManagedSiteForConfiguredFallback();
-  const canAdoptLegacyConfiguredSource = fallbackManagedSite === siteName && configuredMqttPlantSite !== siteName;
-  const discoveryConditions = [canAdoptLegacyConfiguredSource
-    ? or(
-      eq(platformTelemetryDiscoveriesTable.siteName, siteName),
-      eq(platformTelemetryDiscoveriesTable.siteName, configuredMqttPlantSite),
-    )
-    : eq(platformTelemetryDiscoveriesTable.siteName, siteName)];
-  if (deviceId) discoveryConditions.push(eq(platformTelemetryDiscoveriesTable.deviceId, deviceId));
-  const catalogDiscoveries = await db.select().from(platformTelemetryDiscoveriesTable)
-    .where(and(...discoveryConditions))
-    .orderBy(desc(platformTelemetryDiscoveriesTable.lastSeenAt));
-  for (const discovery of catalogDiscoveries) {
-    const parameter = discoveryCatalogParameter(discovery);
-    add(
-      canAdoptLegacyConfiguredSource && discovery.siteName === configuredMqttPlantSite
-        ? {
-          ...parameter,
+  // raw MQTT plant-site default. Ownership is resolved and persisted by
+  // resolveLegacyConfiguredSourceOwner rather than re-derived from a live
+  // "exactly one other active managed site" count on every call: that count
+  // used to break the moment ANY second active site was registered --
+  // including an unrelated QA/test fixture site -- silently and permanently
+  // stopping backfill for the real production site. Once an owner is
+  // established it is exclusive and durable, so it keeps applying correctly
+  // even after the plant expands to additional sites. Going forward, new
+  // discoveries are always filed under configuredMqttPlantSite (see
+  // captureMqttMessage/telemetryCaptureSite), so this only affects
+  // pre-existing rows and never causes *live* telemetry to go dark.
+  if (configuredMqttPlantSite !== siteName && await resolveLegacyConfiguredSourceOwner() === siteName) {
+    const legacyConditions = [eq(platformTelemetryDiscoveriesTable.siteName, configuredMqttPlantSite)];
+    if (deviceId) legacyConditions.push(eq(platformTelemetryDiscoveriesTable.deviceId, deviceId));
+    const legacyRows = await db.select().from(platformTelemetryDiscoveriesTable).where(and(...legacyConditions));
+    for (const discovery of legacyRows) {
+      const parameter = discoveryCatalogParameter(discovery);
+      add({
+        ...parameter,
+        siteName,
+        sourceIdentity: managedSourceIdentity(siteName, parameter.sourceName, parameter.normalizedName, parameter.address),
+        signalKey: [
           siteName,
-          sourceIdentity: managedSourceIdentity(siteName, parameter.sourceName, parameter.normalizedName, parameter.address),
-          signalKey: [
-            siteName,
-            parameter.deviceId,
-            managedSourceIdentity(siteName, parameter.sourceName, parameter.normalizedName, parameter.address),
-            parameter.normalizedName,
-            parameter.address ?? "—",
-          ].join("|"),
-        }
-        : parameter,
-    );
+          parameter.deviceId,
+          managedSourceIdentity(siteName, parameter.sourceName, parameter.normalizedName, parameter.address),
+          parameter.normalizedName,
+          parameter.address ?? "—",
+        ].join("|"),
+      });
+    }
   }
 
   for (const message of messageHistory) {

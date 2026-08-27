@@ -29,3 +29,4 @@ export * from "./platform-admin";
 export * from "./platform-admin-otp";
 export * from "./platform-telemetry-mappings";
 export * from "./platform-telemetry-discoveries";
+export * from "./platform-legacy-telemetry-site-assignments";
