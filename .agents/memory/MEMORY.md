@@ -45,3 +45,4 @@
 - [Persistence widget label consistency](persistence-widget-label-consistency.md) — Keep forward-looking countdown headings from contradicting an adjacent "Saving paused" widget.
 - [SSE half-dead connection watchdog](sse-halfdead-connection-watchdog.md) — A live EventSource can show "connected" for minutes with no data; watchdog on heartbeat activity, not onerror.
 - [Sole-active-site fallback trap](sole-active-site-fallback-trap.md) — "sole active site" fallbacks silently break the moment a second site exists; use the explicit configured site mapping instead.
+- [MQTT plant-site configuration](mqtt-plant-site-configuration.md) — an unset/never-saved "plant site" admin setting silently defaults to the raw topic string, breaking message-to-site attribution.

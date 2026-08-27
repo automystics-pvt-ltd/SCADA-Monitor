@@ -1472,11 +1472,12 @@ router.patch("/platform-admin/mqtt-config", async (req: Request, res): Promise<v
     plantSite: value.plantSite,
     timezone: value.timezone,
   });
-  res.json(UpdatePlatformMqttConfigResponse.parse({
-    ...value,
-    credentialsConfigured: Boolean(process.env.MQTT_USERNAME && process.env.MQTT_PASSWORD),
-    pendingApply: true,
-  }));
+  // Build the full response (including applyState/connected) from live runtime
+  // status rather than hand-assembling a partial object -- the response schema
+  // requires those fields and a partial object fails validation, which
+  // previously made every staged save appear to fail with a 500 even though
+  // the configuration was already persisted.
+  res.json(UpdatePlatformMqttConfigResponse.parse(await brokerConfiguration()));
 });
 
 router.post("/platform-admin/mqtt-config/apply", async (req: Request, res): Promise<void> => {
