@@ -1771,7 +1771,6 @@ function InverterOverviewTable({ devices, rows, onOpenInverter, onViewAll }: { d
                  <div className="min-w-0 px-3 py-2.5">
                    <p className="text-[9px] font-bold uppercase tracking-wide text-[var(--scada-muted)]">{powerLabel(inverter)}</p>
                    <p className="mt-1 break-words font-mono text-sm font-bold text-[var(--scada-text)]">{powerValue(inverter)}</p>
-                   <p className="mt-1.5 text-[9px] leading-4 text-[var(--scada-muted)]">This source reports one identity code per asset; per-asset power and generation are not separately metered here.</p>
                  </div>
                ) : (
                  <div className="grid grid-cols-2">
