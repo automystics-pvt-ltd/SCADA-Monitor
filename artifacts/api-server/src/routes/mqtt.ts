@@ -102,6 +102,18 @@ export function __resetMessageHistoryForTest() {
   messageHistory.length = 0;
 }
 
+// Lets integration tests exercise the real end-to-end live-delivery path --
+// an actual `/mqtt/stream` SSE connection's listener registration and the
+// real `broadcast()` site-attribution gate -- without a live broker
+// connection. This is exactly what `mqttClient.on("message", ...)` triggers
+// downstream of `captureMqttMessage`; the DB-writing side effects of capture
+// itself (snapshot persistence, communication-event archival) are
+// deliberately out of scope for this hook and are covered elsewhere.
+export function __broadcastMessageForTest(message: StoredMessage) {
+  if (process.env.NODE_ENV !== "test") throw new Error("__broadcastMessageForTest is only available under NODE_ENV=test");
+  broadcast("message", message, message.sequence);
+}
+
 function payloadSiteName(payload: unknown) {
   return isRecord(payload) ? parseSiteName(payload.site_name ?? payload.siteName ?? payload.plant_name ?? payload.plantName) : "";
 }
