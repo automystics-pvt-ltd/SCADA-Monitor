@@ -1059,10 +1059,19 @@ function rawAggregateFallback(aggregate: ScadaAggregate, signal: 'power' | 'ener
 
 function rawKpiFallbacks(rows: TelemetryKpiRow[]): Record<'acPower' | 'dailyEnergy' | 'totalEnergy' | 'specificYield', RawKpiFallback> {
   const aggregates = calculateScadaAggregates(rows);
-  // This is the reviewed plant counter, so it wins over broad fallback names.
-  const daily = latestRawMetric(rows, ['todayyield'])
+  // 'todayyield' is intentionally excluded here when its register address is
+  // also carrying an inverter-identity code (a source-side multiplexing/
+  // config fault -- see the inverter-identity duplication issue). A shared
+  // address means the value read back is not a trustworthy counter -- it
+  // swings by tens of percent between consecutive samples instead of only
+  // ever increasing through the day. Never treat a register shared with an
+  // inverter-identity signal as a numeric counter.
+  const todayYieldMetric = latestRawMetric(rows, ['todayyield']);
+  const inverterIdentityAddresses = new Set(rawInverterIdentitySignals(rows).map((signal) => signal.address));
+  const dailyYieldRegisterIsShared = Boolean(todayYieldMetric && inverterIdentityAddresses.has(todayYieldMetric.address));
+  const daily = (!dailyYieldRegisterIsShared ? todayYieldMetric : null)
     ?? latestRawCounterMetric(rows, 'daily-counter', ['dailyenergy', 'dailyenergykwh', 'dailyeneregykwh', 'todayenergy', 'todayenergykwh']);
-  const specificYield = latestRawMetric(rows, ['todayyield', 'specificyield', 'specificyieldkwhkwp']);
+  const specificYield = latestRawMetric(rows, dailyYieldRegisterIsShared ? ['specificyield', 'specificyieldkwhkwp'] : ['todayyield', 'specificyield', 'specificyieldkwhkwp']);
   return {
     acPower: rawAggregateFallback(aggregates.acPower, 'power'),
     dailyEnergy: rawMetricFallback(daily, 'Latest raw daily-energy counter', 'No raw daily-energy counter has arrived from the broker.'),
@@ -1130,178 +1139,6 @@ function KpiCard({
         <span>{variant === 'inverter' ? subtext : variant === 'alarm' ? subtext : subtext}</span>
       </div>
     </button>
-  );
-}
-
-function LegacyElectricalParametersChart({ devices }: { devices: Device[] }) {
-  // Aggregate mock trend data for charts (fallback if history not provided by main agent yet)
-  const inverters = devices.filter(d => d.type === 'Power inverter' && d.status === 'online');
-  const count = inverters.length;
-
-  let avgVolts = 0;
-  let totalAmps = 0;
-  let totalActivePower = 0;
-  let totalReactivePower = 0;
-  let validVoltages = 0;
-
-  inverters.forEach(inv => {
-    const v = numberFrom(inv, ['dc_bus', 'voltage_v'], 0);
-    const a = numberFrom(inv, ['dc_bus', 'current_a'], 0);
-    const kw = numberFrom(inv, ['power', 'active_kw'], 0);
-    const kvar = numberFrom(inv, ['power', 'reactive_kvar'], 0);
-
-    if (v > 0) {
-      avgVolts += v;
-      validVoltages++;
-    }
-    totalAmps += a;
-    totalActivePower += kw;
-    totalReactivePower += kvar;
-  });
-
-  avgVolts = validVoltages > 0 ? avgVolts / validVoltages : 0;
-  const acVoltsApprox = avgVolts * 0.95;
-  const phaseA_V = acVoltsApprox;
-  const phaseB_V = acVoltsApprox * 0.998;
-  const phaseC_V = acVoltsApprox * 1.002;
-
-  const acAmpsApprox = (totalActivePower * 1000) / (Math.sqrt(3) * acVoltsApprox);
-  const phaseA_A = acAmpsApprox;
-  const phaseB_A = acAmpsApprox * 1.01;
-  const phaseC_A = acAmpsApprox * 0.99;
-
-  const apparentPower = Math.sqrt(Math.pow(totalActivePower, 2) + Math.pow(totalReactivePower, 2));
-  const powerFactor = apparentPower > 0 ? totalActivePower / apparentPower : 0;
-  const frequency = totalActivePower > 0 ? 50.0 + (Math.random() * 0.04 - 0.02) : 0;
-
-  const avgV = (phaseA_V + phaseB_V + phaseC_V) / 3;
-  const maxVDiff = Math.max(Math.abs(phaseA_V - avgV), Math.abs(phaseB_V - avgV), Math.abs(phaseC_V - avgV));
-  const voltageImbalance = avgV > 0 ? (maxVDiff / avgV) * 100 : 0;
-
-  const hasData = count > 0 && totalActivePower > 0;
-
-  return (
-    <div className="bg-scada-surface border border-scada-border rounded-xl p-3 flex flex-col h-full relative overflow-hidden group">
-      <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-
-      <div className="flex items-center justify-between mb-5 relative z-10 border-b border-scada-border pb-4">
-        <div className="flex items-center gap-3">
-          <div className="p-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
-            <PlugZap size={16} />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold tracking-wide text-scada-text uppercase">AC Electrical Parameters</h3>
-            <p className="text-[10px] text-scada-muted font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
-              <span>Plant Grid</span>
-              <span className="w-1 h-1 rounded-full bg-slate-600" />
-              <span>Live Telemetry</span>
-            </p>
-          </div>
-        </div>
-        {!hasData && (
-           <CustomBadge tone="warning">Data Unavailable</CustomBadge>
-        )}
-      </div>
-
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-8 relative z-10">
-        <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] text-scada-muted uppercase tracking-widest font-bold">Phase Voltages</p>
-              {hasData && voltageImbalance > 2 && (
-                 <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 shadow-[0_0_10px_rgba(251,191,36,0.1)]">{voltageImbalance.toFixed(1)}% Imbalance</span>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {[
-                { name: 'Phase A', label: 'L1', value: phaseA_V, color: 'text-[#F50057]', bg: 'bg-[#F50057]/10', border: 'border-[#F50057]/20' },
-                { name: 'Phase B', label: 'L2', value: phaseB_V, color: 'text-[#FFEA00]', bg: 'bg-[#FFEA00]/10', border: 'border-[#FFEA00]/20' },
-                { name: 'Phase C', label: 'L3', value: phaseC_V, color: 'text-[#00E5FF]', bg: 'bg-[#00E5FF]/10', border: 'border-[#00E5FF]/20' }
-              ].map((phase, i) => (
-                <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-scada-surface-raised border border-scada-border hover:border-slate-600 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <span className={`flex items-center justify-center w-7 h-7 rounded-md ${phase.bg} ${phase.color} text-[11px] font-bold border ${phase.border}`}>{phase.label}</span>
-                    <span className="text-xs font-bold text-scada-muted tracking-wide">{phase.name}</span>
-                  </div>
-                  <div className="text-right flex items-baseline gap-1.5">
-                    <span className="text-xl font-bold text-scada-text mono tracking-tighter">{hasData ? phase.value.toFixed(1) : '---.-'}</span>
-                    <span className="text-[11px] text-scada-muted font-bold">V</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
-          <div>
-            <p className="text-[11px] text-scada-muted uppercase tracking-widest font-bold mb-3">Phase Currents</p>
-            <div className="space-y-2">
-              {[
-                { name: 'Phase A', label: 'L1', value: phaseA_A, color: 'text-[#F50057]', bg: 'bg-[#F50057]/10', border: 'border-[#F50057]/20' },
-                { name: 'Phase B', label: 'L2', value: phaseB_A, color: 'text-[#FFEA00]', bg: 'bg-[#FFEA00]/10', border: 'border-[#FFEA00]/20' },
-                { name: 'Phase C', label: 'L3', value: phaseC_A, color: 'text-[#00E5FF]', bg: 'bg-[#00E5FF]/10', border: 'border-[#00E5FF]/20' }
-              ].map((phase, i) => (
-                <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-scada-surface-raised border border-scada-border hover:border-slate-600 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <span className={`flex items-center justify-center w-7 h-7 rounded-md ${phase.bg} ${phase.color} text-[11px] font-bold border ${phase.border}`}>{phase.label}</span>
-                    <span className="text-xs font-bold text-scada-muted tracking-wide">{phase.name}</span>
-                  </div>
-                  <div className="text-right flex items-baseline gap-1.5">
-                    <span className="text-xl font-bold text-scada-text mono tracking-tighter">{hasData ? phase.value.toFixed(1) : '---.-'}</span>
-                    <span className="text-[11px] text-scada-muted font-bold">A</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-2 flex flex-row lg:flex-col gap-4 lg:gap-0 lg:pl-8 lg:border-l border-scada-border">
-          <div className="flex-1 bg-scada-surface-raised lg:bg-transparent p-3 lg:p-0 rounded-lg lg:rounded-none border border-scada-border lg:border-none mb-0 lg:mb-5">
-            <div className="flex items-center gap-2 mb-2 lg:mb-3">
-              <Radio size={14} className="text-[#00F2A6]" />
-              <p className="text-[10px] text-scada-muted uppercase tracking-widest font-bold">Frequency</p>
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-bold text-scada-text mono tracking-tighter">{hasData ? frequency.toFixed(2) : '--.--'}</span>
-              <span className="text-[11px] text-scada-muted font-bold">Hz</span>
-            </div>
-          </div>
-
-          <div className="flex-1 bg-scada-surface-raised lg:bg-transparent p-3 lg:p-0 rounded-lg lg:rounded-none border border-scada-border lg:border-none">
-            <div className="flex items-center gap-2 mb-2 lg:mb-3">
-              <Gauge size={14} className={hasData && powerFactor < 0.95 ? "text-[#FF5C00]" : "text-[#00F2A6]"} />
-              <p className="text-[10px] text-scada-muted uppercase tracking-widest font-bold">Power Factor</p>
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-bold text-scada-text mono tracking-tighter">{hasData ? powerFactor.toFixed(3) : '-.---'}</span>
-              {hasData && (
-                <span className="text-[10px] text-scada-muted font-bold uppercase tracking-widest ml-1">
-                  {totalReactivePower > 0 ? 'LAG' : totalReactivePower < 0 ? 'LEAD' : 'UNITY'}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-8 pt-4 border-t border-scada-border/50 flex flex-wrap items-center justify-between gap-4 text-[10px] uppercase font-bold tracking-widest relative z-10">
-        <div className="flex items-center gap-4 text-scada-muted">
-           <span className="flex items-center gap-2"><Database size={12} className="text-scada-muted" /> REG: 40071-40084</span>
-           <span className="flex items-center gap-2"><LocateFixed size={12} className="text-scada-muted" /> Main Feeder Meter</span>
-        </div>
-        <div className="flex items-center gap-3">
-           <span className="text-scada-muted">Data Quality:</span>
-           {hasData ? (
-             <span className="flex items-center gap-1.5 text-[#00F2A6] bg-[#00F2A6]/10 px-2.5 py-1 rounded border border-[#00F2A6]/20 shadow-[0_0_10px_rgba(0,242,166,0.1)]"><Check size={11} strokeWidth={3} /> Good</span>
-           ) : (
-             <span className="flex items-center gap-1.5 text-[#FF5C00] bg-[#FF5C00]/10 px-2.5 py-1 rounded border border-[#FF5C00]/20"><AlertCircle size={11} strokeWidth={3} /> Validation Required</span>
-           )}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -1377,6 +1214,12 @@ function electricalKind(row: ModbusRow): ElectricalKind | null {
 }
 
 function explicitScalingValidated(row: ModbusRow) {
+  // An admin-approved telemetry mapping resolves its own display value and
+  // marks it with the admin_mapping_* fields (see source-reported-evidence.ts).
+  // Recognize that path as well as the legacy flags below -- otherwise a
+  // correctly scaled, admin-approved register can never surface as
+  // "Validated" here and gets stuck showing raw evidence forever.
+  if (approvedDisplayTelemetryValue(row) !== undefined) return true;
   const values = [
     row.scaling_validated, row.scalingValidated, row.engineering_value_validated, row.engineeringValueValidated,
     row.scaling_status, row.scalingStatus, row.validation_status, row.validationStatus,
@@ -1896,7 +1739,7 @@ function EnergySummaryChart({ mode, dailyEnergy, rawFallback, savedLabel, liveSt
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-blue-400">Raw source snapshot</p>
-                  <p className="mt-1 text-[11px] text-scada-muted">Historical energy series is not available for this view.</p>
+                  <p className="mt-1 text-[11px] text-scada-muted">No saved series available.</p>
                 </div>
                 <span className="font-mono text-sm font-bold text-blue-300">{displayValue} <span className="text-[10px] uppercase tracking-widest text-scada-muted">{displayUnit}</span></span>
               </div>
@@ -2104,7 +1947,7 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-orange-400">Raw source snapshot</p>
-                  <p className="mt-1 text-[11px] text-scada-muted">A persisted power series is not available for this view.</p>
+                  <p className="mt-1 text-[11px] text-scada-muted">No saved series available.</p>
                 </div>
                 <span className="font-mono text-sm font-bold text-orange-300">{displayValue} <span className="text-[10px] uppercase tracking-widest text-scada-muted">{displayUnit}</span></span>
               </div>
@@ -2116,7 +1959,7 @@ function PowerTrendChart({ calculation, mode, rawFallback, savedLabel }: { calcu
                 <span>Scaling required · current value only</span>
               </div>
             </div>
-          ) : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-scada-border text-center text-xs text-scada-muted">Data unavailable<br /><span className="text-[10px]">A persisted power series is not available for this view.</span></div>}
+          ) : <div className="flex h-full min-h-[140px] items-center justify-center rounded-lg border border-dashed border-scada-border text-center text-xs text-scada-muted">Data unavailable<br /><span className="text-[10px]">No source-backed power register reporting.</span></div>}
       </div>
       <div className="flex justify-between text-[10px] font-bold text-scada-muted mt-4 mono tracking-widest relative z-10">
         <span>00:00</span>
@@ -2227,13 +2070,13 @@ function PowerDistributionChart({ inverters, rawInverters = [], rawInverterIdent
             <div data-testid="panel-inverter-raw-distribution" className="flex h-full w-full flex-col items-center justify-center rounded-full border-2 border-dashed border-amber-500/30 bg-amber-500/[0.03] px-5 text-center">
               <span className="font-mono text-2xl font-bold text-amber-300">{rawTotalPower.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               <span className="mt-1 text-[9px] font-bold uppercase tracking-widest text-scada-muted">raw total</span>
-              <span className="mt-3 max-w-[130px] text-[10px] leading-4 text-scada-muted">Source tags are visible below; contribution percentages require scaling validation.</span>
+              <span className="mt-3 max-w-[130px] text-[10px] leading-4 text-scada-muted">Scaling validation required for %.</span>
             </div>
           ) : identityEvidenceData.length ? (
             <div data-testid="panel-inverter-identity-evidence" className="flex h-full w-full flex-col items-center justify-center rounded-full border-2 border-dashed border-sky-500/30 bg-sky-500/[0.03] px-5 text-center">
               <span className="font-mono text-2xl font-bold text-sky-300">{identityEvidenceData.length}</span>
               <span className="mt-1 text-[9px] font-bold uppercase tracking-widest text-scada-muted">inverters identified</span>
-              <span className="mt-3 max-w-[145px] text-[10px] leading-4 text-scada-muted">Source identity readings are available. Power percentages require an approved active-power mapping.</span>
+              <span className="mt-3 max-w-[145px] text-[10px] leading-4 text-scada-muted">Identity only — power mapping required.</span>
             </div>
           ) : <div className="flex h-full w-full items-center justify-center rounded-full border-2 border-dashed border-scada-border px-5 text-center text-xs leading-5 text-scada-muted">{mode === 'demo' ? 'No demo inverter output' : 'Validated inverter contribution unavailable'}</div>}
           {distributionData.length > 0 && <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">

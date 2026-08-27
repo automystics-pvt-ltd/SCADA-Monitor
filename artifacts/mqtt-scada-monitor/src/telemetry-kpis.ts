@@ -1,4 +1,4 @@
-import { sourceReportedTelemetryUnit, sourceReportedTelemetryValue } from "./source-reported-evidence.ts";
+import { approvedDisplayTelemetryValue, sourceReportedTelemetryUnit, sourceReportedTelemetryValue } from "./source-reported-evidence.ts";
 
 export type TelemetryKpiRow = Record<string, unknown>;
 
@@ -554,6 +554,12 @@ function rejectPowerOutliers(metrics: RawTelemetryMetric[]) {
 }
 
 function hasValidatedScaling(row: TelemetryKpiRow) {
+  // An admin-approved telemetry mapping resolves its own display value and
+  // marks it with the admin_mapping_* fields (see source-reported-evidence.ts).
+  // Recognize that path as well as the legacy flags below -- otherwise a
+  // correctly scaled, admin-approved register can never feed a verified
+  // aggregate/KPI calculation and gets stuck as unavailable forever.
+  if (approvedDisplayTelemetryValue(row) !== undefined) return true;
   return [
     row.scaling_validated,
     row.scalingValidated,
