@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateScadaAggregates, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectDashboardSavedEvidence, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
+import { calculateScadaAggregates, isImplausiblePowerReading, isNewerSavedKpiSnapshot, latestRawCounterMetric, latestRawMetric, parseSavedKpiSnapshot, rawInverterIdentitySignals, rawInverterSignals, SAVED_KPI_SNAPSHOT_MAX_AGE_MS, selectDashboardSavedEvidence, selectSavedKpiEvidence } from "./telemetry-kpis.ts";
 import { assessSourceBackedInverterFleet, assessValidatedLiveInverterFleet, assessValidatedSavedInverterFleet, calculateVerifiedScadaKpis, calibrationPreviewCalculation, selectVerifiedCalculation } from "./verified-kpis.ts";
 
 test("selects the newest named raw register and keeps replay provenance", () => {
@@ -276,6 +276,45 @@ test("uses explicitly identified generic inverter source tags in the raw aggrega
   assert.equal(totals.acPower.value, 6750);
   assert.equal(totals.acPower.unit, "raw");
   assert.equal(totals.acPower.included.length, 2);
+});
+
+test("discards a corrupted single main-meter reading instead of displaying it as Total AC Power", () => {
+  const totals = calculateScadaAggregates([
+    { name: "actpow", data: "-968687616", reported_value: "-968687616", reported_unit: "kW", full_addr: "305001", timestamp: 100, provenance: "live" },
+  ]);
+
+  assert.equal(totals.acPower.value, null);
+  assert.equal(totals.acPower.method, "unavailable");
+  assert.equal(totals.acPower.excluded.length, 1);
+  assert.equal(totals.acPower.excluded[0]?.parameter, "actpow");
+});
+
+test("falls back to a plausible main-meter reading when a newer one is corrupted", () => {
+  const totals = calculateScadaAggregates([
+    { name: "actpow", data: "43000", full_addr: "305031", timestamp: 100, provenance: "live" },
+    { name: "actpow", data: "-968687616", reported_value: "-968687616", reported_unit: "kW", full_addr: "305031", timestamp: 200, provenance: "live" },
+  ]);
+
+  assert.equal(totals.acPower.method, "main-meter");
+  assert.equal(totals.acPower.value, 43000);
+  assert.equal(totals.acPower.excluded.length, 1);
+});
+
+test("excludes a corrupted per-inverter power register from the raw inverter signal list", () => {
+  const signals = rawInverterSignals([
+    { name: "inv1", data: "3450", inverter_id: "inv1", measurement_type: "active_power", full_addr: "305003", timestamp: 100, provenance: "live" },
+    { name: "inv2", data: "-968687616", reported_unit: "kW", inverter_id: "inv2", measurement_type: "active_power", full_addr: "305004", timestamp: 100, provenance: "live" },
+  ]);
+
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0]?.inverterId, "inv1");
+});
+
+test("isImplausiblePowerReading flags corrupted magnitudes but not real-world plant power", () => {
+  assert.equal(isImplausiblePowerReading(-968687616, "kW"), true);
+  assert.equal(isImplausiblePowerReading(968687616, "W"), false);
+  assert.equal(isImplausiblePowerReading(43000, "kW"), false);
+  assert.equal(isImplausiblePowerReading(999999999, undefined), false);
 });
 
 test("uses main meter and totalizing meter fallbacks without inventing an energy integral", () => {

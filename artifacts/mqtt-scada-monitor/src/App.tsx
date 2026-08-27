@@ -1045,9 +1045,11 @@ function rawAggregateFallback(aggregate: ScadaAggregate, signal: 'power' | 'ener
     method: aggregate.method.replaceAll('-', ' '),
     inputs: aggregate.included,
     readiness: aggregate.value === null
-      ? signal === 'power'
-        ? 'No raw active-power record has arrived from the broker.'
-        : 'No raw cumulative-energy record has arrived from the broker.'
+      ? aggregate.excluded.length
+        ? `The latest ${signal === 'power' ? 'active-power' : 'cumulative-energy'} reading was discarded as a corrupted register (implausible magnitude) rather than displayed.`
+        : signal === 'power'
+          ? 'No raw active-power record has arrived from the broker.'
+          : 'No raw cumulative-energy record has arrived from the broker.'
       : aggregate.included.some((input) => input.sourceReported)
         ? 'Source-reported value and unit are available; scaling confirmation is still required for verified KPIs.'
         : 'Exact raw source evidence is available; scaling and engineering units are not declared by the source.',

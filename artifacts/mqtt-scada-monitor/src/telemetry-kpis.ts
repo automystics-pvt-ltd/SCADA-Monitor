@@ -436,6 +436,7 @@ export function rawInverterSignals(rows: TelemetryKpiRow[]): RawInverterSignal[]
     if (!isInverterSourceSignal(row) || normalizedKey(row.measurement_type ?? row.semantic) === "inverteridentity") continue;
     const metric = asRawMetric(row);
     if (!metric) continue;
+    if (isImplausiblePowerReading(metric.value, metric.sourceUnit)) continue;
     const inverterId = declaredInverterIdentity(row);
     const identity = `${sourceName(row)}|${metric.address}|${inverterId ?? normalizedKey(metric.parameter)}`;
     const current = newest.get(identity);
@@ -517,6 +518,32 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
 }
 
+/**
+ * A device fault, register decode error, or Modbus corruption can make a
+ * vendor self-report ("source-reported") a power value that is many orders
+ * of magnitude beyond anything a real inverter, meter, or plant could
+ * produce (e.g. a signed 32-bit overflow sentinel). No plausibility check
+ * elsewhere in this pipeline catches that -- outlier rejection only fires
+ * with 3+ peer readings, and a lone main-meter or single-inverter reading
+ * has no peer to compare against. Cap at a value far beyond the world's
+ * largest single solar installation so this only ever rejects clearly
+ * corrupted evidence, never a genuine reading.
+ */
+const MAX_PLAUSIBLE_POWER_KW = 2_000_000;
+
+function powerValueInKw(value: number, unit: string | undefined): number | null {
+  const normalizedUnit = normalizedKey(unit);
+  if (["kw", "kilowatt", "kilowatts"].includes(normalizedUnit)) return value;
+  if (["w", "watt", "watts"].includes(normalizedUnit)) return value / 1000;
+  if (["mw", "megawatt", "megawatts"].includes(normalizedUnit)) return value * 1000;
+  return null;
+}
+
+export function isImplausiblePowerReading(value: number, unit: string | undefined): boolean {
+  const kw = powerValueInKw(value, unit);
+  return kw !== null && Math.abs(kw) > MAX_PLAUSIBLE_POWER_KW;
+}
+
 function rejectPowerOutliers(metrics: RawTelemetryMetric[]) {
   if (metrics.length < 3) return { included: metrics, excluded: [] as RawTelemetryMetric[] };
   const centre = median(metrics.map((metric) => metric.value));
@@ -562,12 +589,24 @@ export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
       source: null,
     }
     : (() => {
-      const mainMeter = latestMetricMatching(rows, (row) =>
-        ["actpow", "mainmeteractivepower", "gridactivepower", "plantactivepower"].includes(normalizedParameter(row))
-        || mappedDestination(row) === "activepower",
-      );
+      const mainMeterCandidates = rows
+        .filter((row) =>
+          ["actpow", "mainmeteractivepower", "gridactivepower", "plantactivepower"].includes(normalizedParameter(row))
+          || mappedDestination(row) === "activepower",
+        )
+        .map((row) => ({ row, metric: asRawMetric(row) }))
+        .filter((item): item is { row: TelemetryKpiRow; metric: RawTelemetryMetric } => item.metric !== null);
+      // A single main-meter reading has no peer to be statistically rejected
+      // against, so a corrupted register (device fault, overflow sentinel)
+      // must be caught by an absolute plausibility bound instead -- it must
+      // never be summed into or displayed as the plant's Total AC Power.
+      const corruptedMainMeterReadings = mainMeterCandidates.filter((item) => isImplausiblePowerReading(item.metric.value, item.metric.sourceUnit));
+      const plausibleMainMeterCandidates = mainMeterCandidates.filter((item) => !isImplausiblePowerReading(item.metric.value, item.metric.sourceUnit));
+      const mainMeter = plausibleMainMeterCandidates.length
+        ? plausibleMainMeterCandidates.reduce((latest, candidate) => rowTimestamp(candidate.row) > rowTimestamp(latest.row) ? candidate : latest)
+        : null;
       if (mainMeter) {
-        return { value: mainMeter.metric.value, method: "main-meter" as const, unit: "raw" as const, included: [mainMeter.metric], excluded: [], source: mainMeter.metric };
+        return { value: mainMeter.metric.value, method: "main-meter" as const, unit: "raw" as const, included: [mainMeter.metric], excluded: corruptedMainMeterReadings.map((item) => item.metric), source: mainMeter.metric };
       }
       const lineVoltage = latestValidatedMetric(rows, ["phaseabvoltage", "phasebcvoltage", "phasecavoltage"]);
       const phaseCurrent = latestValidatedMetric(rows, ["acurrent", "phaseacurrent", "iacurrent"]);
@@ -578,11 +617,11 @@ export function calculateScadaAggregates(rows: TelemetryKpiRow[]) {
           method: "three-phase" as const,
           unit: "W" as const,
           included: [lineVoltage.metric, phaseCurrent.metric, powerFactor.metric],
-          excluded: [],
+          excluded: corruptedMainMeterReadings.map((item) => item.metric),
           source: null,
         };
       }
-      return { value: null, method: "unavailable" as const, unit: "raw" as const, included: [], excluded: [], source: null };
+      return { value: null, method: "unavailable" as const, unit: "raw" as const, included: [], excluded: corruptedMainMeterReadings.map((item) => item.metric), source: null };
     })();
 
   const inverterEnergy = latestMetricsByParameter(
