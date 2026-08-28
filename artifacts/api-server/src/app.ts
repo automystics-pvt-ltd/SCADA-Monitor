@@ -33,6 +33,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
 
+// ADD THIS
+app.get("/", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: "erp-api",
+    message: "API is running",
+  });
+});
+
+// Your API routes
 app.use("/api", router);
 
 export default app;
