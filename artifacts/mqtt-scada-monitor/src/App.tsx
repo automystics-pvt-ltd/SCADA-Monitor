@@ -1304,7 +1304,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     : 'not available';
 
   useEffect(() => {
-    if (mode !== 'live' || evidenceMode === 'saved-only') {
+    if (mode !== 'live') {
       setHistoryRows([]);
       setHistoryState({ loading: false, error: '' });
       return;
@@ -1352,10 +1352,20 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     }
     return [...deduplicated.values()];
   }, [evidenceMode, historyRows, isHistorical, mode, rows, savedRows, showingSavedRecord]);
+  const trendSourceRows = useMemo(() => {
+    if (mode !== 'live') return [];
+    if (evidenceMode !== 'saved-only') return sourceRows;
+    const deduplicated = new Map<string, ModbusRow>();
+    for (const row of [...historyRows, ...savedRows]) {
+      deduplicated.set(electricalRowIdentity(row), row);
+    }
+    return [...deduplicated.values()];
+  }, [evidenceMode, historyRows, mode, savedRows, sourceRows]);
 
   // Raw evidence remains inspectable across replay/stale states. Only explicitly
   // validated, fresh telemetry is eligible for engineering cards and health metrics.
   const discoveries = useMemo(() => sourceRows.map(electricalEvidence).filter(Boolean) as ElectricalEvidence[], [sourceRows]);
+  const trendDiscoveries = useMemo(() => trendSourceRows.map(electricalEvidence).filter(Boolean) as ElectricalEvidence[], [trendSourceRows]);
   const validated = useMemo(() => discoveries.filter((item) => item.status === 'Validated' && (isHistorical || liveState === 'fresh' || showingSavedRecord)), [discoveries, isHistorical, liveState, showingSavedRecord]);
   const chartEvidence = useMemo(() => discoveries.filter((item) => item.rawNumericValue !== null), [discoveries]);
   const phaseVoltage = useMemo(() => latestEvidence(chartEvidence, ['vab', 'vbc', 'vca', 'va', 'vb', 'vc']), [chartEvidence]);
@@ -1389,7 +1399,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
     setHistoryState({ loading: false, error: '' });
   };
   const choosePreset = (preset: ElectricalRangePreset) => setDraftRange(electricalPresetRange(preset));
-  const trendData = (kind: ElectricalKind) => discoveries
+  const trendData = (kind: ElectricalKind) => trendDiscoveries
     .filter((item) => item.kind === kind && item.rawNumericValue !== null)
     .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
     .map((item) => ({ time: item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Time unavailable', value: item.rawNumericValue }));
@@ -1420,8 +1430,8 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
   };
   const Trend = ({ title, kind, unit, color }: { title: string; kind: ElectricalKind; unit: string; color: string }) => {
     const data = trendData(kind);
-    const hasOnlyValidatedValues = discoveries.filter((item) => item.kind === kind && item.rawNumericValue !== null).every((item) => item.status === 'Validated');
-    const trendEvidence = discoveries.filter((item) => item.kind === kind && item.rawNumericValue !== null);
+    const trendEvidence = trendDiscoveries.filter((item) => item.kind === kind && item.rawNumericValue !== null);
+    const hasOnlyValidatedValues = trendEvidence.length > 0 && trendEvidence.every((item) => item.status === 'Validated');
     const consistentSourceUnit = trendEvidence.length > 0 && trendEvidence.every((item) => item.status !== 'Raw / Scaling Required' && item.status !== 'Data Unavailable' && item.unit === trendEvidence[0]?.unit) ? trendEvidence[0]?.unit : null;
     const chartUnit = hasOnlyValidatedValues ? unit : consistentSourceUnit ?? 'raw';
     const trendDescription: Record<ElectricalKind, string> = {
@@ -1439,7 +1449,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
       frequency: 'Grid frequency · latest reported readings',
       other: 'Electrical source parameter · latest reported readings',
     };
-    const rangeDescription = isHistorical ? 'Selected time range' : showingSavedRecord ? `Saved backend record · ${savedAtLabel}` : 'Direct live MQTT only';
+    const rangeDescription = isHistorical ? 'Selected time range' : evidenceMode === 'saved-only' ? `Recent saved records · latest ${savedAtLabel}` : showingSavedRecord ? `Saved backend record · ${savedAtLabel}` : 'Direct live MQTT only';
     return <div className="scada-electrical-chart scada-chart-surface rounded-xl border border-scada-border bg-scada-surface p-3">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1451,7 +1461,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
           {hasOnlyValidatedValues && data.length ? 'Validated' : consistentSourceUnit && data.length ? 'Source reported · scaling needed' : data.length ? 'Raw · scaling needed' : 'Awaiting data'}
         </span>
       </div>
-      {data.length > 1 ? <div className="h-24"><ResponsiveContainer width="100%" height="100%"><LineChart data={data}><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} /><YAxis hide /><Tooltip cursor={{ stroke: '#64748b', strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString()} ${chartUnit}`, title]} /><Line type="monotone" dataKey="value" stroke={hasOnlyValidatedValues ? color : '#f59e0b'} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#f8fafc' }} isAnimationActive={false} /></LineChart></ResponsiveContainer></div> : <p className="flex h-24 items-center justify-center text-center text-xs text-scada-muted">{data.length ? 'One recent source reading received. The trend will extend with the next sample.' : 'No source readings are available for this signal in the selected window.'}</p>}
+       {data.length ? <div className="h-24"><ResponsiveContainer width="100%" height="100%"><LineChart data={data}><CartesianGrid strokeDasharray="2 4" stroke="var(--scada-border)" vertical={false} /><XAxis dataKey="time" tick={{ fill: 'var(--scada-muted)', fontSize: 9 }} /><YAxis hide /><Tooltip cursor={{ stroke: '#64748b', strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} itemStyle={CHART_ITEM_STYLE} formatter={(value) => [`${Number(value).toLocaleString()} ${chartUnit}`, title]} /><Line type="monotone" dataKey="value" stroke={hasOnlyValidatedValues ? color : '#f59e0b'} strokeWidth={2} dot={data.length === 1 ? { r: 5, strokeWidth: 2, stroke: 'var(--scada-surface)', fill: hasOnlyValidatedValues ? color : '#f59e0b' } : false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#f8fafc' }} isAnimationActive={false} /></LineChart></ResponsiveContainer></div> : <p className="flex h-24 items-center justify-center text-center text-xs text-scada-muted">No source readings are available for this signal in the selected window.</p>}
       <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-scada-muted"><span className="truncate" title={rangeDescription}>{rangeDescription}</span><span>{data.length ? `${data.length} source reading${data.length === 1 ? '' : 's'}` : 'No readings'}</span></div>
     </div>;
   };
@@ -1468,7 +1478,7 @@ function ElectricalParametersChart({ rows, mode, liveState, savedSnapshot = null
         <div className="relative z-10 mb-3 rounded-lg border border-scada-border bg-scada-surface-raised p-2.5" data-testid="electrical-time-filter">
           <p className="text-[10px] font-bold uppercase tracking-wider text-scada-muted">Electrical analysis window</p>
           <p className="mt-1 break-words text-xs font-medium text-scada-text" title={rangeLabel}>{rangeLabel}</p>
-          <p className="mt-1 text-[10px] text-scada-muted">Dashboard evidence always reflects the latest saved backend record; browse other time ranges from Live Data.</p>
+          <p className="mt-1 text-[10px] text-scada-muted">KPI cards use the latest saved record; trends use recent saved records.</p>
         </div>
       ) : (
       <div className="relative z-10 mb-3 rounded-lg border border-scada-border bg-scada-surface-raised p-2.5" data-testid="electrical-time-filter">
