@@ -19,6 +19,10 @@ MQTT server-sent events.
 5. Do not expose the `api`, `mqtt-scada-monitor`, or `platform-admin` services
    publicly.
 
+The gateway configuration is copied into its image during the build. No
+repository files are bind-mounted at runtime, which keeps the stack compatible
+with Coolify's isolated deployment directories.
+
 ## Environment variables
 
 Copy the variable names from `deploy/coolify/.env.example` into Coolify's

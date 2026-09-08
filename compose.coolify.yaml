@@ -1,6 +1,9 @@
 services:
   gateway:
-    image: caddy:2.10-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+      target: gateway
     restart: unless-stopped
     depends_on:
       api:
@@ -11,8 +14,6 @@ services:
         condition: service_healthy
     expose:
       - "80"
-    volumes:
-      - ./deploy/coolify/Caddyfile:/etc/caddy/Caddyfile:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/coolify-health"]
       interval: 15s

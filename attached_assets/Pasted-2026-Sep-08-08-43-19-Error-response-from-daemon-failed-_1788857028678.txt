@@ -1,0 +1,132 @@
+2026-Sep-08 08:43:19
+Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "/data/coolify/applications/hdlxmzh0orf3nnmlf1fpbsid/deploy/coolify/Caddyfile" to rootfs at "/etc/caddy/Caddyfile": mount src=/data/coolify/applications/hdlxmzh0orf3nnmlf1fpbsid/deploy/coolify/Caddyfile, dst=/etc/caddy/Caddyfile, dstFd=/proc/thread-self/fd/14, flags=MS_BIND|MS_REC: not a directory: Are you trying to mount a directory onto a file (or vice-versa)? Check if the specified host path exists and is the expected type
+2026-Sep-08 08:43:19
+========================================
+2026-Sep-08 08:43:19
+Deployment failed: Command execution failed (exit code 1): docker exec 28mefo9jcbf0w06a5ojbuhri bash -c 'COOLIFY_BRANCH='\''main'\'' COOLIFY_RESOURCE_UUID='\''hdlxmzh0orf3nnmlf1fpbsid'\''  docker compose --env-file /artifacts/28mefo9jcbf0w06a5ojbuhri/.env --project-name hdlxmzh0orf3nnmlf1fpbsid --project-directory /artifacts/28mefo9jcbf0w06a5ojbuhri -f /artifacts/28mefo9jcbf0w06a5ojbuhri/compose.coolify.yaml up -d'
+2026-Sep-08 08:43:19
+Error:  Image caddy:2.10-alpine Pulling
+2026-Sep-08 08:43:19
+4f4fb700ef54 Pulling fs layer 0B
+2026-Sep-08 08:43:19
+15dab9c57989 Pulling fs layer 0B
+2026-Sep-08 08:43:19
+d49a2dee86fb Pulling fs layer 0B
+2026-Sep-08 08:43:19
+c108b7dc59eb Pulling fs layer 0B
+2026-Sep-08 08:43:19
+0f5b24603697 Pulling fs layer 0B
+2026-Sep-08 08:43:19
+4f4fb700ef54 Already exists 0B
+2026-Sep-08 08:43:19
+4f4fb700ef54 Pull complete 0B
+2026-Sep-08 08:43:19
+d49a2dee86fb Downloading 213kB
+2026-Sep-08 08:43:19
+d49a2dee86fb Download complete 0B
+2026-Sep-08 08:43:19
+0f5b24603697 Downloading 6.291MB
+2026-Sep-08 08:43:19
+d49a2dee86fb Extracting 1B
+2026-Sep-08 08:43:19
+0f5b24603697 Downloading 15.92MB
+2026-Sep-08 08:43:19
+d49a2dee86fb Extracting 1B
+2026-Sep-08 08:43:19
+0f5b24603697 Download complete 0B
+2026-Sep-08 08:43:19
+15dab9c57989 Downloading 2.097MB
+2026-Sep-08 08:43:19
+c108b7dc59eb Download complete 0B
+2026-Sep-08 08:43:19
+d49a2dee86fb Extracting 1B
+2026-Sep-08 08:43:19
+15dab9c57989 Download complete 0B
+2026-Sep-08 08:43:19
+d49a2dee86fb Extracting 1B
+2026-Sep-08 08:43:19
+d49a2dee86fb Extracting 1B
+2026-Sep-08 08:43:19
+d49a2dee86fb Pull complete 0B
+2026-Sep-08 08:43:19
+15dab9c57989 Extracting 1B
+2026-Sep-08 08:43:19
+c108b7dc59eb Extracting 1B
+2026-Sep-08 08:43:19
+15dab9c57989 Pull complete 0B
+2026-Sep-08 08:43:19
+dfa8d6bed712 Download complete 0B
+2026-Sep-08 08:43:19
+7441b80a9e30 Download complete 0B
+2026-Sep-08 08:43:19
+0f5b24603697 Extracting 1B
+2026-Sep-08 08:43:19
+c108b7dc59eb Pull complete 0B
+2026-Sep-08 08:43:19
+0f5b24603697 Extracting 1B
+2026-Sep-08 08:43:19
+0f5b24603697 Extracting 1B
+2026-Sep-08 08:43:19
+0f5b24603697 Extracting 1B
+2026-Sep-08 08:43:19
+0f5b24603697 Extracting 1B
+2026-Sep-08 08:43:19
+0f5b24603697 Pull complete 0B
+2026-Sep-08 08:43:19
+Image caddy:2.10-alpine Pulled
+2026-Sep-08 08:43:19
+Volume hdlxmzh0orf3nnmlf1fpbsid_scada-runtime Creating
+2026-Sep-08 08:43:19
+Volume hdlxmzh0orf3nnmlf1fpbsid_scada-runtime Creating
+2026-Sep-08 08:43:19
+Container mqtt-scada-monitor-hdlxmzh0orf3nnmlf1fpbsid-084148757045 Creating
+2026-Sep-08 08:43:19
+Container platform-admin-hdlxmzh0orf3nnmlf1fpbsid-084148757606 Creating
+2026-Sep-08 08:43:19
+Volume hdlxmzh0orf3nnmlf1fpbsid_scada-runtime Created
+2026-Sep-08 08:43:19
+Volume hdlxmzh0orf3nnmlf1fpbsid_scada-runtime Created
+2026-Sep-08 08:43:19
+Container api-hdlxmzh0orf3nnmlf1fpbsid-084148728311 Creating
+2026-Sep-08 08:43:19
+Container api-hdlxmzh0orf3nnmlf1fpbsid-084148728311 Created
+2026-Sep-08 08:43:19
+Container platform-admin-hdlxmzh0orf3nnmlf1fpbsid-084148757606 Created
+2026-Sep-08 08:43:19
+Container mqtt-scada-monitor-hdlxmzh0orf3nnmlf1fpbsid-084148757045 Created
+2026-Sep-08 08:43:19
+Container gateway-hdlxmzh0orf3nnmlf1fpbsid-084148722274 Creating
+2026-Sep-08 08:43:19
+Container gateway-hdlxmzh0orf3nnmlf1fpbsid-084148722274 Created
+2026-Sep-08 08:43:19
+Container platform-admin-hdlxmzh0orf3nnmlf1fpbsid-084148757606 Starting
+2026-Sep-08 08:43:19
+Container api-hdlxmzh0orf3nnmlf1fpbsid-084148728311 Starting
+2026-Sep-08 08:43:19
+Container mqtt-scada-monitor-hdlxmzh0orf3nnmlf1fpbsid-084148757045 Starting
+2026-Sep-08 08:43:19
+Container api-hdlxmzh0orf3nnmlf1fpbsid-084148728311 Started
+2026-Sep-08 08:43:19
+Container mqtt-scada-monitor-hdlxmzh0orf3nnmlf1fpbsid-084148757045 Started
+2026-Sep-08 08:43:19
+Container platform-admin-hdlxmzh0orf3nnmlf1fpbsid-084148757606 Started
+2026-Sep-08 08:43:19
+Container platform-admin-hdlxmzh0orf3nnmlf1fpbsid-084148757606 Waiting
+2026-Sep-08 08:43:19
+Container api-hdlxmzh0orf3nnmlf1fpbsid-084148728311 Waiting
+2026-Sep-08 08:43:19
+Container mqtt-scada-monitor-hdlxmzh0orf3nnmlf1fpbsid-084148757045 Waiting
+2026-Sep-08 08:43:19
+Container api-hdlxmzh0orf3nnmlf1fpbsid-084148728311 Healthy
+2026-Sep-08 08:43:19
+Container platform-admin-hdlxmzh0orf3nnmlf1fpbsid-084148757606 Healthy
+2026-Sep-08 08:43:19
+Container mqtt-scada-monitor-hdlxmzh0orf3nnmlf1fpbsid-084148757045 Healthy
+2026-Sep-08 08:43:19
+Container gateway-hdlxmzh0orf3nnmlf1fpbsid-084148722274 Starting
+2026-Sep-08 08:43:19
+Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "/data/coolify/applications/hdlxmzh0orf3nnmlf1fpbsid/deploy/coolify/Caddyfile" to rootfs at "/etc/caddy/Caddyfile": mount src=/data/coolify/applications/hdlxmzh0orf3nnmlf1fpbsid/deploy/coolify/Caddyfile, dst=/etc/caddy/Caddyfile, dstFd=/proc/thread-self/fd/14, flags=MS_BIND|MS_REC: not a directory: Are you trying to mount a directory onto a file (or vice-versa)? Check if the specified host path exists and is the expected type
+2026-Sep-08 08:43:20
+========================================
+2026-Sep-08 08:43:20
+Gracefully shutting down build container: 28mefo9jcbf0w06a5ojbuhri
