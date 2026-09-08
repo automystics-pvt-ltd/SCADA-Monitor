@@ -1,0 +1,22 @@
+:80 {
+	encode zstd gzip
+
+	@health path /coolify-health
+	respond @health "ok" 200
+
+	redir /platform-admin /platform-admin/ 308
+
+	handle /api/* {
+		reverse_proxy api:8080 {
+			flush_interval -1
+		}
+	}
+
+	handle_path /platform-admin/* {
+		reverse_proxy platform-admin:80
+	}
+
+	handle {
+		reverse_proxy mqtt-scada-monitor:80
+	}
+}

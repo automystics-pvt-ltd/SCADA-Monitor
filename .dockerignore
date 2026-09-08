@@ -1,0 +1,14 @@
+.git
+.github
+.local
+.agents
+node_modules
+**/node_modules
+**/dist
+**/.cache
+**/test-results
+**/playwright-report
+*.log
+.env
+.env.*
+!deploy/coolify/.env.example

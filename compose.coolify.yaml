@@ -1,0 +1,93 @@
+services:
+  gateway:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      mqtt-scada-monitor:
+        condition: service_healthy
+      platform-admin:
+        condition: service_healthy
+    expose:
+      - "80"
+    volumes:
+      - ./deploy/coolify/Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/coolify-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+      target: api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Coolify}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in Coolify}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MQTT_BROKER_URL: ${MQTT_BROKER_URL:-}
+      MQTT_TOPIC: ${MQTT_TOPIC:-}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-solar-scada-coolify}
+      MQTT_CLIENT_INSTANCE_ID: ${MQTT_CLIENT_INSTANCE_ID:-primary}
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_PLANT_SITE: ${MQTT_PLANT_SITE:-}
+      MQTT_PLANT_TIMEZONE: ${MQTT_PLANT_TIMEZONE:-Asia/Kolkata}
+      PLANT_TIMEZONE: ${PLANT_TIMEZONE:-Asia/Kolkata}
+      SCADA_SNAPSHOT_QUEUE_PATH: /var/lib/solar-scada/snapshot-queue.jsonl
+      SCADA_ALLOW_GLOBAL_ACCESS: ${SCADA_ALLOW_GLOBAL_ACCESS:-false}
+      SCADA_LOCATION_ADMIN_ACCESS: ${SCADA_LOCATION_ADMIN_ACCESS:-false}
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+      PLATFORM_ADMIN_GOOGLE_CLIENT_ID: ${PLATFORM_ADMIN_GOOGLE_CLIENT_ID:-}
+      PLATFORM_ADMIN_GOOGLE_CLIENT_SECRET: ${PLATFORM_ADMIN_GOOGLE_CLIENT_SECRET:-}
+      PLATFORM_ADMIN_SMTP_USERNAME: ${PLATFORM_ADMIN_SMTP_USERNAME:-}
+      PLATFORM_ADMIN_SMTP_PASSWORD: ${PLATFORM_ADMIN_SMTP_PASSWORD:-}
+      ISSUER_URL: ${ISSUER_URL:-}
+      REPL_ID: ${REPL_ID:-}
+    volumes:
+      - scada-runtime:/var/lib/solar-scada
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/api/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  mqtt-scada-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+      target: scada
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  platform-admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+      target: admin
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  scada-runtime:
