@@ -71,7 +71,7 @@ chmod 600 .env
 nano .env
 ```
 
-Set `PUBLIC_DOMAIN=sms.automystics.io` and configure `DATABASE_URL`,
+Set `PUBLIC_DOMAIN=sms.automystics.tech` and configure `DATABASE_URL`,
 `SESSION_SECRET`, the plant's MQTT values, and Platform Admin email/auth
 settings. `DATABASE_URL` must be an external PostgreSQL connection reachable
 from this server, and its schema must already be prepared. Generate a long
@@ -118,12 +118,12 @@ sudo docker compose \
 Wait for Caddy to obtain its certificate, then verify HTTPS and routing:
 
 ```sh
-curl -fsS https://sms.automystics.io/coolify-health
-curl -fsS https://sms.automystics.io/api/healthz
+curl -fsS https://sms.automystics.tech/coolify-health
+curl -fsS https://sms.automystics.tech/api/healthz
 ```
 
-Then open `https://sms.automystics.io/` and
-`https://sms.automystics.io/platform-admin/`.
+Then open `https://sms.automystics.tech/` and
+`https://sms.automystics.tech/platform-admin/`.
 
 ## Update after a code change
 

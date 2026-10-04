@@ -92,5 +92,5 @@ compose ps
 printf "\n${GREEN}═══════════════════════════════════════════${NC}\n"
 printf "${GREEN}  Deployment complete                     ${NC}\n"
 printf "${GREEN}═══════════════════════════════════════════${NC}\n"
-printf "Verify: https://sms.automystics.io/api/healthz\n"
+printf "Verify: https://sms.automystics.tech/api/healthz\n"
 printf "Logs:   sudo docker compose --env-file .env -f compose.coolify.yaml -f compose.ubuntu.yaml logs --tail=100\n"
