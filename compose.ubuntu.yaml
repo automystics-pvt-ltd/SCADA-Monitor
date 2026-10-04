@@ -1,0 +1,21 @@
+services:
+  gateway:
+    build:
+      target: gateway-ubuntu
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      disable: true
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+# Keep these named volumes when updating the application.

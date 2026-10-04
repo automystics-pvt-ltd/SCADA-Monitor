@@ -6,6 +6,9 @@ ARG PNPM_VERSION=10.26.1
 FROM caddy:2.10-alpine AS gateway
 COPY deploy/coolify/Caddyfile /etc/caddy/Caddyfile
 
+FROM caddy:2.10-alpine AS gateway-ubuntu
+COPY deploy/ubuntu/Caddyfile /etc/caddy/Caddyfile
+
 FROM node:${NODE_VERSION}-bookworm-slim AS workspace
 ARG PNPM_VERSION
 ENV PNPM_HOME=/pnpm
