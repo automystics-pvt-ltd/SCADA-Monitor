@@ -1,0 +1,47 @@
+Last login: Sun Oct  4 07:16:00 2026 from 169.254.0.1
+root@srv1609330:~# cd /home/solarmonitor-automystics/htdocs/sms.automystics.tech
+root@srv1609330:/home/solarmonitor-automystics/htdocs/sms.automystics.tech# bash deploy.sh
+bash: deploy.sh: No such file or directory
+root@srv1609330:/home/solarmonitor-automystics/htdocs/sms.automystics.tech# git add deploy.sh .gitignore deploy/ubuntu/README.md
+git diff --cached --check
+git commit -m "Add Ubuntu deployment script"
+git push origin main
+fatal: not a git repository (or any of the parent directories): .git
+error: unknown option `cached'
+usage: git diff --no-index [<options>] <path> <path>
+
+Diff output format options
+    -p, --patch           generate patch
+    -s, --no-patch        suppress diff output
+    -u                    generate patch
+    -U, --unified[=<n>]   generate diffs with <n> lines context
+    -W, --[no-]function-context
+                          generate diffs with <n> lines context
+    --raw                 generate the diff in raw format
+    --patch-with-raw      synonym for '-p --raw'
+    --patch-with-stat     synonym for '-p --stat'
+    --numstat             machine friendly --stat
+    --shortstat           output only the last line of --stat
+    -X, --dirstat[=<param1,param2>...]
+                          output the distribution of relative amount of changes for each sub-directory
+    --cumulative          synonym for --dirstat=cumulative
+    --dirstat-by-file[=<param1,param2>...]
+                          synonym for --dirstat=files,param1,param2...
+    --check               warn if changes introduce conflict markers or whitespace errors
+    --summary             condensed summary such as creations, renames and mode changes
+    --name-only           show only names of changed files
+    --name-status         show only names and status of changed files
+    --stat[=<width>[,<name-width>[,<count>]]]
+                          generate diffstat
+    --stat-width <width>  generate diffstat with a given width
+    --stat-name-width <width>
+                          generate diffstat with a given name width
+    --stat-graph-width <width>
+                          generate diffstat with a given graph width
+    --stat-count <count>  generate diffstat with limited lines
+    --[no-]compact-summary
+                          generate compact summary in diffstat
+    --binary              output a binary diff that can be applied
+    --[no-]full-index     show full pre- and post-image object names on the "index" lines
+    --[no-]color[=<when>] show colored diff
+    --ws-error-highlight <kind>
