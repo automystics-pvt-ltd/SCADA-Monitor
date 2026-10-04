@@ -49,3 +49,4 @@
 - [MQTT plant-site configuration](mqtt-plant-site-configuration.md) — an unset/never-saved "plant site" admin setting silently defaults to the raw topic string, breaking message-to-site attribution.
 - [Bigint aggregate string coercion](bigint-aggregate-string-coercion.md) — pg/drizzle return `sql\`max(bigint)\`` as a string; strict equality against it silently and permanently misbehaves.
 - [MQTT test topic isolation](mqtt-test-topic-isolation.md) — override `subscriptionTopic`/consumer-lease test hooks to test replay logic without racing real broker traffic.
+- [Ubuntu deployment safety](ubuntu-deployment-safety.md) — Routine server deploys must preserve local code state and keep production schema changes separately reviewed.

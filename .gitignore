@@ -37,6 +37,11 @@ yarn-error.log
 testem.log
 /typings
 
+# Local and production environment secrets
+.env
+.env.*
+!deploy/coolify/.env.example
+
 # System Files
 .DS_Store
 Thumbs.db

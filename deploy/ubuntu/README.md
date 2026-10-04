@@ -84,28 +84,20 @@ openssl rand -hex 32
 Keep the generated value private and enter it only in `.env`. Do not commit
 `.env`.
 
-## 5. Validate, build, and start
+## 5. Deploy
 
-The validation command suppresses the resolved configuration so credentials
-from `.env` are not printed:
-
-```sh
-sudo docker compose \
-  --env-file .env \
-  -f compose.coolify.yaml \
-  -f compose.ubuntu.yaml \
-  config >/dev/null
-```
-
-Build and start the stack:
+From the repository root, run:
 
 ```sh
-sudo docker compose \
-  --env-file .env \
-  -f compose.coolify.yaml \
-  -f compose.ubuntu.yaml \
-  up -d --build
+bash deploy.sh
 ```
+
+The script validates `.env` and the Compose configuration, fast-forwards the
+checkout from `origin/main` without discarding local changes, builds the images,
+starts the services, waits for their health checks, and prints their status. It
+does not run database schema changes automatically. Apply reviewed schema
+changes separately before deploying code that depends on them; do not use a
+forced schema push as an unattended deployment step.
 
 ## 6. Check status and logs
 
@@ -135,15 +127,11 @@ Then open `https://sms.automystics.io/` and
 
 ## Update after a code change
 
-From the repository root on the server:
+After committing and pushing the change to `main`, run this from the repository
+root on the server:
 
 ```sh
-git pull --ff-only
-sudo docker compose \
-  --env-file .env \
-  -f compose.coolify.yaml \
-  -f compose.ubuntu.yaml \
-  up -d --build
+bash deploy.sh
 ```
 
 The Caddy data volume preserves automatically issued certificates. The

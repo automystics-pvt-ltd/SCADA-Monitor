@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# deploy.sh — one-command deploy on the production server.
+#
+# Usage:
+#   bash deploy.sh [pm2-app-name]
+#
+# pm2-app-name defaults to "mmwear-erp" (matches ecosystem.config.cjs).
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+APP="${1:-mmwear-erp}"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; NC='\033[0m'
+ok()   { echo -e "${GREEN}✔  $*${NC}"; }
+info() { echo -e "${CYAN}▶  $*${NC}"; }
+warn() { echo -e "${YELLOW}⚠  $*${NC}"; }
+fail() { echo -e "${RED}✘  $*${NC}"; exit 1; }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo -e "${CYAN}═══════════════════════════════════════════${NC}"
+echo -e "${CYAN}  Deploying MysticsInventory → $APP  ${NC}"
+echo -e "${CYAN}═══════════════════════════════════════════${NC}"
+
+# ── Pre-flight: .env + DATABASE_URL must exist before we touch the DB ────────
+ENV_FILE="$SCRIPT_DIR/.env"
+if [[ ! -f "$ENV_FILE" ]]; then
+  fail ".env not found at $ENV_FILE — create it with DATABASE_URL and all required secrets before deploying."
+fi
+# Source the .env so DATABASE_URL is available to push-force even if the
+# shell wasn't already loaded with it.
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  fail "DATABASE_URL is not set in $ENV_FILE — add it before deploying."
+fi
+ok "Pre-flight checks passed (DATABASE_URL is set)"
+
+info "Step 1/6 — Pull latest code from git"
+git fetch origin
+git reset --hard origin/main
+ok "Code up to date"
+
+info "Step 2/6 — Install packages (including devDeps needed to build)"
+# NODE_ENV=production causes pnpm to skip devDependencies, which breaks
+# drizzle-kit and esbuild. Override it here; the built artefacts are what
+# actually run in production, not the dev tools.
+NODE_ENV=development pnpm install --no-frozen-lockfile --ignore-scripts
+ok "Packages up to date"
+
+info "Step 3/6 — Push DB schema (add missing columns/tables)"
+(cd lib/db && pnpm exec drizzle-kit push --force --config ./drizzle.config.ts)
+ok "DB schema up to date"
+
+info "Step 4/6 — Build API server"
+pnpm --filter @workspace/api-server run build
+ok "API server built"
+
+info "Step 5/6 — Build frontend (Vite)"
+pnpm --filter @workspace/inventory run build
+ok "Frontend built → artifacts/inventory/dist/public/"
+
+info "Step 6/6 — Start/Restart PM2: $APP"
+pm2 startOrRestart ecosystem.config.cjs --update-env || fail "Could not start '$APP' — check: pm2 list"
+pm2 save
+
+echo ""
+echo -e "${GREEN}═══════════════════════════════════════════${NC}"
+echo -e "${GREEN}  Deploy complete!                         ${NC}"
+echo -e "${GREEN}═══════════════════════════════════════════${NC}"
