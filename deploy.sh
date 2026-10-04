@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Deploy the Solar SCADA stack on its Ubuntu host.
-# Run from any directory with: bash /path/to/SCADA-Monitor/deploy.sh
+# Bootstrap and deploy Solar SCADA on Ubuntu.
+# Run with: sudo bash deploy.sh
 set -Eeuo pipefail
 
 RED='\033[0;31m'
@@ -17,80 +17,150 @@ fail() {
   exit 1
 }
 
-APP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$APP_DIR/.env"
+REPO_URL="https://github.com/automystics-pvt-ltd/SCADA-Monitor.git"
 BRANCH="main"
-COMPOSE_FILES=(
-  -f "$APP_DIR/compose.coolify.yaml"
-  -f "$APP_DIR/compose.ubuntu.yaml"
-)
+DEFAULT_APP_DIR="/opt/solar-scada"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-cd "$APP_DIR"
-
-printf "${CYAN}═══════════════════════════════════════════${NC}\n"
-printf "${CYAN}  Deploying Solar SCADA — Ubuntu Compose   ${NC}\n"
-printf "${CYAN}═══════════════════════════════════════════${NC}\n"
-
-info "Pre-flight checks"
-[[ -f "$ENV_FILE" ]] || fail ".env is missing. Copy deploy/coolify/.env.example to .env and configure production values."
-[[ ! -L "$ENV_FILE" ]] || fail ".env must be a regular file, not a symlink."
-command -v git >/dev/null 2>&1 || fail "git is not installed."
-
-chmod 600 "$ENV_FILE" || fail "Could not restrict .env permissions."
-
-if docker info >/dev/null 2>&1; then
-  DOCKER=(docker)
-elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
-  DOCKER=(sudo docker)
+if [[ -n "${SOLAR_SCADA_DIR:-}" ]]; then
+  APP_DIR="${SOLAR_SCADA_DIR:-$DEFAULT_APP_DIR}"
+elif [[ -f "$SCRIPT_DIR/compose.coolify.yaml" && -d "$SCRIPT_DIR/.git" ]]; then
+  APP_DIR="$SCRIPT_DIR"
 else
-  fail "Docker is unavailable. Install Docker Engine and start its service."
+  APP_DIR="$DEFAULT_APP_DIR"
 fi
 
-"${DOCKER[@]}" compose version >/dev/null 2>&1 \
-  || fail "Docker Compose plugin is unavailable. Install the Docker Compose plugin."
+if (( EUID == 0 )); then
+  SUDO=()
+else
+  command -v sudo >/dev/null 2>&1 || fail "Run this script as root or install sudo."
+  SUDO=(sudo)
+fi
+
+run_root() {
+  if ((${#SUDO[@]})); then
+    "${SUDO[@]}" "$@"
+  else
+    "$@"
+  fi
+}
 
 compose() {
-  "${DOCKER[@]}" compose \
+  run_root docker compose \
     --project-directory "$APP_DIR" \
-    --env-file "$ENV_FILE" \
-    "${COMPOSE_FILES[@]}" \
+    --env-file "$APP_DIR/.env" \
+    -f "$APP_DIR/compose.coolify.yaml" \
+    -f "$APP_DIR/compose.ubuntu.yaml" \
     "$@"
 }
 
-compose config --quiet \
-  || fail "Compose configuration is invalid or required values are missing from .env."
-ok "Environment and Compose configuration are valid"
+printf "${CYAN}═══════════════════════════════════════════${NC}\n"
+printf "${CYAN}  Solar SCADA — Ubuntu server deployment   ${NC}\n"
+printf "${CYAN}═══════════════════════════════════════════${NC}\n"
 
-[[ -d "$APP_DIR/.git" ]] || fail "This directory is not a Git checkout."
-CURRENT_BRANCH="$(git branch --show-current)"
+[[ -r /etc/os-release ]] || fail "Cannot identify the operating system."
+# shellcheck disable=SC1091
+source /etc/os-release
+[[ "${ID:-}" == "ubuntu" ]] || fail "This deploy script supports Ubuntu only."
+command -v apt-get >/dev/null 2>&1 || fail "apt-get is unavailable on this Ubuntu host."
+
+info "Step 1/6 — Install Git and Docker Compose prerequisites"
+if ! command -v git >/dev/null 2>&1; then
+  run_root apt-get update
+  run_root apt-get install -y git
+fi
+
+if ! command -v docker >/dev/null 2>&1 || ! run_root docker compose version >/dev/null 2>&1; then
+  run_root apt-get update
+  run_root apt-get install -y ca-certificates curl git
+  run_root install -m 0755 -d /etc/apt/keyrings
+  run_root curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+    -o /etc/apt/keyrings/docker.asc
+  run_root chmod a+r /etc/apt/keyrings/docker.asc
+
+  ARCH="$(dpkg --print-architecture)"
+  CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+  [[ -n "$CODENAME" ]] || fail "Could not determine the Ubuntu release codename."
+  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' \
+    "$ARCH" "$CODENAME" \
+    | run_root tee /etc/apt/sources.list.d/docker.list >/dev/null
+
+  run_root apt-get update
+  run_root apt-get install -y docker-ce docker-ce-cli containerd.io \
+    docker-buildx-plugin docker-compose-plugin
+fi
+
+run_root systemctl enable --now docker
+run_root docker info >/dev/null 2>&1 \
+  || fail "Docker Engine is not running. Check it with: sudo systemctl status docker"
+run_root docker compose version >/dev/null 2>&1 \
+  || fail "Docker Compose is unavailable after installation."
+ok "Docker Engine and Compose are ready"
+
+info "Step 2/6 — Find or clone the application"
+if [[ ! -d "$APP_DIR/.git" ]]; then
+  if [[ -d "$APP_DIR" ]] && find "$APP_DIR" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+    fail "$APP_DIR exists and is not empty, but is not a Git checkout. Set SOLAR_SCADA_DIR to an empty directory or move that folder's contents safely first."
+  fi
+  run_root install -d -m 0755 "$(dirname "$APP_DIR")"
+  run_root git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$APP_DIR" \
+    || fail "Could not clone the repository. Confirm that main is published and this server has approved Git access."
+fi
+
+APP_DIR="$(cd -- "$APP_DIR" && pwd)"
+
+ENV_FILE="$APP_DIR/.env"
+if [[ ! -e "$ENV_FILE" ]]; then
+  run_root cp "$APP_DIR/deploy/coolify/.env.example" "$ENV_FILE"
+  run_root chmod 600 "$ENV_FILE"
+  fail "Created $ENV_FILE from the template. Fill in its production values, then run this script again."
+fi
+[[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail "$ENV_FILE must be a regular file, not a symlink."
+run_root chmod 600 "$ENV_FILE" || fail "Could not restrict .env permissions."
+
+info "Step 3/6 — Validate checkout and update without discarding local changes"
+CURRENT_BRANCH="$(git -C "$APP_DIR" branch --show-current)"
 [[ "$CURRENT_BRANCH" == "$BRANCH" ]] \
-  || fail "Expected Git branch '$BRANCH', found '${CURRENT_BRANCH:-detached HEAD}'."
+  || fail "Expected branch '$BRANCH' in $APP_DIR, found '${CURRENT_BRANCH:-detached HEAD}'."
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if ! run_root git -C "$APP_DIR" diff --quiet \
+  || ! run_root git -C "$APP_DIR" diff --cached --quiet; then
   fail "Tracked files have local changes. Commit or stash them before deploying; this script will not discard them."
 fi
 
-info "Step 1/3 — Fast-forward code from origin/$BRANCH"
-git pull --ff-only origin "$BRANCH" \
-  || fail "Could not fast-forward from origin/$BRANCH. Resolve the Git state, then run this script again."
-ok "Code is up to date"
+run_root git -C "$APP_DIR" pull --ff-only origin "$BRANCH" \
+  || fail "Could not fast-forward origin/$BRANCH. Resolve Git access or branch conflicts, then retry."
+ok "Repository is up to date"
 
+info "Step 4/6 — Validate the production configuration"
 compose config --quiet \
-  || fail "Updated Compose configuration is invalid or required values are missing from .env."
+  || fail "Required .env values are missing or Compose configuration is invalid. Do not deploy the example placeholders."
+ok "Required database, MQTT, site, and Platform Admin settings are present"
 
-info "Step 2/3 — Build and start the application"
-if ! compose up -d --build --wait --wait-timeout 240; then
-  warn "The stack did not become healthy. Current service status:"
-  compose ps || true
-  fail "Deployment failed. Review the service logs with the commands in deploy/ubuntu/README.md."
+if ! compose ps -q gateway | grep -q . && command -v ss >/dev/null 2>&1; then
+  BUSY_WEB_PORTS="$(run_root ss -ltnH | awk '$4 ~ /:(80|443)$/ { print $4 }')"
+  [[ -z "$BUSY_WEB_PORTS" ]] \
+    || fail "Ports 80/443 are already in use ($BUSY_WEB_PORTS). Free them or configure the existing web server as the reverse proxy before deploying."
 fi
-ok "Application services are running"
 
-info "Step 3/3 — Show service status"
+info "Step 5/6 — Build and start the application"
+if ! compose up -d --build --wait --wait-timeout 240; then
+  warn "The services did not become healthy. Current service status:"
+  compose ps || true
+  fail "Deployment failed. Review container logs with the command printed below."
+fi
+ok "Application services are healthy"
+
+info "Step 6/6 — Show service status"
 compose ps
 
 printf "\n${GREEN}═══════════════════════════════════════════${NC}\n"
 printf "${GREEN}  Deployment complete                     ${NC}\n"
 printf "${GREEN}═══════════════════════════════════════════${NC}\n"
 printf "Verify: https://sms.automystics.tech/api/healthz\n"
-printf "Logs:   sudo docker compose --env-file .env -f compose.coolify.yaml -f compose.ubuntu.yaml logs --tail=100\n"
+printf "Logs:   "
+printf 'sudo docker compose --project-directory %q --env-file %q -f %q -f %q logs --tail=100\n' \
+  "$APP_DIR" "$ENV_FILE" \
+  "$APP_DIR/compose.coolify.yaml" "$APP_DIR/compose.ubuntu.yaml"
+printf "\nOpen https://sms.automystics.tech/ and https://sms.automystics.tech/platform-admin/\n"
+printf "Ensure provider firewall and DNS route the domain to this server; allow TCP 80/443 and UDP 443 if HTTP/3 is desired.\n"
