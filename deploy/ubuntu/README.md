@@ -71,11 +71,24 @@ chmod 600 .env
 nano .env
 ```
 
-Set `PUBLIC_DOMAIN=sms.automystics.tech` and configure `DATABASE_URL`,
-`SESSION_SECRET`, the plant's MQTT values, and Platform Admin email/auth
-settings. `DATABASE_URL` must be an external PostgreSQL connection reachable
-from this server, and its schema must already be prepared. Generate a long
-session secret with:
+Set `PUBLIC_DOMAIN=sms.automystics.tech` and fill in the blank values in `.env`.
+The Ubuntu Compose configuration intentionally rejects missing database,
+MQTT/site, and Platform Admin authentication settings instead of starting with
+example addresses or silently disconnected telemetry. `DATABASE_URL` must be
+an external PostgreSQL connection reachable from this server, and its schema
+must already be prepared.
+
+`PLATFORM_ADMIN_EMAILS` must include an active, already-provisioned admin
+account. Configure both Google OAuth and Gmail SMTP because both sign-in
+methods are presented in the app. Register this Google callback URL with the
+OAuth client:
+
+```text
+https://sms.automystics.tech/api/platform-admin/google/callback
+```
+
+For Gmail SMTP, use the account and app password configured for the sender.
+Generate a long session secret on the server with:
 
 ```sh
 openssl rand -hex 32
